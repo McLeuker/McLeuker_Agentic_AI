@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+pydantic
+pydantic-settings
+openai
+httpx
+beautifulsoup4
+pandas
+openpyxl
+reportlab
+python-pptx
+python-docx
+pytest
+
