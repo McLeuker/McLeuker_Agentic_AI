@@ -32,6 +32,165 @@ class WebSearchProvider:
         raise NotImplementedError
 
 
+class GoogleSearchProvider(WebSearchProvider):
+    """Google Custom Search API provider."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        settings = get_settings()
+        self.api_key = api_key or settings.GOOGLE_SEARCH_API_KEY
+        self.base_url = "https://serpapi.com/search"
+    
+    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
+        """Perform a Google search via SerpAPI."""
+        if not self.api_key:
+            return []
+        
+        params = {
+            "api_key": self.api_key,
+            "q": query,
+            "engine": "google",
+            "num": num_results
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    self.base_url,
+                    params=params,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                results = []
+                for item in data.get("organic_results", []):
+                    results.append(SearchResult(
+                        title=item.get("title", ""),
+                        url=item.get("link", ""),
+                        snippet=item.get("snippet", ""),
+                        source=item.get("source", None),
+                        published_date=item.get("date", None)
+                    ))
+                
+                return results
+            except Exception as e:
+                print(f"Google search error: {e}")
+                return []
+
+
+class BingSearchProvider(WebSearchProvider):
+    """Bing Search API provider."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        settings = get_settings()
+        self.api_key = api_key or settings.BING_API_KEY
+        self.base_url = "https://api.bing.microsoft.com/v7.0/search"
+    
+    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
+        """Perform a Bing search."""
+        if not self.api_key:
+            return []
+        
+        headers = {
+            "Ocp-Apim-Subscription-Key": self.api_key
+        }
+        
+        params = {
+            "q": query,
+            "count": num_results,
+            "mkt": "en-US"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    self.base_url,
+                    headers=headers,
+                    params=params,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                results = []
+                for item in data.get("webPages", {}).get("value", []):
+                    results.append(SearchResult(
+                        title=item.get("name", ""),
+                        url=item.get("url", ""),
+                        snippet=item.get("snippet", ""),
+                        source=item.get("displayUrl", None),
+                        published_date=item.get("dateLastCrawled", None)
+                    ))
+                
+                return results
+            except Exception as e:
+                print(f"Bing search error: {e}")
+                return []
+
+
+class PerplexitySearchProvider(WebSearchProvider):
+    """Perplexity AI search provider for AI-powered search with citations."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        settings = get_settings()
+        self.api_key = api_key or settings.PERPLEXITY_API_KEY
+        self.base_url = "https://api.perplexity.ai/chat/completions"
+    
+    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
+        """Perform an AI-powered search via Perplexity."""
+        if not self.api_key:
+            return []
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "llama-3.1-sonar-large-128k-online",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful search assistant. Provide factual information with sources."
+                },
+                {
+                    "role": "user",
+                    "content": query
+                }
+            ],
+            "return_citations": True
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                results = []
+                
+                # Extract citations as search results
+                citations = data.get("citations", [])
+                for i, citation in enumerate(citations[:num_results]):
+                    results.append(SearchResult(
+                        title=f"Source {i+1}",
+                        url=citation,
+                        snippet=data.get("choices", [{}])[0].get("message", {}).get("content", "")[:200],
+                        source="Perplexity AI",
+                        published_date=None
+                    ))
+                
+                return results
+            except Exception as e:
+                print(f"Perplexity search error: {e}")
+                return []
+
+
 class SerperSearchProvider(WebSearchProvider):
     """Serper.dev search provider for Google search results."""
     
@@ -180,17 +339,76 @@ class DuckDuckGoSearchProvider(WebSearchProvider):
                 return []
 
 
+class FirecrawlScraper:
+    """Firecrawl API for advanced web scraping."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        settings = get_settings()
+        self.api_key = api_key or settings.FIRECRAWL_API_KEY
+        self.base_url = "https://api.firecrawl.dev/v0/scrape"
+    
+    async def scrape(self, url: str) -> Optional[ScrapedContent]:
+        """Scrape content from a URL using Firecrawl."""
+        if not self.api_key:
+            return None
+        
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "url": url,
+            "pageOptions": {
+                "onlyMainContent": True
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                data = response.json()
+                
+                if data.get("success"):
+                    content_data = data.get("data", {})
+                    return ScrapedContent(
+                        url=url,
+                        title=content_data.get("metadata", {}).get("title"),
+                        content=content_data.get("markdown", content_data.get("content", "")),
+                        scraped_at=datetime.utcnow()
+                    )
+                return None
+            except Exception as e:
+                print(f"Firecrawl scraping error for {url}: {e}")
+                return None
+
+
 class WebScraper:
     """Web scraper for extracting content from URLs."""
     
-    def __init__(self, timeout: int = 30):
+    def __init__(self, timeout: int = 30, use_firecrawl: bool = True):
         self.timeout = timeout
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
+        settings = get_settings()
+        self.firecrawl = FirecrawlScraper() if use_firecrawl and settings.FIRECRAWL_API_KEY else None
     
     async def scrape(self, url: str) -> Optional[ScrapedContent]:
         """Scrape content from a URL."""
+        # Try Firecrawl first if available
+        if self.firecrawl:
+            result = await self.firecrawl.scrape(url)
+            if result:
+                return result
+        
+        # Fallback to basic scraping
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.get(
@@ -211,7 +429,6 @@ class WebScraper:
                 title = soup.title.string if soup.title else None
                 
                 # Get main content
-                # Try common content containers
                 content_selectors = [
                     "article",
                     "main",
@@ -230,14 +447,13 @@ class WebScraper:
                         break
                 
                 if not content:
-                    # Fallback to body
                     body = soup.find("body")
                     if body:
                         content = body.get_text(separator="\n", strip=True)
                 
                 # Clean up content
                 content = re.sub(r'\n\s*\n', '\n\n', content)
-                content = content[:10000]  # Limit content length
+                content = content[:10000]
                 
                 return ScrapedContent(
                     url=url,
@@ -256,6 +472,53 @@ class WebScraper:
         return [r for r in results if r is not None]
 
 
+class MultiSearchProvider:
+    """Aggregates results from multiple search providers."""
+    
+    def __init__(self):
+        settings = get_settings()
+        self.providers = []
+        
+        # Add providers in priority order
+        if settings.PERPLEXITY_API_KEY:
+            self.providers.append(("perplexity", PerplexitySearchProvider()))
+        if settings.GOOGLE_SEARCH_API_KEY:
+            self.providers.append(("google", GoogleSearchProvider()))
+        if settings.BING_API_KEY:
+            self.providers.append(("bing", BingSearchProvider()))
+        if settings.SERPER_API_KEY:
+            self.providers.append(("serper", SerperSearchProvider()))
+        if settings.TAVILY_API_KEY:
+            self.providers.append(("tavily", TavilySearchProvider()))
+        
+        # Always have DuckDuckGo as fallback
+        self.providers.append(("duckduckgo", DuckDuckGoSearchProvider()))
+    
+    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
+        """Search using the first available provider."""
+        for name, provider in self.providers:
+            try:
+                results = await provider.search(query, num_results)
+                if results:
+                    return results
+            except Exception as e:
+                print(f"Search provider {name} failed: {e}")
+                continue
+        return []
+    
+    async def search_all(self, query: str, num_results: int = 10) -> Dict[str, List[SearchResult]]:
+        """Search using all available providers."""
+        results = {}
+        for name, provider in self.providers:
+            try:
+                provider_results = await provider.search(query, num_results)
+                if provider_results:
+                    results[name] = provider_results
+            except Exception as e:
+                print(f"Search provider {name} failed: {e}")
+        return results
+
+
 class WebResearchLayer:
     """
     Layer 3: Real-Time Web Research
@@ -270,20 +533,10 @@ class WebResearchLayer:
         llm_provider: Optional[LLMProvider] = None
     ):
         """Initialize the Web Research Layer."""
-        self.search_provider = search_provider or self._get_default_search_provider()
+        self.search_provider = search_provider or MultiSearchProvider()
         self.scraper = WebScraper()
         self.llm = llm_provider or LLMFactory.get_default()
         self.settings = get_settings()
-    
-    def _get_default_search_provider(self) -> WebSearchProvider:
-        """Get the default search provider based on available API keys."""
-        settings = get_settings()
-        if settings.SERPER_API_KEY:
-            return SerperSearchProvider()
-        elif settings.TAVILY_API_KEY:
-            return TavilySearchProvider()
-        else:
-            return DuckDuckGoSearchProvider()
     
     async def research(
         self,
@@ -343,7 +596,7 @@ class WebResearchLayer:
             search_results=search_results,
             scraped_contents=scraped_contents if scraped_contents else None,
             synthesized_findings=synthesized,
-            data_points=None  # Will be extracted in structuring layer
+            data_points=None
         )
     
     async def _synthesize_findings(
@@ -353,7 +606,6 @@ class WebResearchLayer:
         scraped_contents: List[ScrapedContent]
     ) -> str:
         """Synthesize research findings using LLM."""
-        # Build context from search results and scraped content
         context_parts = [
             f"Task: {blueprint.task_summary}",
             f"Objectives: {', '.join(blueprint.reasoning_objectives)}",

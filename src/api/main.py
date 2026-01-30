@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.agents.orchestrator import UnifiedAgentOrchestrator, get_orchestrator
@@ -26,6 +26,7 @@ from src.models.schemas import (
     Conversation
 )
 from src.tools.ai_search import AISearchPlatform
+from src.tools.media_services import ElevenLabsService, HuggingFaceService
 from src.config.settings import get_settings
 
 
@@ -66,6 +67,18 @@ class QuickAnswerRequest(BaseModel):
     question: str = Field(..., description="The question to answer")
 
 
+class TTSRequest(BaseModel):
+    """Request model for text-to-speech."""
+    text: str = Field(..., description="The text to convert to speech")
+    voice: str = Field("rachel", description="Voice name to use")
+
+
+class SummarizeRequest(BaseModel):
+    """Request model for text summarization."""
+    text: str = Field(..., description="The text to summarize")
+    max_length: int = Field(150, description="Maximum summary length")
+
+
 class TaskStatusResponse(BaseModel):
     """Response model for task status."""
     task_id: str
@@ -102,6 +115,11 @@ async def lifespan(app: FastAPI):
     print(f"McLeuker AI Platform starting...")
     print(f"Output directory: {settings.OUTPUT_DIR}")
     
+    # Validate API keys
+    key_status = settings.validate_required_keys()
+    print(f"LLM configured: {key_status['has_llm']}")
+    print(f"Search configured: {key_status['has_search']}")
+    
     yield
     
     # Shutdown
@@ -116,9 +134,10 @@ app = FastAPI(
 )
 
 # CORS middleware for Lovable integration
+settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,12 +175,27 @@ async def get_status():
     """Get the current status of the platform."""
     orchestrator = get_orchestrator()
     state = orchestrator.get_state()
+    settings = get_settings()
     
     return {
         "status": "operational",
         "agent_state": state,
         "active_tasks": len(active_tasks),
         "supported_outputs": [f.value for f in OutputFormat],
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/api/config/status")
+async def get_config_status():
+    """Get the configuration status of all API keys and services."""
+    settings = get_settings()
+    key_status = settings.validate_required_keys()
+    
+    return {
+        "status": "configured" if key_status["has_llm"] else "missing_llm",
+        "services": key_status,
+        "default_llm": settings.DEFAULT_LLM_PROVIDER,
         "timestamp": datetime.utcnow().isoformat()
     }
 
@@ -395,6 +429,71 @@ async def research_topic(request: ResearchRequest):
 
 
 # ============================================================================
+# Media Services Endpoints
+# ============================================================================
+
+@app.post("/api/tts")
+async def text_to_speech(request: TTSRequest):
+    """
+    Convert text to speech using ElevenLabs.
+    
+    Returns audio as a streaming response.
+    """
+    settings = get_settings()
+    if not settings.ELEVENLABS_API_KEY:
+        raise HTTPException(status_code=503, detail="Text-to-speech service not configured")
+    
+    tts_service = ElevenLabsService()
+    audio_bytes = await tts_service.text_to_speech(
+        text=request.text,
+        voice_name=request.voice
+    )
+    
+    if not audio_bytes:
+        raise HTTPException(status_code=500, detail="Failed to generate speech")
+    
+    return StreamingResponse(
+        iter([audio_bytes]),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": "attachment; filename=speech.mp3"}
+    )
+
+
+@app.get("/api/tts/voices")
+async def get_tts_voices():
+    """Get available text-to-speech voices."""
+    settings = get_settings()
+    if not settings.ELEVENLABS_API_KEY:
+        raise HTTPException(status_code=503, detail="Text-to-speech service not configured")
+    
+    tts_service = ElevenLabsService()
+    voices = await tts_service.get_voices()
+    
+    return {"voices": voices}
+
+
+@app.post("/api/summarize")
+async def summarize_text(request: SummarizeRequest):
+    """
+    Summarize text using Hugging Face models.
+    """
+    settings = get_settings()
+    if not settings.HUGGINGFACE_API_KEY:
+        raise HTTPException(status_code=503, detail="Summarization service not configured")
+    
+    hf_service = HuggingFaceService()
+    summary = await hf_service.summarize(
+        text=request.text,
+        max_length=request.max_length
+    )
+    
+    if not summary:
+        raise HTTPException(status_code=500, detail="Failed to generate summary")
+    
+    return {"summary": summary}
+
+
+# ============================================================================
 # WebSocket for Real-time Updates
 # ============================================================================
 
@@ -444,4 +543,5 @@ async def interpret_prompt(request: PromptRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    settings = get_settings()
+    uvicorn.run(app, host=settings.HOST, port=settings.PORT)
