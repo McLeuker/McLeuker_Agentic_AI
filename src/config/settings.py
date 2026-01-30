@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: str = Field(
-        default="http://localhost:3000,https://mcleukerai.com,https://www.mcleukerai.com",
+        default="*",
         alias="CORS_ORIGINS"
     )
     
@@ -36,11 +36,13 @@ class Settings(BaseSettings):
     
     # OpenAI
     OPENAI_API_KEY: Optional[str] = Field(default=None)
-    OPENAI_MODEL: str = Field(default="gpt-4-turbo-preview")
+    OPENAI_MODEL: str = Field(default="gpt-4o")
+    OPENAI_API_BASE: str = Field(default="https://api.openai.com/v1", alias="OPENAI_API_BASE")
     
     # Grok (xAI)
     GROK_API_KEY: Optional[str] = Field(default=None)
     GROK_MODEL: str = Field(default="grok-2-latest")
+    GROK_API_BASE: str = Field(default="https://api.x.ai/v1", alias="GROK_API_BASE")
     
     # Hugging Face
     HUGGINGFACE_API_KEY: Optional[str] = Field(default=None)
@@ -150,12 +152,12 @@ class Settings(BaseSettings):
             "openai": {
                 "api_key": self.OPENAI_API_KEY,
                 "model": self.OPENAI_MODEL,
-                "base_url": "https://api.openai.com/v1",
+                "base_url": self.OPENAI_API_BASE,
             },
             "grok": {
                 "api_key": self.GROK_API_KEY,
                 "model": self.GROK_MODEL,
-                "base_url": "https://api.x.ai/v1",
+                "base_url": self.GROK_API_BASE,
             },
             "perplexity": {
                 "api_key": self.PERPLEXITY_API_KEY,
