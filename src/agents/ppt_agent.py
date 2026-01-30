@@ -10,7 +10,7 @@ from datetime import datetime
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
-from pptx.dml.color import RgbColor
+from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 
@@ -30,14 +30,14 @@ class PPTAgent(BaseExecutionAgent):
     Generates PowerPoint presentations from structured presentation data.
     """
     
-    # Color scheme
+    # Color scheme - using RGBColor correctly
     COLORS = {
-        'primary': RgbColor(31, 78, 121),      # Dark blue
-        'secondary': RgbColor(46, 117, 182),   # Medium blue
-        'accent': RgbColor(68, 114, 196),      # Light blue
-        'text_dark': RgbColor(51, 51, 51),     # Dark gray
-        'text_light': RgbColor(255, 255, 255), # White
-        'background': RgbColor(245, 245, 245)  # Light gray
+        'primary': RGBColor(31, 78, 121),      # Dark blue
+        'secondary': RGBColor(46, 117, 182),   # Medium blue
+        'accent': RGBColor(68, 114, 196),      # Light blue
+        'text_dark': RGBColor(51, 51, 51),     # Dark gray
+        'text_light': RGBColor(255, 255, 255), # White
+        'background': RGBColor(245, 245, 245)  # Light gray
     }
     
     @property
@@ -303,26 +303,120 @@ class PPTAgent(BaseExecutionAgent):
     
     def _add_chart_slide(self, prs: Presentation, slide_data: Dict[str, Any]):
         """Add a chart placeholder slide."""
-        # For now, add a content slide with a note about charts
-        self._add_content_slide(prs, {
-            'title': slide_data.get('title', 'Chart'),
-            'content': slide_data.get('content', 'Chart visualization would be displayed here.')
-        })
+        slide_layout = prs.slide_layouts[6]
+        slide = prs.slides.add_slide(slide_layout)
+        
+        # Add title bar
+        title_bar = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0), Inches(0),
+            prs.slide_width, Inches(1.2)
+        )
+        title_bar.fill.solid()
+        title_bar.fill.fore_color.rgb = self.COLORS['primary']
+        title_bar.line.fill.background()
+        
+        # Add title
+        title_box = slide.shapes.add_textbox(
+            Inches(0.5), Inches(0.3),
+            Inches(12.333), Inches(0.7)
+        )
+        title_frame = title_box.text_frame
+        title_para = title_frame.paragraphs[0]
+        title_para.text = slide_data.get('title', 'Chart')
+        title_para.font.size = Pt(32)
+        title_para.font.bold = True
+        title_para.font.color.rgb = self.COLORS['text_light']
+        
+        # Add chart placeholder
+        placeholder = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(1), Inches(1.5),
+            Inches(11.333), Inches(5.5)
+        )
+        placeholder.fill.solid()
+        placeholder.fill.fore_color.rgb = self.COLORS['background']
+        
+        # Add placeholder text
+        text_box = slide.shapes.add_textbox(
+            Inches(4), Inches(3.5),
+            Inches(5.333), Inches(1)
+        )
+        text_frame = text_box.text_frame
+        para = text_frame.paragraphs[0]
+        para.text = "[Chart: " + slide_data.get('chart_type', 'Data Visualization') + "]"
+        para.font.size = Pt(18)
+        para.font.color.rgb = self.COLORS['text_dark']
+        para.alignment = PP_ALIGN.CENTER
     
     def _add_image_slide(self, prs: Presentation, slide_data: Dict[str, Any]):
         """Add an image placeholder slide."""
-        self._add_content_slide(prs, {
-            'title': slide_data.get('title', 'Visual'),
-            'content': slide_data.get('content', 'Image would be displayed here.')
-        })
-    
-    def _add_blank_slide(self, prs: Presentation, slide_data: Dict[str, Any]):
-        """Add a blank slide."""
         slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(slide_layout)
+        
+        # Add title bar
+        title_bar = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0), Inches(0),
+            prs.slide_width, Inches(1.2)
+        )
+        title_bar.fill.solid()
+        title_bar.fill.fore_color.rgb = self.COLORS['primary']
+        title_bar.line.fill.background()
+        
+        # Add title
+        title_box = slide.shapes.add_textbox(
+            Inches(0.5), Inches(0.3),
+            Inches(12.333), Inches(0.7)
+        )
+        title_frame = title_box.text_frame
+        title_para = title_frame.paragraphs[0]
+        title_para.text = slide_data.get('title', 'Image')
+        title_para.font.size = Pt(32)
+        title_para.font.bold = True
+        title_para.font.color.rgb = self.COLORS['text_light']
+        
+        # Add image placeholder
+        placeholder = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(2), Inches(1.5),
+            Inches(9.333), Inches(5.5)
+        )
+        placeholder.fill.solid()
+        placeholder.fill.fore_color.rgb = self.COLORS['background']
+        
+        # Add placeholder text
+        text_box = slide.shapes.add_textbox(
+            Inches(4), Inches(3.5),
+            Inches(5.333), Inches(1)
+        )
+        text_frame = text_box.text_frame
+        para = text_frame.paragraphs[0]
+        para.text = "[Image Placeholder]"
+        para.font.size = Pt(18)
+        para.font.color.rgb = self.COLORS['text_dark']
+        para.alignment = PP_ALIGN.CENTER
+    
+    def _add_blank_slide(self, prs: Presentation, slide_data: Dict[str, Any]):
+        """Add a blank slide with optional content."""
+        slide_layout = prs.slide_layouts[6]
+        slide = prs.slides.add_slide(slide_layout)
+        
+        # Add any content if provided
+        content = slide_data.get('content', '')
+        if content:
+            content_box = slide.shapes.add_textbox(
+                Inches(0.5), Inches(0.5),
+                Inches(12.333), Inches(6.5)
+            )
+            content_frame = content_box.text_frame
+            content_frame.word_wrap = True
+            para = content_frame.paragraphs[0]
+            para.text = content
+            para.font.size = Pt(18)
     
     def _add_thank_you_slide(self, prs: Presentation):
-        """Add a thank you/closing slide."""
+        """Add a thank you slide."""
         slide_layout = prs.slide_layouts[6]
         slide = prs.slides.add_slide(slide_layout)
         
@@ -338,8 +432,8 @@ class PPTAgent(BaseExecutionAgent):
         
         # Add thank you text
         title_box = slide.shapes.add_textbox(
-            Inches(0.5), Inches(2.5),
-            Inches(12.333), Inches(2)
+            Inches(0.5), Inches(3),
+            Inches(12.333), Inches(1.5)
         )
         title_frame = title_box.text_frame
         title_para = title_frame.paragraphs[0]
@@ -360,30 +454,3 @@ class PPTAgent(BaseExecutionAgent):
         contact_para.font.size = Pt(18)
         contact_para.font.color.rgb = self.COLORS['text_light']
         contact_para.alignment = PP_ALIGN.CENTER
-    
-    async def generate_simple_presentation(
-        self,
-        title: str,
-        slides: List[Dict[str, Any]],
-        filename_prefix: Optional[str] = None
-    ) -> Optional[GeneratedFile]:
-        """
-        Generate a simple presentation.
-        
-        Args:
-            title: Presentation title
-            slides: List of slide data dictionaries
-            filename_prefix: Optional prefix for filename
-            
-        Returns:
-            GeneratedFile or None if failed
-        """
-        presentation = StructuredPresentation(
-            title=title,
-            slides=slides,
-            theme="professional"
-        )
-        
-        structured_output = StructuredOutput(presentations=[presentation])
-        files = await self.execute(structured_output, filename_prefix)
-        return files[0] if files else None
