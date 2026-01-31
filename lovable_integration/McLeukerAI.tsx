@@ -1,22 +1,21 @@
 /**
  * McLeuker Agentic AI Platform - Complete Lovable Integration
  * 
- * This file contains everything you need to integrate the McLeuker AI backend
- * with your Lovable frontend. Simply copy this file to your Lovable project.
+ * LIVE BACKEND URL: https://web-production-29f3c.up.railway.app
  * 
  * Usage:
  * 1. Copy this file to your Lovable project's src/components folder
- * 2. Update the API_BASE_URL to your deployed backend URL
+ * 2. The API_BASE_URL is already configured to your live backend
  * 3. Import and use the components in your pages
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ============================================================================
-// CONFIGURATION - UPDATE THIS URL TO YOUR DEPLOYED BACKEND
+// CONFIGURATION - YOUR LIVE BACKEND URL
 // ============================================================================
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://your-backend-url.railway.app';
+const API_BASE_URL = import.meta.env.VITE_RAILWAY_API_URL || 'https://web-production-29f3c.up.railway.app';
 
 // ============================================================================
 // TYPES
@@ -28,6 +27,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   files?: GeneratedFile[];
+  sources?: SearchResult[];
 }
 
 export interface GeneratedFile {
@@ -67,6 +67,7 @@ export interface AISearchResponse {
   query: string;
   expanded_queries: string[];
   results: SearchResult[];
+  total_results: number;
   summary?: string;
   follow_up_questions?: string[];
 }
@@ -74,8 +75,6 @@ export interface AISearchResponse {
 export interface ConfigStatus {
   status: string;
   services: {
-    llm: Record<string, boolean>;
-    search: Record<string, boolean>;
     has_llm: boolean;
     has_search: boolean;
   };
@@ -93,10 +92,7 @@ class McLeukerAPIClient {
     this.baseUrl = baseUrl;
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     const response = await fetch(url, {
       ...options,
@@ -114,7 +110,6 @@ class McLeukerAPIClient {
     return response.json();
   }
 
-  // Health & Status
   async getHealth(): Promise<{ status: string; version: string; timestamp: string }> {
     return this.request('/health');
   }
@@ -127,7 +122,6 @@ class McLeukerAPIClient {
     return this.request('/api/config/status');
   }
 
-  // Task Processing
   async createTask(prompt: string, userId?: string): Promise<TaskResult> {
     return this.request('/api/tasks/sync', {
       method: 'POST',
@@ -135,18 +129,6 @@ class McLeukerAPIClient {
     });
   }
 
-  async createTaskAsync(prompt: string, userId?: string): Promise<{ task_id: string; status: string }> {
-    return this.request('/api/tasks', {
-      method: 'POST',
-      body: JSON.stringify({ prompt, user_id: userId }),
-    });
-  }
-
-  async getTaskStatus(taskId: string): Promise<TaskResult> {
-    return this.request(`/api/tasks/${taskId}`);
-  }
-
-  // Chat
   async chat(message: string, conversationId?: string): Promise<any> {
     return this.request('/api/chat', {
       method: 'POST',
@@ -154,7 +136,6 @@ class McLeukerAPIClient {
     });
   }
 
-  // Search
   async search(query: string, options?: { numResults?: number; summarize?: boolean }): Promise<AISearchResponse> {
     return this.request('/api/search', {
       method: 'POST',
@@ -180,21 +161,11 @@ class McLeukerAPIClient {
     });
   }
 
-  // Interpret (for debugging)
-  async interpret(prompt: string): Promise<{ interpretation: TaskInterpretation }> {
-    return this.request('/api/interpret', {
-      method: 'POST',
-      body: JSON.stringify({ prompt }),
-    });
-  }
-
-  // File download
   getFileDownloadUrl(filename: string): string {
     return `${this.baseUrl}/api/files/${filename}`;
   }
 }
 
-// Create singleton instance
 export const mcLeukerAPI = new McLeukerAPIClient();
 
 // ============================================================================
@@ -211,7 +182,6 @@ export function useMcLeukerChat() {
     setIsLoading(true);
     setError(null);
 
-    // Add user message
     const userMessage: Message = {
       id: `msg_${Date.now()}`,
       role: 'user',
@@ -223,13 +193,13 @@ export function useMcLeukerChat() {
     try {
       const response = await mcLeukerAPI.chat(content, conversationId);
 
-      // Add assistant message
       const assistantMessage: Message = {
         id: `msg_${Date.now() + 1}`,
         role: 'assistant',
         content: response.message || response.response,
         timestamp: new Date(),
         files: response.files,
+        sources: response.sources,
       };
       setMessages(prev => [...prev, assistantMessage]);
 
@@ -263,6 +233,12 @@ export function useMcLeukerTask() {
 
     try {
       const taskResult = await mcLeukerAPI.createTask(prompt);
+      if (taskResult.files) {
+        taskResult.files = taskResult.files.map(file => ({
+          ...file,
+          download_url: mcLeukerAPI.getFileDownloadUrl(file.filename),
+        }));
+      }
       setResult(taskResult);
       return taskResult;
     } catch (err) {
@@ -304,8 +280,7 @@ export function useMcLeukerSearch() {
     setError(null);
 
     try {
-      const answer = await mcLeukerAPI.quickAnswer(question);
-      return answer;
+      return await mcLeukerAPI.quickAnswer(question);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Quick answer failed';
       setError(errorMessage);
@@ -319,48 +294,58 @@ export function useMcLeukerSearch() {
 }
 
 export function useMcLeukerStatus() {
-  const [status, setStatus] = useState<any>(null);
+  const [isConnected, setIsConnected] = useState(false);
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchStatus = async () => {
+    const checkStatus = async () => {
       try {
-        const [statusData, configData] = await Promise.all([
-          mcLeukerAPI.getStatus(),
-          mcLeukerAPI.getConfigStatus(),
-        ]);
-        setStatus(statusData);
-        setConfigStatus(configData);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch status');
+        const config = await mcLeukerAPI.getConfigStatus();
+        setConfigStatus(config);
+        setIsConnected(true);
+      } catch {
+        setIsConnected(false);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchStatus();
+    checkStatus();
+    const interval = setInterval(checkStatus, 30000);
+    return () => clearInterval(interval);
   }, []);
 
-  return { status, configStatus, isLoading, error };
+  return { isConnected, configStatus, isLoading };
 }
 
 // ============================================================================
 // COMPONENTS
 // ============================================================================
 
-interface ChatInterfaceProps {
-  className?: string;
-  placeholder?: string;
-  welcomeMessage?: string;
+export function McLeukerStatusIndicator() {
+  const { isConnected, isLoading, configStatus } = useMcLeukerStatus();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-500">
+        <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+        <span>Connecting...</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+      <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
+        {isConnected ? `AI Ready (${configStatus?.default_llm || 'OpenAI'})` : 'Disconnected'}
+      </span>
+    </div>
+  );
 }
 
-export function McLeukerChatInterface({
-  className = '',
-  placeholder = 'Ask me anything or describe a task...',
-  welcomeMessage = 'Hello! I\'m McLeuker AI. I can help you with research, create reports, analyze data, and much more. What would you like me to do?',
-}: ChatInterfaceProps) {
+export function McLeukerChatInterface({ className = '' }: { className?: string }) {
   const { messages, isLoading, error, sendMessage, clearMessages } = useMcLeukerChat();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -372,47 +357,43 @@ export function McLeukerChatInterface({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-
     const message = input;
     setInput('');
     await sendMessage(message);
   };
 
   return (
-    <div className={`flex flex-col h-full ${className}`}>
-      {/* Messages */}
+    <div className={`flex flex-col h-full bg-white rounded-lg shadow ${className}`}>
+      <div className="flex items-center justify-between p-4 border-b">
+        <h2 className="font-semibold">McLeuker AI</h2>
+        <McLeukerStatusIndicator />
+      </div>
+
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="text-center text-gray-500 py-8">
-            <p className="text-lg">{welcomeMessage}</p>
+            <p>Ask me anything or describe a task...</p>
           </div>
         )}
 
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-[80%] rounded-lg p-4 ${
-                message.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-900'
-              }`}
-            >
-              <p className="whitespace-pre-wrap">{message.content}</p>
-              
-              {message.files && message.files.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  <p className="text-sm font-medium">Generated Files:</p>
-                  {message.files.map((file, idx) => (
-                    <a
-                      key={idx}
-                      href={mcLeukerAPI.getFileDownloadUrl(file.filename)}
-                      download
-                      className="block text-sm underline hover:opacity-80"
-                    >
-                      📎 {file.filename}
+        {messages.map((msg) => (
+          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] rounded-lg p-4 ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
+              <p className="whitespace-pre-wrap">{msg.content}</p>
+              {msg.sources && msg.sources.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200 text-xs">
+                  {msg.sources.slice(0, 3).map((s, i) => (
+                    <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="block text-blue-500 hover:underline truncate">
+                      {s.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+              {msg.files && msg.files.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  {msg.files.map((f, i) => (
+                    <a key={i} href={f.download_url || mcLeukerAPI.getFileDownloadUrl(f.filename)} className="block text-sm text-blue-500 hover:underline" download>
+                      📄 {f.filename}
                     </a>
                   ))}
                 </div>
@@ -424,7 +405,7 @@ export function McLeukerChatInterface({
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 rounded-lg p-4">
-              <div className="flex space-x-2">
+              <div className="flex gap-1">
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
@@ -433,31 +414,24 @@ export function McLeukerChatInterface({
           </div>
         )}
 
+        {error && <div className="bg-red-50 text-red-600 p-3 rounded text-sm">{error}</div>}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="px-4 py-2 bg-red-100 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Input */}
       <form onSubmit={handleSubmit} className="p-4 border-t">
-        <div className="flex space-x-2">
+        <div className="flex gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={placeholder}
-            disabled={isLoading}
+            placeholder="Type your message..."
             className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={isLoading}
           />
           <button
             type="submit"
             disabled={isLoading || !input.trim()}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             Send
           </button>
@@ -467,244 +441,85 @@ export function McLeukerChatInterface({
   );
 }
 
-interface SearchInterfaceProps {
-  className?: string;
-  placeholder?: string;
-}
-
-export function McLeukerSearchInterface({
-  className = '',
-  placeholder = 'Search for anything...',
-}: SearchInterfaceProps) {
+export function McLeukerSearchInterface({ className = '' }: { className?: string }) {
   const { isSearching, results, error, search } = useMcLeukerSearch();
   const [query, setQuery] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim() || isSearching) return;
     await search(query);
   };
 
   return (
-    <div className={`${className}`}>
-      {/* Search Form */}
-      <form onSubmit={handleSubmit} className="mb-6">
-        <div className="flex space-x-2">
+    <div className={`bg-white rounded-lg shadow p-6 ${className}`}>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold">AI Search</h2>
+        <McLeukerStatusIndicator />
+      </div>
+
+      <form onSubmit={handleSearch} className="mb-6">
+        <div className="flex gap-2">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={placeholder}
+            placeholder="Search with AI..."
+            className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={isSearching}
-            className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
           />
           <button
             type="submit"
             disabled={isSearching || !query.trim()}
-            className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             {isSearching ? 'Searching...' : 'Search'}
           </button>
         </div>
       </form>
 
-      {/* Error */}
-      {error && (
-        <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-lg">
-          {error}
-        </div>
-      )}
+      {error && <div className="bg-red-50 text-red-600 p-4 rounded mb-4">{error}</div>}
 
-      {/* Results */}
       {results && (
         <div className="space-y-6">
-          {/* Summary */}
           {results.summary && (
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <h3 className="font-semibold text-blue-900 mb-2">AI Summary</h3>
-              <p className="text-blue-800">{results.summary}</p>
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h3 className="font-semibold text-blue-800 mb-2">AI Summary</h3>
+              <p className="text-sm text-gray-700">{results.summary}</p>
             </div>
           )}
 
-          {/* Search Results */}
-          <div className="space-y-4">
-            {results.results.map((result, idx) => (
-              <div key={idx} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
-                <a
-                  href={result.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-lg font-medium text-blue-600 hover:underline"
-                >
-                  {result.title}
-                </a>
-                <p className="text-sm text-green-700 mt-1">{result.url}</p>
-                <p className="text-gray-600 mt-2">{result.snippet}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Follow-up Questions */}
           {results.follow_up_questions && results.follow_up_questions.length > 0 && (
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h3 className="font-semibold text-gray-900 mb-2">Related Questions</h3>
-              <div className="space-y-2">
-                {results.follow_up_questions.map((question, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setQuery(question);
-                      search(question);
-                    }}
-                    className="block text-left text-blue-600 hover:underline"
-                  >
-                    → {question}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface TaskSubmitterProps {
-  className?: string;
-  onComplete?: (result: TaskResult) => void;
-}
-
-export function McLeukerTaskSubmitter({
-  className = '',
-  onComplete,
-}: TaskSubmitterProps) {
-  const { isProcessing, result, error, submitTask } = useMcLeukerTask();
-  const [prompt, setPrompt] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || isProcessing) return;
-
-    const taskResult = await submitTask(prompt);
-    if (onComplete) {
-      onComplete(taskResult);
-    }
-  };
-
-  return (
-    <div className={`${className}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe your task in detail. For example: 'Create a market analysis report for the fashion industry with trends, competitors, and recommendations.'"
-          rows={4}
-          disabled={isProcessing}
-          className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-        />
-        <button
-          type="submit"
-          disabled={isProcessing || !prompt.trim()}
-          className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isProcessing ? 'Processing...' : 'Submit Task'}
-        </button>
-      </form>
-
-      {/* Processing Status */}
-      {isProcessing && (
-        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-          <div className="flex items-center space-x-3">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
-            <span className="text-blue-800">Processing your request...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {/* Result */}
-      {result && !isProcessing && (
-        <div className="mt-4 p-4 bg-green-50 rounded-lg">
-          <h3 className="font-semibold text-green-900 mb-2">Task Complete!</h3>
-          
-          {result.interpretation && (
-            <div className="text-sm text-green-800 mb-3">
-              <p>Intent: {result.interpretation.intent}</p>
-              <p>Domain: {result.interpretation.domain}</p>
-            </div>
-          )}
-
-          {result.files && result.files.length > 0 && (
-            <div className="space-y-2">
-              <p className="font-medium text-green-900">Generated Files:</p>
-              {result.files.map((file, idx) => (
-                <a
-                  key={idx}
-                  href={mcLeukerAPI.getFileDownloadUrl(file.filename)}
-                  download
-                  className="block p-2 bg-white rounded border hover:bg-gray-50"
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h3 className="font-semibold mb-2">Related Questions</h3>
+              {results.follow_up_questions.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setQuery(q); search(q); }}
+                  className="block text-sm text-blue-600 hover:underline mb-1"
                 >
-                  📎 {file.filename} ({file.format})
-                </a>
+                  → {q}
+                </button>
               ))}
             </div>
           )}
 
-          {result.message && (
-            <p className="mt-3 text-green-800">{result.message}</p>
-          )}
+          <div>
+            <h3 className="font-semibold mb-3">Results ({results.total_results})</h3>
+            {results.results.map((r, i) => (
+              <div key={i} className="border-b pb-4 mb-4">
+                <a href={r.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-medium">
+                  {r.title}
+                </a>
+                <p className="text-sm text-gray-600 mt-1">{r.snippet}</p>
+                <p className="text-xs text-gray-400 mt-1">{r.url}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// Status indicator component
-export function McLeukerStatusIndicator() {
-  const { status, configStatus, isLoading, error } = useMcLeukerStatus();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center space-x-2 text-gray-500">
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" />
-        <span className="text-sm">Connecting...</span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center space-x-2 text-red-500">
-        <div className="w-2 h-2 bg-red-500 rounded-full" />
-        <span className="text-sm">Disconnected</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center space-x-2 text-green-500">
-      <div className="w-2 h-2 bg-green-500 rounded-full" />
-      <span className="text-sm">Connected</span>
-    </div>
-  );
-}
-
-// Export all components and utilities
-export default {
-  McLeukerChatInterface,
-  McLeukerSearchInterface,
-  McLeukerTaskSubmitter,
-  McLeukerStatusIndicator,
-  mcLeukerAPI,
-  useMcLeukerChat,
-  useMcLeukerTask,
-  useMcLeukerSearch,
-  useMcLeukerStatus,
-};
+export default { mcLeukerAPI, useMcLeukerChat, useMcLeukerTask, useMcLeukerSearch, useMcLeukerStatus, McLeukerStatusIndicator, McLeukerChatInterface, McLeukerSearchInterface };
