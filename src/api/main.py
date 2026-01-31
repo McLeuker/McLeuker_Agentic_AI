@@ -1,10 +1,18 @@
 """
-McLeuker Agentic AI Platform - FastAPI Backend
+McLeuker Agentic AI Platform - FastAPI Backend v2.0
 
-Main API server providing endpoints for the agentic AI platform.
+Complete agentic AI platform with:
+- 5-layer reasoning system
+- Conversation memory
+- Real-time web search
+- Professional file generation
+- Structured output formatting
+
+Similar to Manus AI and ChatGPT capabilities.
 """
 
 import os
+import json
 import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -15,77 +23,59 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from src.agents.orchestrator import UnifiedAgentOrchestrator, get_orchestrator
-from src.models.schemas import (
-    Task,
-    TaskRequest,
-    TaskResponse,
-    TaskStatus,
-    OutputFormat,
-    Message,
-    Conversation
-)
-from src.tools.ai_search import AISearchPlatform
-from src.tools.media_services import ElevenLabsService, HuggingFaceService
 from src.config.settings import get_settings
+from src.memory.conversation_memory import (
+    Conversation,
+    ConversationMemoryStore,
+    get_memory_store
+)
+from src.memory.context_extractor import ContextExtractor
+from src.reasoning.reasoning_engine import ReasoningEngine, ReasoningChain
+from src.search.web_search import MultiProviderSearch, get_search_system
+from src.files.excel_generator import ProfessionalExcelGenerator, ExcelSheet, get_excel_generator
+from src.files.pdf_generator import ProfessionalPDFGenerator, PDFSection, get_pdf_generator
+from src.files.word_generator import ProfessionalWordGenerator, WordSection, get_word_generator
+from src.output.formatter import OutputFormatter, OutputStyle, get_formatter
+from src.utils.llm_provider import LLMProvider, LLMFactory
 
 
 # ============================================================================
 # Request/Response Models
 # ============================================================================
 
-class PromptRequest(BaseModel):
-    """Request model for processing a prompt."""
-    prompt: str = Field(..., description="The user's prompt/request")
-    user_id: Optional[str] = Field(None, description="Optional user ID")
-    preferred_outputs: Optional[List[str]] = Field(None, description="Preferred output formats")
-    domain_hint: Optional[str] = Field(None, description="Domain hint for the task")
-
-
 class ChatRequest(BaseModel):
     """Request model for chat interaction."""
     message: str = Field(..., description="The user's message")
     conversation_id: Optional[str] = Field(None, description="Conversation ID for context")
+    user_id: Optional[str] = Field(None, description="User ID")
+    mode: str = Field("quick", description="Chat mode: quick, deep, or auto")
+
+
+class ChatResponse(BaseModel):
+    """Response model for chat."""
+    message: str
+    conversation_id: str
+    reasoning: Optional[str] = None
+    sources: Optional[List[Dict[str, str]]] = None
+    files: Optional[List[Dict[str, Any]]] = None
+    follow_up_questions: Optional[List[str]] = None
+    credits_used: int = 5
+    mode: str = "quick"
 
 
 class SearchRequest(BaseModel):
     """Request model for AI search."""
     query: str = Field(..., description="The search query")
-    num_results: int = Field(10, description="Number of results to return")
-    summarize: bool = Field(True, description="Whether to summarize results")
-    scrape_top: int = Field(0, description="Number of top results to scrape")
+    mode: str = Field("quick", description="Search mode: quick or deep")
+    num_results: int = Field(10, description="Number of results")
 
 
-class ResearchRequest(BaseModel):
-    """Request model for topic research."""
-    topic: str = Field(..., description="The topic to research")
-    depth: str = Field("medium", description="Research depth: light, medium, or deep")
-
-
-class QuickAnswerRequest(BaseModel):
-    """Request model for quick answers."""
-    question: str = Field(..., description="The question to answer")
-
-
-class TTSRequest(BaseModel):
-    """Request model for text-to-speech."""
-    text: str = Field(..., description="The text to convert to speech")
-    voice: str = Field("rachel", description="Voice name to use")
-
-
-class SummarizeRequest(BaseModel):
-    """Request model for text summarization."""
-    text: str = Field(..., description="The text to summarize")
-    max_length: int = Field(150, description="Maximum summary length")
-
-
-class TaskStatusResponse(BaseModel):
-    """Response model for task status."""
-    task_id: str
-    status: str
-    message: str
-    progress: Optional[Dict[str, Any]] = None
-    files: Optional[List[Dict[str, Any]]] = None
+class FileGenerationRequest(BaseModel):
+    """Request model for file generation."""
+    content: str = Field(..., description="Content to generate file from")
+    file_type: str = Field("excel", description="File type: excel, pdf, word")
+    title: Optional[str] = Field(None, description="Document title")
+    data: Optional[List[Dict[str, Any]]] = Field(None, description="Structured data for Excel")
 
 
 class HealthResponse(BaseModel):
@@ -93,47 +83,70 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     timestamp: str
+    services: Dict[str, bool]
 
 
 # ============================================================================
 # Application Setup
 # ============================================================================
 
-# Store for active tasks and conversations
-active_tasks: Dict[str, Task] = {}
-conversations: Dict[str, Conversation] = {}
-websocket_connections: Dict[str, WebSocket] = {}
+# Global instances
+memory_store: Optional[ConversationMemoryStore] = None
+llm_provider: Optional[LLMProvider] = None
+search_system: Optional[MultiProviderSearch] = None
+reasoning_engine: Optional[ReasoningEngine] = None
+context_extractor: Optional[ContextExtractor] = None
+output_formatter: Optional[OutputFormatter] = None
+excel_generator: Optional[ProfessionalExcelGenerator] = None
+pdf_generator: Optional[ProfessionalPDFGenerator] = None
+word_generator: Optional[ProfessionalWordGenerator] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    # Startup
+    global memory_store, llm_provider, search_system, reasoning_engine
+    global context_extractor, output_formatter
+    global excel_generator, pdf_generator, word_generator
+    
     settings = get_settings()
+    
+    # Create directories
     os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
     os.makedirs(settings.TEMP_DIR, exist_ok=True)
-    print(f"McLeuker AI Platform starting...")
-    print(f"Output directory: {settings.OUTPUT_DIR}")
+    
+    print("🚀 McLeuker AI Platform v2.0 starting...")
+    
+    # Initialize components
+    memory_store = get_memory_store()
+    llm_provider = LLMFactory.get_default()
+    search_system = get_search_system(llm_provider)
+    reasoning_engine = ReasoningEngine(llm_provider)
+    context_extractor = ContextExtractor(llm_provider)
+    output_formatter = get_formatter()
+    excel_generator = get_excel_generator(settings.OUTPUT_DIR)
+    pdf_generator = get_pdf_generator(settings.OUTPUT_DIR)
+    word_generator = get_word_generator(settings.OUTPUT_DIR)
     
     # Validate API keys
     key_status = settings.validate_required_keys()
-    print(f"LLM configured: {key_status['has_llm']}")
-    print(f"Search configured: {key_status['has_search']}")
+    print(f"✅ LLM configured: {key_status['has_llm']}")
+    print(f"✅ Search configured: {key_status['has_search']}")
+    print(f"✅ Perplexity configured: {key_status.get('has_perplexity', False)}")
     
     yield
     
-    # Shutdown
-    print("McLeuker AI Platform shutting down...")
+    print("👋 McLeuker AI Platform shutting down...")
 
 
 app = FastAPI(
     title="McLeuker Agentic AI Platform",
-    description="AI-powered platform for intelligent task execution and research",
-    version="1.0.0",
+    description="Frontier-level AI platform with reasoning, memory, and file generation",
+    version="2.0.0",
     lifespan=lifespan
 )
 
-# CORS middleware for Lovable integration
+# CORS middleware
 settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
@@ -152,176 +165,410 @@ app.add_middleware(
 async def root():
     """Root endpoint - health check."""
     settings = get_settings()
+    key_status = settings.validate_required_keys()
+    
     return HealthResponse(
         status="healthy",
-        version=settings.APP_VERSION,
-        timestamp=datetime.utcnow().isoformat()
+        version="2.0.0",
+        timestamp=datetime.utcnow().isoformat(),
+        services=key_status
     )
 
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    settings = get_settings()
-    return HealthResponse(
-        status="healthy",
-        version=settings.APP_VERSION,
-        timestamp=datetime.utcnow().isoformat()
-    )
+    return await root()
 
 
 @app.get("/api/status")
 async def get_status():
-    """Get the current status of the platform."""
-    orchestrator = get_orchestrator()
-    state = orchestrator.get_state()
-    settings = get_settings()
-    
-    return {
-        "status": "operational",
-        "agent_state": state,
-        "active_tasks": len(active_tasks),
-        "supported_outputs": [f.value for f in OutputFormat],
-        "timestamp": datetime.utcnow().isoformat()
-    }
-
-
-@app.get("/api/config/status")
-async def get_config_status():
-    """Get the configuration status of all API keys and services."""
+    """Get platform status."""
     settings = get_settings()
     key_status = settings.validate_required_keys()
     
     return {
-        "status": "configured" if key_status["has_llm"] else "missing_llm",
+        "status": "operational",
+        "version": "2.0.0",
         "services": key_status,
-        "default_llm": settings.DEFAULT_LLM_PROVIDER,
+        "features": {
+            "conversation_memory": True,
+            "real_time_search": key_status.get("has_perplexity", False) or key_status.get("has_search", False),
+            "file_generation": True,
+            "reasoning_display": True
+        },
         "timestamp": datetime.utcnow().isoformat()
     }
 
 
 # ============================================================================
-# Task Processing Endpoints
+# Chat Endpoints - Main Interaction
 # ============================================================================
 
-@app.post("/api/tasks", response_model=TaskStatusResponse)
-async def create_task(
-    request: PromptRequest,
-    background_tasks: BackgroundTasks
-):
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
     """
-    Create and process a new task.
+    Main chat endpoint with full agentic capabilities.
     
-    This endpoint accepts a prompt and processes it through all 5 layers:
-    1. Task Interpretation
-    2. LLM Reasoning
-    3. Web Research
-    4. Logic & Structuring
-    5. Execution
+    Features:
+    - Conversation memory (remembers previous messages)
+    - Real-time web search when needed
+    - File generation on request
+    - Structured reasoning display
     """
-    orchestrator = get_orchestrator()
+    global memory_store, llm_provider, search_system, reasoning_engine
+    global context_extractor, output_formatter
     
-    # Create task request
-    task_request = TaskRequest(
-        prompt=request.prompt,
-        user_id=request.user_id,
-        preferred_outputs=[OutputFormat(o) for o in request.preferred_outputs] if request.preferred_outputs else None
+    # Get or create conversation
+    conversation = memory_store.get_or_create_conversation(
+        request.conversation_id,
+        request.user_id
     )
     
-    # Process task in background
-    async def process_task_background():
-        task = await orchestrator.process_task(task_request)
-        active_tasks[task.id] = task
+    # Add user message to memory
+    conversation.add_message("user", request.message)
+    
+    # Extract and update context
+    await context_extractor.extract_context(conversation, request.message)
+    
+    # Analyze the query with reasoning engine
+    reasoning_chain = await reasoning_engine.analyze_query(
+        request.message,
+        {"topics": conversation.context.topics, "entities": conversation.context.entities}
+    )
+    
+    # Determine credits and mode
+    mode = request.mode
+    credits_used = 5 if mode == "quick" else 50
+    
+    # Build response
+    response_data = {
+        "message": "",
+        "conversation_id": conversation.id,
+        "reasoning": None,
+        "sources": None,
+        "files": None,
+        "follow_up_questions": [],
+        "credits_used": credits_used,
+        "mode": mode
+    }
+    
+    try:
+        # Check if real-time search is needed
+        if reasoning_chain.requires_search:
+            # Perform real-time search
+            search_result = await search_system.smart_search(request.message)
+            
+            answer = search_result.get("answer", "")
+            sources = search_result.get("sources", [])
+            
+            # Format response
+            formatted = output_formatter.format_search_response(
+                request.message,
+                answer,
+                [{"title": s, "url": s} for s in sources[:5]] if sources else [],
+                is_real_time=True
+            )
+            
+            response_data["message"] = formatted.to_markdown()
+            response_data["sources"] = formatted.sources
+            response_data["follow_up_questions"] = formatted.follow_up_questions
+            
+            # Show reasoning if deep mode
+            if mode == "deep":
+                response_data["reasoning"] = reasoning_chain.to_display()
+                credits_used = 100
         
-        # Notify via WebSocket if connected
-        if request.user_id and request.user_id in websocket_connections:
-            ws = websocket_connections[request.user_id]
-            try:
-                await ws.send_json({
-                    "type": "task_complete",
-                    "task_id": task.id,
-                    "status": task.status.value,
-                    "files": [f.dict() for f in task.execution_result.files] if task.execution_result else []
-                })
-            except Exception:
-                pass
+        # Check if file generation is needed
+        elif reasoning_chain.requires_file_generation:
+            # Generate file based on request
+            file_result = await _generate_file_from_request(
+                request.message,
+                reasoning_chain.output_format,
+                conversation
+            )
+            
+            if file_result:
+                formatted = output_formatter.format_file_generation_response(
+                    [file_result],
+                    f"I've created the {reasoning_chain.output_format} file based on your request."
+                )
+                response_data["message"] = formatted.to_markdown()
+                response_data["files"] = formatted.files
+                credits_used = 50
+            else:
+                response_data["message"] = "I encountered an issue generating the file. Please try again."
+        
+        else:
+            # Regular conversation with context
+            response_text = await _generate_contextual_response(
+                request.message,
+                conversation,
+                mode
+            )
+            
+            formatted = output_formatter.format_response(
+                response_text,
+                style=OutputStyle.CONVERSATIONAL if mode == "quick" else OutputStyle.DETAILED,
+                reasoning=reasoning_chain.to_display() if mode == "deep" else None
+            )
+            
+            response_data["message"] = formatted.to_markdown()
+            response_data["follow_up_questions"] = formatted.follow_up_questions
+            
+            if mode == "deep":
+                response_data["reasoning"] = reasoning_chain.to_display()
+        
+        # Add assistant response to memory
+        conversation.add_message("assistant", response_data["message"])
+        
+        response_data["credits_used"] = credits_used
+        
+    except Exception as e:
+        print(f"Chat error: {e}")
+        response_data["message"] = f"I apologize, but I encountered an error processing your request. Please try again."
+        conversation.add_message("assistant", response_data["message"])
     
-    # Start processing
-    background_tasks.add_task(process_task_background)
-    
-    # Return immediate response
-    task_id = f"task_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    
-    return TaskStatusResponse(
-        task_id=task_id,
-        status="processing",
-        message="Task is being processed. Use the task ID to check status.",
-        progress={"phase": 1, "description": "Understanding your request..."}
-    )
+    return ChatResponse(**response_data)
 
 
-@app.post("/api/tasks/sync")
-async def create_task_sync(request: PromptRequest):
-    """
-    Create and process a task synchronously.
+async def _generate_contextual_response(
+    message: str,
+    conversation: Conversation,
+    mode: str
+) -> str:
+    """Generate a response with full conversation context."""
+    global llm_provider, context_extractor
     
-    This endpoint waits for the task to complete before returning.
-    Use for simpler integrations or when you need immediate results.
-    """
-    orchestrator = get_orchestrator()
+    # Build context prompt
+    context_prompt = context_extractor.build_context_prompt(conversation)
     
-    task_request = TaskRequest(
-        prompt=request.prompt,
-        user_id=request.user_id
+    # Get conversation history
+    history_messages = conversation.get_messages_for_llm(max_messages=10)
+    
+    # Build system prompt
+    system_prompt = f"""You are McLeuker AI, an advanced AI assistant with the following capabilities:
+- Deep knowledge across many domains
+- Real-time information access
+- File generation (Excel, PDF, Word)
+- Intelligent reasoning and analysis
+
+{context_prompt}
+
+Guidelines:
+1. ALWAYS remember and reference previous messages in this conversation
+2. Be helpful, accurate, and thorough
+3. Use emojis appropriately to make responses engaging
+4. Structure responses with clear sections when appropriate
+5. If you don't know something current, say so and offer to search
+6. Provide specific, actionable information
+
+Current date: {datetime.utcnow().strftime('%B %d, %Y')}"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": message})
+    
+    # Generate response
+    response = await llm_provider.complete(
+        messages=messages,
+        temperature=0.7 if mode == "quick" else 0.5,
+        max_tokens=1000 if mode == "quick" else 2000
     )
     
-    task = await orchestrator.process_task(task_request)
-    active_tasks[task.id] = task
+    return response.get("content", "I apologize, I couldn't generate a response.")
+
+
+async def _generate_file_from_request(
+    message: str,
+    file_type: str,
+    conversation: Conversation
+) -> Optional[Dict[str, Any]]:
+    """Generate a file based on the user's request."""
+    global llm_provider, excel_generator, pdf_generator, word_generator
+    
+    try:
+        # Extract data structure from message using LLM
+        extraction_prompt = f"""Extract structured data from this request for generating a {file_type} file:
+
+Request: {message}
+
+Provide the data in JSON format with:
+- "title": Document title
+- "data": Array of objects for the content
+- "columns": Array of column names (for Excel)
+
+Example for Excel:
+{{"title": "Top 10 Items", "columns": ["Name", "Description", "Rating"], "data": [{{"Name": "Item 1", "Description": "...", "Rating": 4.5}}]}}
+
+Respond ONLY with valid JSON."""
+
+        messages = [
+            {"role": "system", "content": "You are a data extraction assistant. Extract structured data from requests."},
+            {"role": "user", "content": extraction_prompt}
+        ]
+        
+        response = await llm_provider.complete(
+            messages=messages,
+            temperature=0.1,
+            max_tokens=2000
+        )
+        
+        content = response.get("content", "{}")
+        
+        # Parse JSON
+        try:
+            # Find JSON in response
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                data = json.loads(json_match.group())
+            else:
+                data = {"title": "Generated Document", "data": []}
+        except json.JSONDecodeError:
+            data = {"title": "Generated Document", "data": []}
+        
+        title = data.get("title", "Generated Document")
+        
+        # Generate file based on type
+        if file_type == "excel":
+            sheet = ExcelSheet(
+                name="Data",
+                data=data.get("data", []),
+                title=title
+            )
+            result = await excel_generator.generate([sheet])
+            
+            return {
+                "filename": result.filename,
+                "filepath": result.filepath,
+                "type": "Excel",
+                "size": f"{result.size_bytes} bytes"
+            }
+        
+        elif file_type == "pdf":
+            sections = [PDFSection(
+                title="Overview",
+                content=json.dumps(data.get("data", []), indent=2),
+                level=1
+            )]
+            result = await pdf_generator.generate(title, sections)
+            
+            return {
+                "filename": result.filename,
+                "filepath": result.filepath,
+                "type": "PDF",
+                "size": f"{result.size_bytes} bytes"
+            }
+        
+        elif file_type == "word":
+            sections = [WordSection(
+                title="Overview",
+                content=json.dumps(data.get("data", []), indent=2),
+                level=1
+            )]
+            result = await word_generator.generate(title, sections)
+            
+            return {
+                "filename": result.filename,
+                "filepath": result.filepath,
+                "type": "Word",
+                "size": f"{result.size_bytes} bytes"
+            }
+        
+    except Exception as e:
+        print(f"File generation error: {e}")
+        return None
+
+
+# ============================================================================
+# Search Endpoints
+# ============================================================================
+
+@app.post("/api/search")
+async def ai_search(request: SearchRequest):
+    """
+    AI-powered search with real-time results.
+    
+    Uses Perplexity for AI synthesis or falls back to traditional search.
+    """
+    global search_system, output_formatter
+    
+    result = await search_system.smart_search(request.query)
+    
+    formatted = output_formatter.format_search_response(
+        request.query,
+        result.get("answer", ""),
+        [{"title": s, "url": s} for s in result.get("sources", [])[:5]],
+        is_real_time=result.get("is_real_time", False)
+    )
     
     return {
-        "task_id": task.id,
-        "status": task.status.value,
-        "interpretation": task.interpretation.dict() if task.interpretation else None,
-        "files": [f.dict() for f in task.execution_result.files] if task.execution_result else [],
-        "message": task.execution_result.message if task.execution_result else None,
-        "error": task.error_message
+        "query": request.query,
+        "answer": result.get("answer", ""),
+        "sources": result.get("sources", []),
+        "results": result.get("results", []),
+        "formatted": formatted.to_dict(),
+        "credits_used": 10 if request.mode == "quick" else 100
     }
 
 
-@app.get("/api/tasks/{task_id}", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str):
-    """Get the status of a task."""
-    if task_id not in active_tasks:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    task = active_tasks[task_id]
-    
-    files = None
-    if task.execution_result and task.execution_result.files:
-        files = [f.dict() for f in task.execution_result.files]
-    
-    return TaskStatusResponse(
-        task_id=task_id,
-        status=task.status.value,
-        message=task.execution_result.message if task.execution_result else "Processing...",
-        files=files
-    )
+# ============================================================================
+# File Generation Endpoints
+# ============================================================================
 
-
-@app.get("/api/tasks/{task_id}/files")
-async def get_task_files(task_id: str):
-    """Get the files generated by a task."""
-    if task_id not in active_tasks:
-        raise HTTPException(status_code=404, detail="Task not found")
+@app.post("/api/files/generate")
+async def generate_file(request: FileGenerationRequest):
+    """Generate a file from content or data."""
+    global excel_generator, pdf_generator, word_generator
     
-    task = active_tasks[task_id]
+    title = request.title or "Generated Document"
     
-    if not task.execution_result or not task.execution_result.files:
-        return {"files": []}
+    try:
+        if request.file_type == "excel":
+            if request.data:
+                result = await excel_generator.generate_from_data(
+                    request.data,
+                    sheet_name="Data",
+                    title=title
+                )
+            else:
+                # Parse content into data
+                result = await excel_generator.generate_from_data(
+                    [{"Content": request.content}],
+                    sheet_name="Data",
+                    title=title
+                )
+            
+            return {
+                "success": True,
+                "file": result.to_dict(),
+                "download_url": f"/api/files/{result.filename}"
+            }
+        
+        elif request.file_type == "pdf":
+            result = await pdf_generator.generate_from_text(title, request.content)
+            
+            return {
+                "success": True,
+                "file": result.to_dict(),
+                "download_url": f"/api/files/{result.filename}"
+            }
+        
+        elif request.file_type == "word":
+            result = await word_generator.generate_from_text(title, request.content)
+            
+            return {
+                "success": True,
+                "file": result.to_dict(),
+                "download_url": f"/api/files/{result.filename}"
+            }
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {request.file_type}")
     
-    return {
-        "files": [f.dict() for f in task.execution_result.files]
-    }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/files/{filename}")
@@ -341,200 +588,64 @@ async def download_file(filename: str):
 
 
 # ============================================================================
-# Chat Endpoints
+# Conversation Management Endpoints
 # ============================================================================
 
-@app.post("/api/chat")
-async def chat(request: ChatRequest):
-    """
-    Chat with the AI agent.
+@app.get("/api/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """Get conversation history."""
+    global memory_store
     
-    The agent will analyze the message and determine whether to:
-    - Execute a task
-    - Perform a search
-    - Answer a question
-    - Have a conversation
-    """
-    orchestrator = get_orchestrator()
+    conversation = memory_store.get_conversation(conversation_id)
     
-    # Get or create conversation
-    conversation = None
-    if request.conversation_id and request.conversation_id in conversations:
-        conversation = conversations[request.conversation_id]
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     
-    # Process the chat
-    response = await orchestrator.chat(request.message, conversation)
-    
-    # Update conversation
-    if conversation:
-        conversation.messages.append(Message(
-            role="user",
-            content=request.message
-        ))
-        conversation.messages.append(Message(
-            role="assistant",
-            content=response["message"]
-        ))
-    
-    return response
+    return conversation.to_dict()
 
 
-# ============================================================================
-# Search Endpoints
-# ============================================================================
-
-@app.post("/api/search")
-async def ai_search(request: SearchRequest):
-    """
-    Perform an AI-powered search.
+@app.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str):
+    """Delete a conversation."""
+    global memory_store
     
-    Features:
-    - Query expansion
-    - Result ranking
-    - Content summarization
-    - Follow-up question generation
-    """
-    search_platform = AISearchPlatform()
+    success = memory_store.delete_conversation(conversation_id)
     
-    result = await search_platform.search(
-        query=request.query,
-        num_results=request.num_results,
-        summarize=request.summarize,
-        scrape_top=request.scrape_top
-    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     
-    return result
+    return {"success": True, "message": "Conversation deleted"}
 
 
-@app.post("/api/search/quick")
-async def quick_answer(request: QuickAnswerRequest):
-    """Get a quick answer to a question."""
-    search_platform = AISearchPlatform()
-    return await search_platform.quick_answer(request.question)
-
-
-@app.post("/api/research")
-async def research_topic(request: ResearchRequest):
-    """
-    Perform in-depth research on a topic.
+@app.get("/api/users/{user_id}/conversations")
+async def get_user_conversations(user_id: str, limit: int = 50):
+    """Get all conversations for a user."""
+    global memory_store
     
-    Generates research questions, searches for answers,
-    and synthesizes findings into a comprehensive overview.
-    """
-    search_platform = AISearchPlatform()
-    return await search_platform.research_topic(
-        topic=request.topic,
-        depth=request.depth
-    )
-
-
-# ============================================================================
-# Media Services Endpoints
-# ============================================================================
-
-@app.post("/api/tts")
-async def text_to_speech(request: TTSRequest):
-    """
-    Convert text to speech using ElevenLabs.
-    
-    Returns audio as a streaming response.
-    """
-    settings = get_settings()
-    if not settings.ELEVENLABS_API_KEY:
-        raise HTTPException(status_code=503, detail="Text-to-speech service not configured")
-    
-    tts_service = ElevenLabsService()
-    audio_bytes = await tts_service.text_to_speech(
-        text=request.text,
-        voice_name=request.voice
-    )
-    
-    if not audio_bytes:
-        raise HTTPException(status_code=500, detail="Failed to generate speech")
-    
-    return StreamingResponse(
-        iter([audio_bytes]),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "attachment; filename=speech.mp3"}
-    )
-
-
-@app.get("/api/tts/voices")
-async def get_tts_voices():
-    """Get available text-to-speech voices."""
-    settings = get_settings()
-    if not settings.ELEVENLABS_API_KEY:
-        raise HTTPException(status_code=503, detail="Text-to-speech service not configured")
-    
-    tts_service = ElevenLabsService()
-    voices = await tts_service.get_voices()
-    
-    return {"voices": voices}
-
-
-@app.post("/api/summarize")
-async def summarize_text(request: SummarizeRequest):
-    """
-    Summarize text using Hugging Face models.
-    """
-    settings = get_settings()
-    if not settings.HUGGINGFACE_API_KEY:
-        raise HTTPException(status_code=503, detail="Summarization service not configured")
-    
-    hf_service = HuggingFaceService()
-    summary = await hf_service.summarize(
-        text=request.text,
-        max_length=request.max_length
-    )
-    
-    if not summary:
-        raise HTTPException(status_code=500, detail="Failed to generate summary")
-    
-    return {"summary": summary}
-
-
-# ============================================================================
-# WebSocket for Real-time Updates
-# ============================================================================
-
-@app.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
-    """WebSocket endpoint for real-time task updates."""
-    await websocket.accept()
-    websocket_connections[user_id] = websocket
-    
-    try:
-        while True:
-            # Keep connection alive and handle incoming messages
-            data = await websocket.receive_text()
-            
-            # Handle ping/pong
-            if data == "ping":
-                await websocket.send_text("pong")
-            
-    except WebSocketDisconnect:
-        if user_id in websocket_connections:
-            del websocket_connections[user_id]
-
-
-# ============================================================================
-# Interpretation Endpoint (for debugging/testing)
-# ============================================================================
-
-@app.post("/api/interpret")
-async def interpret_prompt(request: PromptRequest):
-    """
-    Interpret a prompt without executing the full task.
-    
-    Useful for testing and debugging the task interpretation layer.
-    """
-    orchestrator = get_orchestrator()
-    interpretation = await orchestrator.interpretation_layer.interpret(request.prompt)
+    conversations = memory_store.get_user_conversations(user_id, limit)
     
     return {
-        "interpretation": interpretation.dict(),
-        "message": "Prompt interpreted successfully"
+        "user_id": user_id,
+        "conversations": [c.to_dict() for c in conversations],
+        "count": len(conversations)
     }
+
+
+# ============================================================================
+# Legacy Endpoints (for backward compatibility)
+# ============================================================================
+
+@app.post("/api/tasks/sync")
+async def create_task_sync(request: Dict[str, Any]):
+    """Legacy task endpoint - redirects to chat."""
+    prompt = request.get("prompt", "")
+    
+    chat_request = ChatRequest(
+        message=prompt,
+        mode="deep"
+    )
+    
+    return await chat(chat_request)
 
 
 # ============================================================================
