@@ -1,6 +1,9 @@
-# McLeuker Agentic AI Platform - Docker Image
-
+# McLeuker Agentic AI Platform - Docker Image v2.1.0
+# Cache bust: 2026-01-31-v2.1.0-final
 FROM python:3.11-slim
+
+LABEL version="2.1.0"
+LABEL description="McLeuker Agentic AI Platform with fixed search"
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
