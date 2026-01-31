@@ -184,7 +184,8 @@ class Settings(BaseSettings):
         """Validate that required API keys are present."""
         return {
             "has_llm": bool(self.OPENAI_API_KEY or self.GROK_API_KEY),
-            "has_search": bool(self.GOOGLE_SEARCH_API_KEY or self.FIRECRAWL_API_KEY)
+            "has_search": bool(self.GOOGLE_SEARCH_API_KEY or self.FIRECRAWL_API_KEY or self.PERPLEXITY_API_KEY),
+            "has_perplexity": bool(self.PERPLEXITY_API_KEY)
         }
 
 

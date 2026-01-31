@@ -1,8 +1,7 @@
 """
-McLeuker Agentic AI Platform - Real-Time Web Search System
+McLeuker Agentic AI Platform - Real-Time Web Search System v2.1
 
-Multi-provider search system using Perplexity, Google, Bing, and Firecrawl
-for comprehensive real-time information retrieval.
+Fixed version with proper Perplexity integration and comprehensive fallback.
 """
 
 import os
@@ -46,6 +45,7 @@ class SearchResponse:
     total_results: int
     provider: str
     summary: Optional[str] = None
+    answer: Optional[str] = None
     follow_up_questions: List[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.utcnow)
     
@@ -56,6 +56,7 @@ class SearchResponse:
             "total_results": self.total_results,
             "provider": self.provider,
             "summary": self.summary,
+            "answer": self.answer,
             "follow_up_questions": self.follow_up_questions,
             "timestamp": self.timestamp.isoformat()
         }
@@ -78,9 +79,10 @@ class SearchProvider(ABC):
 
 class PerplexitySearchProvider(SearchProvider):
     """
-    Perplexity AI search provider.
+    Perplexity AI search provider - PRIMARY SEARCH ENGINE.
     
     Uses Perplexity's online models for real-time search with AI synthesis.
+    This is the main search provider that returns comprehensive answers.
     """
     
     def __init__(self):
@@ -92,75 +94,37 @@ class PerplexitySearchProvider(SearchProvider):
     def name(self) -> str:
         return "perplexity"
     
+    @property
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+    
     async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
         """Search using Perplexity's online model."""
         if not self.api_key:
+            print("Perplexity API key not configured")
             return []
         
         try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                }
+            result = await self.search_with_synthesis(query)
+            if "error" not in result:
+                answer = result.get("answer", "")
+                citations = result.get("citations", [])
                 
-                payload = {
-                    "model": "llama-3.1-sonar-large-128k-online",
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "You are a helpful search assistant. Provide accurate, current information with sources."
-                        },
-                        {
-                            "role": "user",
-                            "content": query
-                        }
-                    ],
-                    "temperature": 0.2,
-                    "max_tokens": 2000,
-                    "return_citations": True
-                }
+                results = []
                 
-                async with session.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_response(data, query)
-                    else:
-                        error = await response.text()
-                        print(f"Perplexity search error: {error}")
-                        return []
-        
-        except Exception as e:
-            print(f"Perplexity search exception: {e}")
-            return []
-    
-    def _parse_response(self, data: Dict, query: str) -> List[SearchResult]:
-        """Parse Perplexity response into search results."""
-        results = []
-        
-        try:
-            choices = data.get("choices", [])
-            if choices:
-                message = choices[0].get("message", {})
-                content = message.get("content", "")
+                # Create main result from the answer
+                if answer:
+                    results.append(SearchResult(
+                        title=f"Search Results for: {query[:50]}",
+                        url="https://perplexity.ai",
+                        snippet=answer,
+                        source="perplexity",
+                        relevance_score=1.0
+                    ))
                 
-                # Create a result from the synthesized answer
-                results.append(SearchResult(
-                    title=f"AI Search: {query[:50]}...",
-                    url="https://perplexity.ai",
-                    snippet=content[:500],
-                    source="perplexity",
-                    relevance_score=1.0
-                ))
-                
-                # Extract citations if available
-                citations = data.get("citations", [])
+                # Add citations as additional results
                 for i, citation in enumerate(citations[:5]):
-                    if isinstance(citation, str):
+                    if isinstance(citation, str) and citation.startswith("http"):
                         results.append(SearchResult(
                             title=f"Source {i+1}",
                             url=citation,
@@ -168,14 +132,20 @@ class PerplexitySearchProvider(SearchProvider):
                             source="perplexity_citation",
                             relevance_score=0.9 - (i * 0.1)
                         ))
+                
+                return results
+            
+            return []
         
         except Exception as e:
-            print(f"Error parsing Perplexity response: {e}")
-        
-        return results
+            print(f"Perplexity search exception: {e}")
+            return []
     
     async def search_with_synthesis(self, query: str) -> Dict[str, Any]:
-        """Search and get synthesized answer with sources."""
+        """
+        Search and get synthesized answer with sources.
+        This is the main method that returns comprehensive answers.
+        """
         if not self.api_key:
             return {"error": "Perplexity API key not configured"}
         
@@ -186,17 +156,20 @@ class PerplexitySearchProvider(SearchProvider):
                     "Content-Type": "application/json"
                 }
                 
+                # Use the sonar model for online search
                 payload = {
-                    "model": "llama-3.1-sonar-large-128k-online",
+                    "model": "sonar",
                     "messages": [
                         {
                             "role": "system",
-                            "content": """You are a knowledgeable search assistant. When answering:
-1. Provide accurate, current information
-2. Include specific details, names, and data
-3. Cite your sources
-4. Format your response clearly with sections if needed
-5. If the query is about current events, provide the latest information available"""
+                            "content": """You are a knowledgeable research assistant. When answering:
+1. Provide accurate, current, and comprehensive information
+2. Include specific details, statistics, names, and data points
+3. Structure your response with clear sections using markdown headers (##)
+4. Use bullet points for lists
+5. If discussing trends or news, mention specific examples
+6. Always aim to give a complete, helpful answer
+7. Format numbers and dates clearly"""
                         },
                         {
                             "role": "user",
@@ -204,14 +177,16 @@ class PerplexitySearchProvider(SearchProvider):
                         }
                     ],
                     "temperature": 0.2,
-                    "max_tokens": 3000,
-                    "return_citations": True
+                    "max_tokens": 4000,
+                    "return_citations": True,
+                    "search_recency_filter": "month"
                 }
                 
                 async with session.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
-                    json=payload
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30)
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -219,399 +194,192 @@ class PerplexitySearchProvider(SearchProvider):
                         
                         if choices:
                             message = choices[0].get("message", {})
-                            return {
-                                "answer": message.get("content", ""),
-                                "citations": data.get("citations", []),
-                                "model": data.get("model", ""),
-                                "provider": "perplexity"
-                            }
+                            content = message.get("content", "")
+                            citations = data.get("citations", [])
+                            
+                            if content:
+                                return {
+                                    "answer": content,
+                                    "citations": citations,
+                                    "model": data.get("model", "sonar"),
+                                    "provider": "perplexity"
+                                }
                     
+                    error_text = await response.text()
+                    print(f"Perplexity API error: {response.status} - {error_text}")
                     return {"error": f"Search failed with status {response.status}"}
         
+        except asyncio.TimeoutError:
+            print("Perplexity search timeout")
+            return {"error": "Search timeout"}
         except Exception as e:
-            return {"error": str(e)}
-
-
-class GoogleSearchProvider(SearchProvider):
-    """Google Custom Search provider."""
-    
-    def __init__(self):
-        self.settings = get_settings()
-        self.api_key = self.settings.GOOGLE_SEARCH_API_KEY
-        self.cx = getattr(self.settings, 'GOOGLE_SEARCH_CX', None)
-    
-    @property
-    def name(self) -> str:
-        return "google"
-    
-    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
-        """Search using Google Custom Search API."""
-        if not self.api_key:
-            return []
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                params = {
-                    "key": self.api_key,
-                    "q": query,
-                    "num": min(num_results, 10)
-                }
-                
-                if self.cx:
-                    params["cx"] = self.cx
-                
-                async with session.get(
-                    "https://www.googleapis.com/customsearch/v1",
-                    params=params
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_response(data)
-                    else:
-                        return []
-        
-        except Exception as e:
-            print(f"Google search error: {e}")
-            return []
-    
-    def _parse_response(self, data: Dict) -> List[SearchResult]:
-        """Parse Google search response."""
-        results = []
-        
-        items = data.get("items", [])
-        for i, item in enumerate(items):
-            results.append(SearchResult(
-                title=item.get("title", ""),
-                url=item.get("link", ""),
-                snippet=item.get("snippet", ""),
-                source="google",
-                relevance_score=1.0 - (i * 0.05)
-            ))
-        
-        return results
-
-
-class BingSearchProvider(SearchProvider):
-    """Bing Search provider."""
-    
-    def __init__(self):
-        self.settings = get_settings()
-        self.api_key = self.settings.BING_API_KEY
-    
-    @property
-    def name(self) -> str:
-        return "bing"
-    
-    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
-        """Search using Bing Search API."""
-        if not self.api_key:
-            return []
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Ocp-Apim-Subscription-Key": self.api_key
-                }
-                
-                params = {
-                    "q": query,
-                    "count": num_results,
-                    "mkt": "en-US"
-                }
-                
-                async with session.get(
-                    "https://api.bing.microsoft.com/v7.0/search",
-                    headers=headers,
-                    params=params
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_response(data)
-                    else:
-                        return []
-        
-        except Exception as e:
-            print(f"Bing search error: {e}")
-            return []
-    
-    def _parse_response(self, data: Dict) -> List[SearchResult]:
-        """Parse Bing search response."""
-        results = []
-        
-        web_pages = data.get("webPages", {}).get("value", [])
-        for i, page in enumerate(web_pages):
-            results.append(SearchResult(
-                title=page.get("name", ""),
-                url=page.get("url", ""),
-                snippet=page.get("snippet", ""),
-                source="bing",
-                published_date=page.get("dateLastCrawled"),
-                relevance_score=1.0 - (i * 0.05)
-            ))
-        
-        return results
-
-
-class FirecrawlProvider(SearchProvider):
-    """Firecrawl web scraping provider."""
-    
-    def __init__(self):
-        self.settings = get_settings()
-        self.api_key = self.settings.FIRECRAWL_API_KEY
-        self.base_url = "https://api.firecrawl.dev/v0"
-    
-    @property
-    def name(self) -> str:
-        return "firecrawl"
-    
-    async def search(self, query: str, num_results: int = 10) -> List[SearchResult]:
-        """Search using Firecrawl."""
-        if not self.api_key:
-            return []
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {
-                    "query": query,
-                    "limit": num_results
-                }
-                
-                async with session.post(
-                    f"{self.base_url}/search",
-                    headers=headers,
-                    json=payload
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return self._parse_response(data)
-                    else:
-                        return []
-        
-        except Exception as e:
-            print(f"Firecrawl search error: {e}")
-            return []
-    
-    def _parse_response(self, data: Dict) -> List[SearchResult]:
-        """Parse Firecrawl response."""
-        results = []
-        
-        items = data.get("data", [])
-        for i, item in enumerate(items):
-            results.append(SearchResult(
-                title=item.get("title", ""),
-                url=item.get("url", ""),
-                snippet=item.get("description", item.get("content", "")[:300]),
-                source="firecrawl",
-                relevance_score=1.0 - (i * 0.05)
-            ))
-        
-        return results
-    
-    async def scrape_url(self, url: str) -> Dict[str, Any]:
-        """Scrape a specific URL."""
-        if not self.api_key:
-            return {"error": "Firecrawl API key not configured"}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {
-                    "url": url,
-                    "pageOptions": {
-                        "onlyMainContent": True
-                    }
-                }
-                
-                async with session.post(
-                    f"{self.base_url}/scrape",
-                    headers=headers,
-                    json=payload
-                ) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        return {"error": f"Scrape failed with status {response.status}"}
-        
-        except Exception as e:
+            print(f"Perplexity search error: {e}")
             return {"error": str(e)}
 
 
 class MultiProviderSearch:
     """
-    Multi-provider search system.
+    Multi-provider search system with intelligent fallback.
     
-    Combines results from multiple search providers for comprehensive coverage.
+    Primary: Perplexity (for comprehensive AI-synthesized answers)
+    Fallback: OpenAI with context (when Perplexity fails)
     """
     
     def __init__(self, llm_provider=None):
         self.settings = get_settings()
         self.llm = llm_provider
         
-        # Initialize providers
-        self.providers: List[SearchProvider] = []
+        # Initialize Perplexity as primary
+        self.perplexity = PerplexitySearchProvider()
         
-        # Add Perplexity (primary for AI-powered search)
-        if self.settings.PERPLEXITY_API_KEY:
-            self.providers.append(PerplexitySearchProvider())
-        
-        # Add Google
-        if self.settings.GOOGLE_SEARCH_API_KEY:
-            self.providers.append(GoogleSearchProvider())
-        
-        # Add Bing
-        if self.settings.BING_API_KEY:
-            self.providers.append(BingSearchProvider())
-        
-        # Add Firecrawl
-        if self.settings.FIRECRAWL_API_KEY:
-            self.providers.append(FirecrawlProvider())
-    
-    async def search(
-        self,
-        query: str,
-        num_results: int = 10,
-        providers: Optional[List[str]] = None
-    ) -> SearchResponse:
-        """
-        Search across multiple providers.
-        
-        Args:
-            query: Search query
-            num_results: Number of results to return
-            providers: Optional list of provider names to use
-            
-        Returns:
-            Combined search response
-        """
-        # Filter providers if specified
-        active_providers = self.providers
-        if providers:
-            active_providers = [p for p in self.providers if p.name in providers]
-        
-        if not active_providers:
-            return SearchResponse(
-                query=query,
-                results=[],
-                total_results=0,
-                provider="none",
-                summary="No search providers available"
-            )
-        
-        # Search all providers concurrently
-        tasks = [p.search(query, num_results) for p in active_providers]
-        results_lists = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Combine and deduplicate results
-        all_results = []
-        seen_urls = set()
-        
-        for results in results_lists:
-            if isinstance(results, list):
-                for result in results:
-                    if result.url not in seen_urls:
-                        seen_urls.add(result.url)
-                        all_results.append(result)
-        
-        # Sort by relevance
-        all_results.sort(key=lambda r: r.relevance_score, reverse=True)
-        
-        # Limit results
-        final_results = all_results[:num_results]
-        
-        # Generate summary if we have an LLM
-        summary = None
-        if self.llm and final_results:
-            summary = await self._generate_summary(query, final_results)
-        
-        return SearchResponse(
-            query=query,
-            results=final_results,
-            total_results=len(all_results),
-            provider=",".join([p.name for p in active_providers]),
-            summary=summary
-        )
+        print(f"Search system initialized:")
+        print(f"  - Perplexity available: {self.perplexity.is_available}")
+        print(f"  - LLM fallback available: {self.llm is not None}")
     
     async def smart_search(self, query: str) -> Dict[str, Any]:
         """
         Perform a smart search with AI synthesis.
         
-        Uses Perplexity for AI-powered search if available,
-        falls back to traditional search with LLM synthesis.
+        This is the main search method that:
+        1. Tries Perplexity first for real-time web search
+        2. Falls back to LLM with knowledge if Perplexity fails
+        3. Always returns a comprehensive answer
         """
-        # Try Perplexity first for best results
-        perplexity = next(
-            (p for p in self.providers if isinstance(p, PerplexitySearchProvider)),
-            None
-        )
+        print(f"Smart search for: {query}")
         
-        if perplexity:
-            result = await perplexity.search_with_synthesis(query)
-            if "error" not in result:
+        # Try Perplexity first (primary search)
+        if self.perplexity.is_available:
+            print("Trying Perplexity search...")
+            result = await self.perplexity.search_with_synthesis(query)
+            
+            if "error" not in result and result.get("answer"):
+                answer = result.get("answer", "")
+                citations = result.get("citations", [])
+                
+                print(f"Perplexity returned {len(answer)} chars, {len(citations)} citations")
+                
                 return {
-                    "answer": result.get("answer", ""),
-                    "sources": result.get("citations", []),
+                    "answer": answer,
+                    "sources": citations,
                     "provider": "perplexity",
                     "is_real_time": True
                 }
+            else:
+                print(f"Perplexity failed: {result.get('error', 'Unknown error')}")
         
-        # Fall back to traditional search
-        response = await self.search(query)
+        # Fallback to LLM with general knowledge
+        if self.llm:
+            print("Falling back to LLM...")
+            return await self._llm_fallback_search(query)
         
+        # Last resort - return error message
         return {
-            "answer": response.summary or "Search completed",
-            "sources": [r.url for r in response.results[:5]],
-            "results": [r.to_dict() for r in response.results],
-            "provider": response.provider,
-            "is_real_time": True
+            "answer": "I apologize, but I'm unable to search for real-time information at the moment. Please try again later or rephrase your question.",
+            "sources": [],
+            "provider": "none",
+            "is_real_time": False
         }
     
-    async def _generate_summary(
-        self,
-        query: str,
-        results: List[SearchResult]
-    ) -> Optional[str]:
-        """Generate a summary of search results using LLM."""
-        if not self.llm:
-            return None
-        
+    async def _llm_fallback_search(self, query: str) -> Dict[str, Any]:
+        """
+        Fallback search using LLM's knowledge.
+        Used when Perplexity is unavailable.
+        """
         try:
-            # Prepare context from results
-            context = "\n\n".join([
-                f"Source: {r.title}\nURL: {r.url}\nContent: {r.snippet}"
-                for r in results[:5]
-            ])
-            
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant. Summarize the search results to answer the user's query. Be concise but comprehensive."
+                    "content": """You are a knowledgeable AI assistant. Answer the user's question comprehensively using your training knowledge.
+
+Guidelines:
+1. Provide detailed, accurate information
+2. Structure your response with clear sections using markdown (## headers)
+3. Include specific examples, statistics, and details when relevant
+4. Use bullet points for lists
+5. If the question is about current events, acknowledge that your information may not be the latest
+6. Always aim to be helpful and thorough
+
+Format your response professionally with:
+- Clear section headers
+- Bullet points for key information
+- Bold text for important terms"""
                 },
                 {
                     "role": "user",
-                    "content": f"Query: {query}\n\nSearch Results:\n{context}\n\nProvide a helpful summary that answers the query."
+                    "content": query
                 }
             ]
             
             response = await self.llm.complete(
                 messages=messages,
-                temperature=0.3,
-                max_tokens=500
+                temperature=0.5,
+                max_tokens=2500
             )
             
-            return response.get("content", "")
+            content = response.get("content", "")
+            
+            if content:
+                return {
+                    "answer": content,
+                    "sources": [],
+                    "provider": "llm_knowledge",
+                    "is_real_time": False
+                }
+            
+            return {
+                "answer": "I couldn't generate a response. Please try again.",
+                "sources": [],
+                "provider": "error",
+                "is_real_time": False
+            }
         
         except Exception as e:
-            print(f"Error generating summary: {e}")
-            return None
+            print(f"LLM fallback error: {e}")
+            return {
+                "answer": f"I encountered an error while processing your request. Please try again.",
+                "sources": [],
+                "provider": "error",
+                "is_real_time": False
+            }
+    
+    async def search(self, query: str, num_results: int = 10) -> SearchResponse:
+        """
+        Traditional search returning structured results.
+        """
+        result = await self.smart_search(query)
+        
+        answer = result.get("answer", "")
+        sources = result.get("sources", [])
+        
+        # Convert to SearchResult objects
+        results = []
+        if answer:
+            results.append(SearchResult(
+                title=f"Answer: {query[:50]}",
+                url="",
+                snippet=answer[:500],
+                source=result.get("provider", "unknown"),
+                relevance_score=1.0
+            ))
+        
+        for i, source in enumerate(sources[:5]):
+            if isinstance(source, str):
+                results.append(SearchResult(
+                    title=f"Source {i+1}",
+                    url=source,
+                    snippet="",
+                    source="citation",
+                    relevance_score=0.9 - (i * 0.1)
+                ))
+        
+        return SearchResponse(
+            query=query,
+            results=results,
+            total_results=len(results),
+            provider=result.get("provider", "unknown"),
+            summary=answer[:500] if answer else None,
+            answer=answer
+        )
 
 
 # Global search instance

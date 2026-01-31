@@ -1,10 +1,10 @@
 """
-McLeuker Agentic AI Platform - FastAPI Backend v2.0
+McLeuker Agentic AI Platform - FastAPI Backend v2.1
 
 Complete agentic AI platform with:
 - 5-layer reasoning system
 - Conversation memory
-- Real-time web search
+- Real-time web search (fixed)
 - Professional file generation
 - Structured output formatting
 
@@ -14,6 +14,7 @@ Similar to Manus AI and ChatGPT capabilities.
 import os
 import json
 import asyncio
+import traceback
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -115,7 +116,7 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
     os.makedirs(settings.TEMP_DIR, exist_ok=True)
     
-    print("🚀 McLeuker AI Platform v2.0 starting...")
+    print("🚀 McLeuker AI Platform v2.1 starting...")
     
     # Initialize components
     memory_store = get_memory_store()
@@ -142,7 +143,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="McLeuker Agentic AI Platform",
     description="Frontier-level AI platform with reasoning, memory, and file generation",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan
 )
 
@@ -169,7 +170,7 @@ async def root():
     
     return HealthResponse(
         status="healthy",
-        version="2.0.0",
+        version="2.1.0",
         timestamp=datetime.utcnow().isoformat(),
         services=key_status
     )
@@ -189,7 +190,7 @@ async def get_status():
     
     return {
         "status": "operational",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "services": key_status,
         "features": {
             "conversation_memory": True,
@@ -218,6 +219,8 @@ async def chat(request: ChatRequest):
     """
     global memory_store, llm_provider, search_system, reasoning_engine
     global context_extractor, output_formatter
+    
+    print(f"Chat request: {request.message[:100]}...")
     
     # Get or create conversation
     conversation = memory_store.get_or_create_conversation(
@@ -254,34 +257,9 @@ async def chat(request: ChatRequest):
     }
     
     try:
-        # Check if real-time search is needed
-        if reasoning_chain.requires_search:
-            # Perform real-time search
-            search_result = await search_system.smart_search(request.message)
-            
-            answer = search_result.get("answer", "")
-            sources = search_result.get("sources", [])
-            
-            # Format response
-            formatted = output_formatter.format_search_response(
-                request.message,
-                answer,
-                [{"title": s, "url": s} for s in sources[:5]] if sources else [],
-                is_real_time=True
-            )
-            
-            response_data["message"] = formatted.to_markdown()
-            response_data["sources"] = formatted.sources
-            response_data["follow_up_questions"] = formatted.follow_up_questions
-            
-            # Show reasoning if deep mode
-            if mode == "deep":
-                response_data["reasoning"] = reasoning_chain.to_display()
-                credits_used = 100
-        
-        # Check if file generation is needed
-        elif reasoning_chain.requires_file_generation:
-            # Generate file based on request
+        # Check if file generation is needed FIRST (higher priority)
+        if reasoning_chain.requires_file_generation:
+            print(f"File generation requested: {reasoning_chain.output_format}")
             file_result = await _generate_file_from_request(
                 request.message,
                 reasoning_chain.output_format,
@@ -295,12 +273,62 @@ async def chat(request: ChatRequest):
                 )
                 response_data["message"] = formatted.to_markdown()
                 response_data["files"] = formatted.files
+                response_data["follow_up_questions"] = ["What other data would you like to export?", "Would you like me to modify this file?", "Need a different format?"]
                 credits_used = 50
             else:
-                response_data["message"] = "I encountered an issue generating the file. Please try again."
+                response_data["message"] = "I encountered an issue generating the file. Please try again with more specific data."
+        
+        # Check if real-time search is needed
+        elif reasoning_chain.requires_search or mode == "deep":
+            print(f"Search triggered for: {request.message[:50]}...")
+            
+            # Perform real-time search
+            search_result = await search_system.smart_search(request.message)
+            
+            answer = search_result.get("answer", "")
+            sources = search_result.get("sources", [])
+            provider = search_result.get("provider", "unknown")
+            
+            print(f"Search result from {provider}: {len(answer)} chars, {len(sources)} sources")
+            
+            if answer and len(answer) > 50:
+                # We got a good answer - format it properly
+                formatted = output_formatter.format_search_response(
+                    request.message,
+                    answer,
+                    [{"title": f"Source {i+1}", "url": s} for i, s in enumerate(sources[:5]) if isinstance(s, str)],
+                    is_real_time=search_result.get("is_real_time", True)
+                )
+                
+                response_data["message"] = formatted.to_markdown()
+                response_data["sources"] = formatted.sources
+                response_data["follow_up_questions"] = formatted.follow_up_questions
+            else:
+                # Search didn't return good results, fall back to LLM
+                print("Search returned insufficient results, falling back to LLM")
+                response_text = await _generate_contextual_response(
+                    request.message,
+                    conversation,
+                    mode
+                )
+                
+                formatted = output_formatter.format_response(
+                    response_text,
+                    style=OutputStyle.DETAILED,
+                    reasoning=reasoning_chain.to_display() if mode == "deep" else None
+                )
+                
+                response_data["message"] = formatted.to_markdown()
+                response_data["follow_up_questions"] = formatted.follow_up_questions
+            
+            # Show reasoning if deep mode
+            if mode == "deep":
+                response_data["reasoning"] = reasoning_chain.to_display()
+                credits_used = 100
         
         else:
             # Regular conversation with context
+            print("Regular conversation mode")
             response_text = await _generate_contextual_response(
                 request.message,
                 conversation,
@@ -326,7 +354,9 @@ async def chat(request: ChatRequest):
         
     except Exception as e:
         print(f"Chat error: {e}")
+        traceback.print_exc()
         response_data["message"] = f"I apologize, but I encountered an error processing your request. Please try again."
+        response_data["follow_up_questions"] = ["Can you rephrase your question?", "Would you like to try a different topic?"]
         conversation.add_message("assistant", response_data["message"])
     
     return ChatResponse(**response_data)
@@ -358,10 +388,12 @@ async def _generate_contextual_response(
 Guidelines:
 1. ALWAYS remember and reference previous messages in this conversation
 2. Be helpful, accurate, and thorough
-3. Use emojis appropriately to make responses engaging
-4. Structure responses with clear sections when appropriate
-5. If you don't know something current, say so and offer to search
-6. Provide specific, actionable information
+3. Use emojis appropriately to make responses engaging (📌, 💡, ✅, etc.)
+4. Structure responses with clear sections using markdown headers (##, ###)
+5. Use bullet points (•) for lists
+6. If you don't know something current, say so and offer to search
+7. Provide specific, actionable information
+8. Format your response professionally
 
 Current date: {datetime.utcnow().strftime('%B %d, %Y')}"""
 
@@ -373,7 +405,7 @@ Current date: {datetime.utcnow().strftime('%B %d, %Y')}"""
     response = await llm_provider.complete(
         messages=messages,
         temperature=0.7 if mode == "quick" else 0.5,
-        max_tokens=1000 if mode == "quick" else 2000
+        max_tokens=1500 if mode == "quick" else 2500
     )
     
     return response.get("content", "I apologize, I couldn't generate a response.")
@@ -395,30 +427,29 @@ Request: {message}
 
 Provide the data in JSON format with:
 - "title": Document title
-- "data": Array of objects for the content
+- "data": Array of objects for the content (at least 5-10 items with realistic data)
 - "columns": Array of column names (for Excel)
 
-Example for Excel:
-{{"title": "Top 10 Items", "columns": ["Name", "Description", "Rating"], "data": [{{"Name": "Item 1", "Description": "...", "Rating": 4.5}}]}}
+Example for Excel about fashion:
+{{"title": "Fashion Week Highlights 2026", "columns": ["Designer", "Collection", "Key Trend", "Rating"], "data": [{{"Designer": "Chanel", "Collection": "Spring 2026", "Key Trend": "Sustainable Luxury", "Rating": 4.8}}, {{"Designer": "Dior", "Collection": "Spring 2026", "Key Trend": "Neo-Romanticism", "Rating": 4.7}}]}}
 
-Respond ONLY with valid JSON."""
+Generate realistic, detailed data based on the user's request. Respond ONLY with valid JSON."""
 
         messages = [
-            {"role": "system", "content": "You are a data extraction assistant. Extract structured data from requests."},
+            {"role": "system", "content": "You are a data extraction assistant. Extract and generate structured data from requests. Always provide realistic, detailed data."},
             {"role": "user", "content": extraction_prompt}
         ]
         
         response = await llm_provider.complete(
             messages=messages,
-            temperature=0.1,
-            max_tokens=2000
+            temperature=0.3,
+            max_tokens=2500
         )
         
         content = response.get("content", "{}")
         
         # Parse JSON
         try:
-            # Find JSON in response
             import re
             json_match = re.search(r'\{[\s\S]*\}', content)
             if json_match:
@@ -448,11 +479,10 @@ Respond ONLY with valid JSON."""
         
         elif file_type == "pdf":
             sections = [PDFSection(
-                title="Overview",
-                content=json.dumps(data.get("data", []), indent=2),
-                level=1
+                title=title,
+                content=json.dumps(data.get("data", []), indent=2)
             )]
-            result = await pdf_generator.generate(title, sections)
+            result = await pdf_generator.generate(sections, title)
             
             return {
                 "filename": result.filename,
@@ -463,11 +493,10 @@ Respond ONLY with valid JSON."""
         
         elif file_type == "word":
             sections = [WordSection(
-                title="Overview",
-                content=json.dumps(data.get("data", []), indent=2),
-                level=1
+                title=title,
+                content=json.dumps(data.get("data", []), indent=2)
             )]
-            result = await word_generator.generate(title, sections)
+            result = await word_generator.generate(sections, title)
             
             return {
                 "filename": result.filename,
@@ -476,8 +505,11 @@ Respond ONLY with valid JSON."""
                 "size": f"{result.size_bytes} bytes"
             }
         
+        return None
+    
     except Exception as e:
         print(f"File generation error: {e}")
+        traceback.print_exc()
         return None
 
 
@@ -486,30 +518,18 @@ Respond ONLY with valid JSON."""
 # ============================================================================
 
 @app.post("/api/search")
-async def ai_search(request: SearchRequest):
-    """
-    AI-powered search with real-time results.
-    
-    Uses Perplexity for AI synthesis or falls back to traditional search.
-    """
-    global search_system, output_formatter
+async def search(request: SearchRequest):
+    """Direct search endpoint."""
+    global search_system
     
     result = await search_system.smart_search(request.query)
-    
-    formatted = output_formatter.format_search_response(
-        request.query,
-        result.get("answer", ""),
-        [{"title": s, "url": s} for s in result.get("sources", [])[:5]],
-        is_real_time=result.get("is_real_time", False)
-    )
     
     return {
         "query": request.query,
         "answer": result.get("answer", ""),
         "sources": result.get("sources", []),
-        "results": result.get("results", []),
-        "formatted": formatted.to_dict(),
-        "credits_used": 10 if request.mode == "quick" else 100
+        "provider": result.get("provider", "unknown"),
+        "is_real_time": result.get("is_real_time", False)
     }
 
 
@@ -519,56 +539,48 @@ async def ai_search(request: SearchRequest):
 
 @app.post("/api/files/generate")
 async def generate_file(request: FileGenerationRequest):
-    """Generate a file from content or data."""
+    """Generate a file from content."""
     global excel_generator, pdf_generator, word_generator
-    
-    title = request.title or "Generated Document"
     
     try:
         if request.file_type == "excel":
             if request.data:
-                result = await excel_generator.generate_from_data(
-                    request.data,
-                    sheet_name="Data",
-                    title=title
+                sheet = ExcelSheet(
+                    name="Data",
+                    data=request.data,
+                    title=request.title or "Generated Data"
                 )
+                result = await excel_generator.generate([sheet])
             else:
-                # Parse content into data
-                result = await excel_generator.generate_from_data(
-                    [{"Content": request.content}],
-                    sheet_name="Data",
-                    title=title
-                )
-            
-            return {
-                "success": True,
-                "file": result.to_dict(),
-                "download_url": f"/api/files/{result.filename}"
-            }
+                return {"error": "No data provided for Excel generation"}
         
         elif request.file_type == "pdf":
-            result = await pdf_generator.generate_from_text(title, request.content)
-            
-            return {
-                "success": True,
-                "file": result.to_dict(),
-                "download_url": f"/api/files/{result.filename}"
-            }
+            sections = [PDFSection(
+                title=request.title or "Document",
+                content=request.content
+            )]
+            result = await pdf_generator.generate(sections, request.title or "Document")
         
         elif request.file_type == "word":
-            result = await word_generator.generate_from_text(title, request.content)
-            
-            return {
-                "success": True,
-                "file": result.to_dict(),
-                "download_url": f"/api/files/{result.filename}"
-            }
+            sections = [WordSection(
+                title=request.title or "Document",
+                content=request.content
+            )]
+            result = await word_generator.generate(sections, request.title or "Document")
         
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {request.file_type}")
+            return {"error": f"Unsupported file type: {request.file_type}"}
+        
+        return {
+            "success": True,
+            "filename": result.filename,
+            "filepath": result.filepath,
+            "size": result.size_bytes,
+            "download_url": f"/api/files/{result.filename}"
+        }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e)}
 
 
 @app.get("/api/files/{filename}")
@@ -593,11 +605,10 @@ async def download_file(filename: str):
 
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
-    """Get conversation history."""
+    """Get a conversation by ID."""
     global memory_store
     
     conversation = memory_store.get_conversation(conversation_id)
-    
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
@@ -610,49 +621,46 @@ async def delete_conversation(conversation_id: str):
     global memory_store
     
     success = memory_store.delete_conversation(conversation_id)
-    
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     return {"success": True, "message": "Conversation deleted"}
 
 
-@app.get("/api/users/{user_id}/conversations")
-async def get_user_conversations(user_id: str, limit: int = 50):
-    """Get all conversations for a user."""
+@app.get("/api/conversations")
+async def list_conversations(user_id: Optional[str] = None, limit: int = 20):
+    """List conversations."""
     global memory_store
     
-    conversations = memory_store.get_user_conversations(user_id, limit)
-    
+    conversations = memory_store.list_conversations(user_id, limit)
     return {
-        "user_id": user_id,
         "conversations": [c.to_dict() for c in conversations],
-        "count": len(conversations)
+        "total": len(conversations)
     }
 
 
 # ============================================================================
-# Legacy Endpoints (for backward compatibility)
+# WebSocket for Streaming (Optional)
 # ============================================================================
 
-@app.post("/api/tasks/sync")
-async def create_task_sync(request: Dict[str, Any]):
-    """Legacy task endpoint - redirects to chat."""
-    prompt = request.get("prompt", "")
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    """WebSocket endpoint for streaming chat."""
+    await websocket.accept()
     
-    chat_request = ChatRequest(
-        message=prompt,
-        mode="deep"
-    )
+    try:
+        while True:
+            data = await websocket.receive_json()
+            
+            # Process the message
+            request = ChatRequest(**data)
+            response = await chat(request)
+            
+            # Send response
+            await websocket.send_json(response.dict())
     
-    return await chat(chat_request)
-
-
-# ============================================================================
-# Run Server
-# ============================================================================
-
-if __name__ == "__main__":
-    import uvicorn
-    settings = get_settings()
-    uvicorn.run(app, host=settings.HOST, port=settings.PORT)
+    except WebSocketDisconnect:
+        print("WebSocket disconnected")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        await websocket.close()

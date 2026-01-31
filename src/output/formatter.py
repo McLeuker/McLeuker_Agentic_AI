@@ -1,11 +1,13 @@
 """
-McLeuker Agentic AI Platform - Output Formatter
+McLeuker Agentic AI Platform - Output Formatter v2.1
 
 Creates structured, well-formatted output responses like Manus AI
-with reasoning display, emojis, sections, and professional layout.
+with proper reasoning display, emojis, sections, and professional layout.
+Fixed follow-up questions to be contextually relevant.
 """
 
 import re
+import random
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -14,11 +16,11 @@ from enum import Enum
 
 class OutputStyle(str, Enum):
     """Output formatting styles."""
-    CONVERSATIONAL = "conversational"  # Friendly chat style
-    PROFESSIONAL = "professional"      # Business/formal style
-    DETAILED = "detailed"              # In-depth with sections
-    QUICK = "quick"                    # Brief, to-the-point
-    RESEARCH = "research"              # Academic/research style
+    CONVERSATIONAL = "conversational"
+    PROFESSIONAL = "professional"
+    DETAILED = "detailed"
+    QUICK = "quick"
+    RESEARCH = "research"
 
 
 @dataclass
@@ -34,23 +36,19 @@ class FormattedSection:
         """Convert section to markdown."""
         parts = []
         
-        # Title with emoji
         if self.emoji:
             parts.append(f"### {self.emoji} {self.title}")
         else:
             parts.append(f"### {self.title}")
         
-        # Content
         if self.content:
             parts.append(self.content)
         
-        # Bullet points
         if self.bullet_points:
             parts.append("")
             for point in self.bullet_points:
                 parts.append(f"• {point}")
         
-        # Subsections
         for subsection in self.subsections:
             parts.append("")
             parts.append(subsection.to_markdown())
@@ -75,12 +73,10 @@ class FormattedOutput:
         """Convert to markdown format."""
         parts = []
         
-        # Greeting
         if self.greeting:
             parts.append(self.greeting)
             parts.append("")
         
-        # Reasoning display (collapsible)
         if self.reasoning_display:
             parts.append("<details>")
             parts.append("<summary>🧠 View Reasoning Process</summary>")
@@ -89,17 +85,14 @@ class FormattedOutput:
             parts.append("</details>")
             parts.append("")
         
-        # Main content
         if self.main_content:
             parts.append(self.main_content)
             parts.append("")
         
-        # Sections
         for section in self.sections:
             parts.append(section.to_markdown())
             parts.append("")
         
-        # Sources
         if self.sources:
             parts.append("### 📚 Sources")
             for i, source in enumerate(self.sources, 1):
@@ -111,7 +104,6 @@ class FormattedOutput:
                     parts.append(f"{i}. {title}")
             parts.append("")
         
-        # Files
         if self.files:
             parts.append("### 📁 Generated Files")
             for file in self.files:
@@ -121,49 +113,17 @@ class FormattedOutput:
                 parts.append(f"• **{filename}** ({file_type}) - {size}")
             parts.append("")
         
-        # Follow-up questions
         if self.follow_up_questions:
             parts.append("### 💡 You might also want to know")
             for question in self.follow_up_questions:
                 parts.append(f"• {question}")
             parts.append("")
         
-        # Closing
         if self.closing:
             parts.append("---")
             parts.append(self.closing)
         
         return "\n".join(parts)
-    
-    def to_html(self) -> str:
-        """Convert to HTML format."""
-        # Convert markdown to basic HTML
-        md = self.to_markdown()
-        
-        # Basic markdown to HTML conversion
-        html = md
-        
-        # Headers
-        html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
-        html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
-        html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
-        
-        # Bold
-        html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
-        
-        # Italic
-        html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
-        
-        # Links
-        html = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', html)
-        
-        # Bullet points
-        html = re.sub(r'^• (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
-        
-        # Paragraphs
-        html = re.sub(r'\n\n', r'</p><p>', html)
-        
-        return f"<div class='mcleuker-output'><p>{html}</p></div>"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -192,16 +152,8 @@ class FormattedOutput:
 class OutputFormatter:
     """
     Output formatter for creating Manus AI-style responses.
-    
-    Creates well-structured, visually appealing responses with:
-    - Appropriate emojis
-    - Clear sections
-    - Reasoning display
-    - Source citations
-    - Follow-up suggestions
     """
     
-    # Emoji mappings for different content types
     EMOJIS = {
         "overview": "📋",
         "summary": "📝",
@@ -236,6 +188,52 @@ class OutputFormatter:
         "weather": "🌤️",
     }
     
+    # Topic-specific follow-up templates
+    FOLLOW_UP_TEMPLATES = {
+        "fashion": [
+            "What are the latest fashion trends for this season?",
+            "Which designers are leading this movement?",
+            "How can I incorporate this into my wardrobe?",
+            "What are the price ranges for these items?"
+        ],
+        "technology": [
+            "What are the technical specifications?",
+            "How does this compare to competitors?",
+            "What are the pros and cons?",
+            "When will this be available?"
+        ],
+        "business": [
+            "What are the market implications?",
+            "Who are the key players in this space?",
+            "What are the investment opportunities?",
+            "What are the risks involved?"
+        ],
+        "travel": [
+            "What's the best time to visit?",
+            "What are the must-see attractions?",
+            "What's the estimated budget?",
+            "Are there any travel advisories?"
+        ],
+        "food": [
+            "What are the popular dishes to try?",
+            "Are there vegetarian/vegan options?",
+            "What's the price range?",
+            "Do I need reservations?"
+        ],
+        "health": [
+            "What are the potential side effects?",
+            "How long does treatment take?",
+            "Are there alternative treatments?",
+            "What does the research say?"
+        ],
+        "general": [
+            "Can you provide more details?",
+            "What are the alternatives?",
+            "What are the pros and cons?",
+            "How does this compare to others?"
+        ]
+    }
+    
     def __init__(self):
         pass
     
@@ -248,31 +246,16 @@ class OutputFormatter:
         files: Optional[List[Dict[str, Any]]] = None,
         context: Optional[Dict[str, Any]] = None
     ) -> FormattedOutput:
-        """
-        Format a response with proper structure and styling.
-        
-        Args:
-            content: The main content to format
-            style: Output style to use
-            reasoning: Optional reasoning process to display
-            sources: Optional list of sources
-            files: Optional list of generated files
-            context: Optional context for personalization
-            
-        Returns:
-            FormattedOutput with structured response
-        """
+        """Format a response with proper structure and styling."""
         output = FormattedOutput(style=style)
         
-        # Add greeting based on style
         if style == OutputStyle.CONVERSATIONAL:
             output.greeting = self._generate_greeting(context)
         
-        # Add reasoning display
         if reasoning:
             output.reasoning_display = self._format_reasoning(reasoning)
         
-        # Parse and structure the content
+        # Parse content into sections
         sections = self._parse_content_into_sections(content)
         
         if sections:
@@ -280,20 +263,14 @@ class OutputFormatter:
         else:
             output.main_content = content
         
-        # Add sources
         if sources:
             output.sources = sources
         
-        # Add files
         if files:
             output.files = files
         
-        # Generate follow-up questions
-        output.follow_up_questions = self._generate_follow_ups(content, context)
-        
-        # Add closing
-        if style in [OutputStyle.PROFESSIONAL, OutputStyle.DETAILED]:
-            output.closing = self._generate_closing(context)
+        # Generate contextual follow-up questions
+        output.follow_up_questions = self._generate_contextual_follow_ups(content)
         
         return output
     
@@ -304,32 +281,18 @@ class OutputFormatter:
         sources: List[Dict[str, str]],
         is_real_time: bool = True
     ) -> FormattedOutput:
-        """Format a search response."""
+        """Format a search response with the actual answer content."""
         output = FormattedOutput(style=OutputStyle.DETAILED)
         
-        # Greeting
-        output.greeting = f"🔍 Here's what I found about **{query}**:"
-        
-        # Main content
+        # Set the main content to the actual answer
         output.main_content = answer
         
-        # Add sources
-        output.sources = sources
+        # Add sources if available
+        if sources:
+            output.sources = sources
         
-        # Add real-time indicator
-        if is_real_time:
-            output.sections.append(FormattedSection(
-                title="Information Status",
-                emoji="🕐",
-                content="This information is based on real-time web search results."
-            ))
-        
-        # Generate follow-ups
-        output.follow_up_questions = [
-            f"Tell me more about {query}",
-            f"What are the latest updates on {query}?",
-            f"Compare different aspects of {query}"
-        ]
+        # Generate contextual follow-up questions based on the answer
+        output.follow_up_questions = self._generate_contextual_follow_ups(answer, query)
         
         return output
     
@@ -342,78 +305,14 @@ class OutputFormatter:
         output = FormattedOutput(style=OutputStyle.PROFESSIONAL)
         
         output.greeting = "✅ I've generated the requested files for you!"
-        
         output.main_content = description
-        
         output.files = files
         
-        # Add download instructions
         output.sections.append(FormattedSection(
             title="Download Instructions",
             emoji="📥",
             content="Click on the file names above to download. The files are ready for immediate use."
         ))
-        
-        return output
-    
-    def format_list_response(
-        self,
-        title: str,
-        items: List[Dict[str, Any]],
-        item_format: str = "default"
-    ) -> FormattedOutput:
-        """Format a list response."""
-        output = FormattedOutput(style=OutputStyle.DETAILED)
-        
-        output.greeting = f"📋 Here's the list of **{title}**:"
-        
-        # Format items into sections
-        for i, item in enumerate(items, 1):
-            name = item.get("name", f"Item {i}")
-            description = item.get("description", "")
-            details = item.get("details", {})
-            
-            section = FormattedSection(
-                title=f"{i}. {name}",
-                emoji=self._get_emoji_for_content(name),
-                content=description
-            )
-            
-            # Add details as bullet points
-            for key, value in details.items():
-                section.bullet_points.append(f"**{key}**: {value}")
-            
-            output.sections.append(section)
-        
-        return output
-    
-    def format_comparison_response(
-        self,
-        items: List[str],
-        comparison_data: Dict[str, Dict[str, Any]]
-    ) -> FormattedOutput:
-        """Format a comparison response."""
-        output = FormattedOutput(style=OutputStyle.DETAILED)
-        
-        output.greeting = f"⚖️ Here's a comparison of **{', '.join(items)}**:"
-        
-        # Create comparison sections
-        for item in items:
-            data = comparison_data.get(item, {})
-            
-            section = FormattedSection(
-                title=item,
-                emoji="📊",
-                content=data.get("summary", "")
-            )
-            
-            # Add pros/cons
-            if "pros" in data:
-                section.bullet_points.extend([f"✅ {p}" for p in data["pros"]])
-            if "cons" in data:
-                section.bullet_points.extend([f"❌ {c}" for c in data["cons"]])
-            
-            output.sections.append(section)
         
         return output
     
@@ -425,8 +324,6 @@ class OutputFormatter:
             "Thanks for asking! Here's the information you need:",
             "Let me look into that for you.",
         ]
-        
-        import random
         return random.choice(greetings)
     
     def _format_reasoning(self, reasoning: str) -> str:
@@ -437,7 +334,6 @@ class OutputFormatter:
         for line in lines:
             line = line.strip()
             if line:
-                # Add emoji to reasoning steps
                 if line.startswith(('1.', '2.', '3.', '4.', '5.')):
                     formatted_lines.append(f"🔹 {line}")
                 elif line.lower().startswith(('step', 'first', 'then', 'next', 'finally')):
@@ -448,112 +344,94 @@ class OutputFormatter:
         return '\n'.join(formatted_lines)
     
     def _parse_content_into_sections(self, content: str) -> List[FormattedSection]:
-        """Parse content into structured sections."""
+        """Parse content into formatted sections."""
         sections = []
         
-        # Try to find markdown-style headers
+        # Split by markdown headers
+        header_pattern = r'^(#{1,3})\s+(.+)$'
         lines = content.split('\n')
+        
         current_section = None
         current_content = []
         
         for line in lines:
-            line = line.strip()
+            header_match = re.match(header_pattern, line)
             
-            # Check for headers
-            if line.startswith('### '):
+            if header_match:
+                # Save previous section
                 if current_section:
-                    current_section.content = '\n'.join(current_content)
+                    current_section.content = '\n'.join(current_content).strip()
                     sections.append(current_section)
                 
-                title = line[4:].strip()
-                current_section = FormattedSection(
-                    title=title,
-                    emoji=self._get_emoji_for_content(title),
-                    content=""
-                )
+                # Start new section
+                title = header_match.group(2).strip()
+                emoji = self._get_emoji_for_content(title)
+                current_section = FormattedSection(title=title, emoji=emoji, content="")
                 current_content = []
-            
-            elif line.startswith('## '):
-                if current_section:
-                    current_section.content = '\n'.join(current_content)
-                    sections.append(current_section)
-                
-                title = line[3:].strip()
-                current_section = FormattedSection(
-                    title=title,
-                    emoji=self._get_emoji_for_content(title),
-                    content=""
-                )
-                current_content = []
-            
-            elif line.startswith('- ') or line.startswith('* ') or line.startswith('• '):
-                if current_section:
-                    current_section.bullet_points.append(line[2:].strip())
-            
-            elif line:
+            else:
                 current_content.append(line)
         
-        # Add last section
+        # Save last section
         if current_section:
-            current_section.content = '\n'.join(current_content)
+            current_section.content = '\n'.join(current_content).strip()
             sections.append(current_section)
         
         return sections
     
-    def _get_emoji_for_content(self, content: str) -> str:
+    def _get_emoji_for_content(self, text: str) -> str:
         """Get appropriate emoji for content."""
-        content_lower = content.lower()
+        text_lower = text.lower()
         
         for keyword, emoji in self.EMOJIS.items():
-            if keyword in content_lower:
+            if keyword in text_lower:
                 return emoji
+        
+        # Default emojis based on common patterns
+        if any(word in text_lower for word in ['trend', 'style', 'wear', 'outfit']):
+            return "👗"
+        if any(word in text_lower for word in ['price', 'cost', 'budget', 'money']):
+            return "💰"
+        if any(word in text_lower for word in ['tip', 'advice', 'recommend']):
+            return "💡"
+        if any(word in text_lower for word in ['list', 'top', 'best']):
+            return "📋"
+        if any(word in text_lower for word in ['step', 'how', 'guide']):
+            return "📝"
         
         return "📌"
     
-    def _generate_follow_ups(
-        self,
-        content: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[str]:
-        """Generate follow-up questions."""
-        follow_ups = []
-        
-        # Extract topics from content
+    def _detect_topic(self, content: str) -> str:
+        """Detect the main topic from content."""
         content_lower = content.lower()
         
-        if "fashion" in content_lower:
-            follow_ups.append("What are the latest fashion trends?")
+        topic_keywords = {
+            "fashion": ["fashion", "style", "wear", "outfit", "designer", "clothing", "trend"],
+            "technology": ["tech", "software", "app", "device", "digital", "ai", "computer"],
+            "business": ["business", "market", "company", "invest", "finance", "economy"],
+            "travel": ["travel", "trip", "destination", "hotel", "flight", "vacation"],
+            "food": ["food", "restaurant", "recipe", "cuisine", "dish", "meal"],
+            "health": ["health", "medical", "treatment", "symptom", "doctor", "wellness"]
+        }
         
-        if "restaurant" in content_lower or "food" in content_lower:
-            follow_ups.append("What are the best dishes to try?")
+        for topic, keywords in topic_keywords.items():
+            if any(kw in content_lower for kw in keywords):
+                return topic
         
-        if "shop" in content_lower or "store" in content_lower:
-            follow_ups.append("What are the price ranges?")
-        
-        if "travel" in content_lower:
-            follow_ups.append("What's the best time to visit?")
-        
-        # Default follow-ups
-        if not follow_ups:
-            follow_ups = [
-                "Can you tell me more about this?",
-                "What are the alternatives?",
-                "How does this compare to others?"
-            ]
-        
-        return follow_ups[:3]
+        return "general"
     
-    def _generate_closing(self, context: Optional[Dict[str, Any]] = None) -> str:
-        """Generate a closing message."""
-        closings = [
-            "Is there anything else you'd like to know?",
-            "Feel free to ask if you need more details!",
-            "Let me know if you have any other questions!",
-            "I'm here to help if you need anything else!",
-        ]
+    def _generate_contextual_follow_ups(
+        self,
+        content: str,
+        original_query: str = ""
+    ) -> List[str]:
+        """Generate contextually relevant follow-up questions."""
+        topic = self._detect_topic(content)
+        templates = self.FOLLOW_UP_TEMPLATES.get(topic, self.FOLLOW_UP_TEMPLATES["general"])
         
-        import random
-        return random.choice(closings)
+        # Select 3 random follow-ups from the topic
+        follow_ups = random.sample(templates, min(3, len(templates)))
+        
+        return follow_ups
 
 
 # Global formatter instance
