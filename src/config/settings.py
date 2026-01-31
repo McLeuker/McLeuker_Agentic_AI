@@ -1,8 +1,5 @@
 """
 McLeuker Agentic AI Platform - Configuration Settings
-
-This module contains all configuration settings for the platform,
-loaded from environment variables.
 """
 
 import os
@@ -19,119 +16,94 @@ class Settings(BaseSettings):
     # ============================================
     
     APP_NAME: str = "McLeuker Agentic AI Platform"
-    APP_VERSION: str = Field(default="1.0.0", alias="APP_VERSION")
-    DEBUG: bool = Field(default=True, alias="DEBUG")
-    HOST: str = Field(default="0.0.0.0", alias="HOST")
-    PORT: int = Field(default=8000, alias="PORT")
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = True
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
     
-    # CORS - Default to * if not provided to avoid split error
-    CORS_ORIGINS: str = Field(
-        default="*",
-        alias="CORS_ORIGINS"
-    )
+    # CORS - Using a simple string, we will split it safely in a property
+    CORS_ORIGINS: str = "*"
     
     # ============================================
     # LLM PROVIDERS
     # ============================================
     
-    # OpenAI
-    OPENAI_API_KEY: Optional[str] = Field(default=None)
-    OPENAI_MODEL: str = Field(default="gpt-4o")
-    OPENAI_API_BASE: str = Field(default="https://api.openai.com/v1", alias="OPENAI_API_BASE")
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_API_BASE: str = "https://api.openai.com/v1"
     
-    # Grok (xAI)
-    GROK_API_KEY: Optional[str] = Field(default=None)
-    GROK_MODEL: str = Field(default="grok-2-latest")
-    GROK_API_BASE: str = Field(default="https://api.x.ai/v1", alias="GROK_API_BASE")
+    GROK_API_KEY: Optional[str] = None
+    GROK_MODEL: str = "grok-2-latest"
+    GROK_API_BASE: str = "https://api.x.ai/v1"
     
-    # Hugging Face
-    HUGGINGFACE_API_KEY: Optional[str] = Field(default=None)
+    HUGGINGFACE_API_KEY: Optional[str] = None
+    PERPLEXITY_API_KEY: Optional[str] = None
+    DEEPSEEK_API_KEY: Optional[str] = None
     
-    # Perplexity AI
-    PERPLEXITY_API_KEY: Optional[str] = Field(default=None)
+    DEFAULT_LLM_PROVIDER: str = "openai"
     
-    # DeepSeek
-    DEEPSEEK_API_KEY: Optional[str] = Field(default=None)
-    
-    # Default LLM Provider
-    DEFAULT_LLM_PROVIDER: str = Field(default="openai")
-    
-    # LLM Settings
-    LLM_TEMPERATURE: float = Field(default=0.1)
-    LLM_MAX_TOKENS: int = Field(default=4096)
+    LLM_TEMPERATURE: float = 0.1
+    LLM_MAX_TOKENS: int = 4096
     
     # ============================================
     # SEARCH & RESEARCH APIs
     # ============================================
     
-    # Google Search
-    GOOGLE_SEARCH_API_KEY: Optional[str] = Field(default=None)
+    GOOGLE_SEARCH_API_KEY: Optional[str] = None
+    BING_API_KEY: Optional[str] = None
+    FIRECRAWL_API_KEY: Optional[str] = None
+    SERPER_API_KEY: Optional[str] = None
+    TAVILY_API_KEY: Optional[str] = None
     
-    # Bing Search
-    BING_API_KEY: Optional[str] = Field(default=None)
-    
-    # Firecrawl (Web Scraping)
-    FIRECRAWL_API_KEY: Optional[str] = Field(default=None)
-    
-    # Serper (Google Search API)
-    SERPER_API_KEY: Optional[str] = Field(default=None)
-    
-    # Tavily (AI Search)
-    TAVILY_API_KEY: Optional[str] = Field(default=None)
-    
-    # Web Research Settings
-    MAX_SEARCH_RESULTS: int = Field(default=10)
-    SCRAPE_TIMEOUT: int = Field(default=30)
+    MAX_SEARCH_RESULTS: int = 10
+    SCRAPE_TIMEOUT: int = 30
     
     # ============================================
-    # AUTHENTICATION
+    # AUTHENTICATION & SUPABASE
     # ============================================
     
-    # Google OAuth
-    GOOGLE_CLIENT_ID: Optional[str] = Field(default=None)
-    GOOGLE_CLIENT_SECRET: Optional[str] = Field(default=None)
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
     
-    # Supabase
-    SUPABASE_URL: Optional[str] = Field(default=None)
-    SUPABASE_ANON_KEY: Optional[str] = Field(default=None)
-    SUPABASE_SERVICE_KEY: Optional[str] = Field(default=None)
-    SUPABASE_REDIRECT_URI: Optional[str] = Field(default=None)
+    SUPABASE_URL: Optional[str] = None
+    SUPABASE_ANON_KEY: Optional[str] = None
+    SUPABASE_SERVICE_KEY: Optional[str] = None
+    SUPABASE_REDIRECT_URI: Optional[str] = None
     
     # ============================================
     # PAYMENTS (Stripe)
     # ============================================
     
-    STRIPE_SECRET_KEY: Optional[str] = Field(default=None)
-    STRIPE_PUBLISHABLE_KEY: Optional[str] = Field(default=None)
-    STRIPE_RESTRICTED_KEY: Optional[str] = Field(default=None)
-    STRIPE_WEBHOOK_SECRET: Optional[str] = Field(default=None)
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = None
+    STRIPE_RESTRICTED_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
     
     # ============================================
     # MEDIA & VOICE
     # ============================================
     
-    # ElevenLabs (Text-to-Speech)
-    ELEVENLABS_API_KEY: Optional[str] = Field(default=None)
+    ELEVENLABS_API_KEY: Optional[str] = None
     
     # ============================================
     # DIRECTORIES
     # ============================================
     
-    OUTPUT_DIR: str = Field(default="./outputs")
-    TEMP_DIR: str = Field(default="./temp")
+    OUTPUT_DIR: str = "./outputs"
+    TEMP_DIR: str = "./temp"
     
     # ============================================
     # DATABASE
     # ============================================
     
-    DATABASE_URL: Optional[str] = Field(default=None)
+    DATABASE_URL: Optional[str] = None
     
     # ============================================
     # RATE LIMITING
     # ============================================
     
-    RATE_LIMIT_REQUESTS: int = Field(default=100)
-    RATE_LIMIT_PERIOD: int = Field(default=60)  # seconds
+    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_PERIOD: int = 60
     
     class Config:
         env_file = ".env"
@@ -141,10 +113,14 @@ class Settings(BaseSettings):
     
     @property
     def cors_origins_list(self) -> List[str]:
-        """Parse CORS origins from comma-separated string."""
-        if not self.CORS_ORIGINS:
+        """Safely parse CORS origins."""
+        try:
+            val = os.getenv("CORS_ORIGINS", "*")
+            if not val:
+                return ["*"]
+            return [origin.strip() for origin in val.split(",")]
+        except Exception:
             return ["*"]
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
     
     def get_llm_config(self, provider: Optional[str] = None) -> dict:
         """Get configuration for the specified LLM provider."""
@@ -206,34 +182,10 @@ class Settings(BaseSettings):
     
     def validate_required_keys(self) -> dict:
         """Validate that required API keys are present."""
-        status = {
-            "llm": {
-                "openai": bool(self.OPENAI_API_KEY),
-                "grok": bool(self.GROK_API_KEY),
-                "perplexity": bool(self.PERPLEXITY_API_KEY),
-                "huggingface": bool(self.HUGGINGFACE_API_KEY),
-            },
-            "search": {
-                "google": bool(self.GOOGLE_SEARCH_API_KEY),
-                "bing": bool(self.BING_API_KEY),
-                "firecrawl": bool(self.FIRECRAWL_API_KEY),
-            },
-            "auth": {
-                "google_oauth": bool(self.GOOGLE_CLIENT_ID and self.GOOGLE_CLIENT_SECRET),
-            },
-            "payments": {
-                "stripe": bool(self.STRIPE_SECRET_KEY),
-            },
-            "media": {
-                "elevenlabs": bool(self.ELEVENLABS_API_KEY),
-            },
+        return {
+            "has_llm": bool(self.OPENAI_API_KEY or self.GROK_API_KEY),
+            "has_search": bool(self.GOOGLE_SEARCH_API_KEY or self.FIRECRAWL_API_KEY)
         }
-        
-        # Check if at least one LLM is configured
-        status["has_llm"] = any(status["llm"].values())
-        status["has_search"] = any(status["search"].values())
-        
-        return status
 
 
 # Global settings instance
