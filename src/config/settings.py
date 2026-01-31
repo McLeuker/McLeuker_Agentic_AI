@@ -20,11 +20,11 @@ class Settings(BaseSettings):
     
     APP_NAME: str = "McLeuker Agentic AI Platform"
     APP_VERSION: str = Field(default="1.0.0", alias="APP_VERSION")
-    DEBUG: bool = Field(default=False, alias="DEBUG")
+    DEBUG: bool = Field(default=True, alias="DEBUG")
     HOST: str = Field(default="0.0.0.0", alias="HOST")
     PORT: int = Field(default=8000, alias="PORT")
     
-    # CORS
+    # CORS - Default to * if not provided to avoid split error
     CORS_ORIGINS: str = Field(
         default="*",
         alias="CORS_ORIGINS"
@@ -142,6 +142,8 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""
+        if not self.CORS_ORIGINS:
+            return ["*"]
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
     
     def get_llm_config(self, provider: Optional[str] = None) -> dict:
