@@ -1,86 +1,86 @@
 """
-McLeuker Agentic AI Platform - FastAPI Backend v2.1
+McLeuker Fashion AI Platform - V3.1
+The Frontier Agentic AI for Fashion, Beauty, Lifestyle, and Culture.
 
-Complete agentic AI platform with:
-- 5-layer reasoning system
-- Conversation memory
-- Real-time web search (fixed)
-- Professional file generation
-- Structured output formatting
-
-Similar to Manus AI and ChatGPT capabilities.
+Powered by:
+- Grok (Unified Reasoning Brain)
+- Parallel Search (Google, Bing, Perplexity, Exa.ai)
+- Web Action (Browserless, Firecrawl)
+- Analyst (E2B Sandbox)
+- Image Generation (Nano Banana)
 """
 
-import os
-import json
 import asyncio
-import traceback
-from typing import Optional, List, Dict, Any
+import json
+import uuid
+import os
 from datetime import datetime
+from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from src.config.settings import get_settings
-from src.memory.conversation_memory import (
-    Conversation,
-    ConversationMemoryStore,
-    get_memory_store
-)
-from src.memory.context_extractor import ContextExtractor
-from src.reasoning.reasoning_engine import ReasoningEngine, ReasoningChain
-from src.search.web_search import MultiProviderSearch, get_search_system
-from src.files.excel_generator import ProfessionalExcelGenerator, ExcelSheet, get_excel_generator
-from src.files.pdf_generator import ProfessionalPDFGenerator, PDFSection, get_pdf_generator
-from src.files.word_generator import ProfessionalWordGenerator, WordSection, get_word_generator
-from src.output.formatter import OutputFormatter, OutputStyle, get_formatter
-from src.utils.llm_provider import LLMProvider, LLMFactory
+from src.config.settings import settings
+from src.core.orchestrator import V31Orchestrator, orchestrator
+from src.layers.search.parallel_search import parallel_search
+from src.layers.action.web_action import action_layer
+from src.layers.analyst.code_executor import analyst_layer
+from src.layers.output.image_generator import output_layer
 
 
 # ============================================================================
-# Request/Response Models
+# Pydantic Models
 # ============================================================================
+
+class ChatMessage(BaseModel):
+    role: str = Field(..., description="Message role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+
 
 class ChatRequest(BaseModel):
-    """Request model for chat interaction."""
-    message: str = Field(..., description="The user's message")
-    conversation_id: Optional[str] = Field(None, description="Conversation ID for context")
-    user_id: Optional[str] = Field(None, description="User ID")
-    mode: str = Field("quick", description="Chat mode: quick, deep, or auto")
+    message: str = Field(..., description="User message")
+    session_id: Optional[str] = Field(None, description="Session ID for conversation continuity")
+    user_id: Optional[str] = Field(None, description="User ID for credit tracking")
+    conversation_history: Optional[List[ChatMessage]] = Field(default=[], description="Previous messages")
+    mode: Optional[str] = Field("auto", description="Mode: 'quick', 'deep', or 'auto'")
 
 
 class ChatResponse(BaseModel):
-    """Response model for chat."""
-    message: str
-    conversation_id: str
-    reasoning: Optional[str] = None
-    sources: Optional[List[Dict[str, str]]] = None
-    files: Optional[List[Dict[str, Any]]] = None
-    follow_up_questions: Optional[List[str]] = None
-    credits_used: int = 5
-    mode: str = "quick"
+    success: bool
+    response: str
+    session_id: str
+    reasoning: List[str] = []
+    sources: List[Dict] = []
+    files: List[Dict] = []
+    images: List[str] = []
+    follow_up_questions: List[str] = []
+    credits_used: int = 0
+    needs_user_input: bool = False
+    user_input_prompt: Optional[str] = None
+    error: Optional[str] = None
 
 
 class SearchRequest(BaseModel):
-    """Request model for AI search."""
-    query: str = Field(..., description="The search query")
-    mode: str = Field("quick", description="Search mode: quick or deep")
-    num_results: int = Field(10, description="Number of results")
+    query: str = Field(..., description="Search query")
+    providers: Optional[List[str]] = Field(None, description="Specific providers to use")
 
 
 class FileGenerationRequest(BaseModel):
-    """Request model for file generation."""
-    content: str = Field(..., description="Content to generate file from")
-    file_type: str = Field("excel", description="File type: excel, pdf, word")
-    title: Optional[str] = Field(None, description="Document title")
-    data: Optional[List[Dict[str, Any]]] = Field(None, description="Structured data for Excel")
+    type: str = Field(..., description="File type: 'excel', 'pdf', 'word'")
+    title: str = Field(..., description="File title")
+    data: Dict = Field(..., description="Data to include in the file")
+
+
+class ImageGenerationRequest(BaseModel):
+    prompt: str = Field(..., description="Image generation prompt")
+    style: Optional[str] = Field("fashion", description="Style: fashion, streetwear, luxury, etc.")
+    num_images: Optional[int] = Field(1, description="Number of images to generate")
 
 
 class HealthResponse(BaseModel):
-    """Response model for health check."""
     status: str
     version: str
     timestamp: str
@@ -91,67 +91,46 @@ class HealthResponse(BaseModel):
 # Application Setup
 # ============================================================================
 
-# Global instances
-memory_store: Optional[ConversationMemoryStore] = None
-llm_provider: Optional[LLMProvider] = None
-search_system: Optional[MultiProviderSearch] = None
-reasoning_engine: Optional[ReasoningEngine] = None
-context_extractor: Optional[ContextExtractor] = None
-output_formatter: Optional[OutputFormatter] = None
-excel_generator: Optional[ProfessionalExcelGenerator] = None
-pdf_generator: Optional[ProfessionalPDFGenerator] = None
-word_generator: Optional[ProfessionalWordGenerator] = None
+# In-memory session storage (use Redis/Supabase in production)
+sessions: Dict[str, Dict] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global memory_store, llm_provider, search_system, reasoning_engine
-    global context_extractor, output_formatter
-    global excel_generator, pdf_generator, word_generator
+    # Startup
+    print("🚀 McLeuker Fashion AI Platform V3.1 starting...")
+    print(f"✅ Grok configured: {bool(settings.XAI_API_KEY)}")
+    print(f"✅ Search configured: {bool(settings.PERPLEXITY_API_KEY or settings.EXA_API_KEY)}")
+    print(f"✅ Action configured: {bool(settings.BROWSERLESS_API_KEY)}")
+    print(f"✅ Analyst configured: {bool(settings.E2B_API_KEY)}")
+    print(f"✅ Image Gen configured: {bool(settings.NANO_BANANA_API_KEY)}")
     
-    settings = get_settings()
-    
-    # Create directories
-    os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
-    os.makedirs(settings.TEMP_DIR, exist_ok=True)
-    
-    print("🚀 McLeuker AI Platform v2.1 starting...")
-    
-    # Initialize components
-    memory_store = get_memory_store()
-    llm_provider = LLMFactory.get_default()
-    search_system = get_search_system(llm_provider)
-    reasoning_engine = ReasoningEngine(llm_provider)
-    context_extractor = ContextExtractor(llm_provider)
-    output_formatter = get_formatter()
-    excel_generator = get_excel_generator(settings.OUTPUT_DIR)
-    pdf_generator = get_pdf_generator(settings.OUTPUT_DIR)
-    word_generator = get_word_generator(settings.OUTPUT_DIR)
-    
-    # Validate API keys
-    key_status = settings.validate_required_keys()
-    print(f"✅ LLM configured: {key_status['has_llm']}")
-    print(f"✅ Search configured: {key_status['has_search']}")
-    print(f"✅ Perplexity configured: {key_status.get('has_perplexity', False)}")
+    # Initialize orchestrator with layers
+    orchestrator.set_layers(
+        search=parallel_search,
+        action=action_layer,
+        analyst=analyst_layer,
+        output=output_layer
+    )
     
     yield
     
-    print("👋 McLeuker AI Platform shutting down...")
+    # Shutdown
+    print("👋 McLeuker Fashion AI Platform shutting down...")
 
 
 app = FastAPI(
-    title="McLeuker Agentic AI Platform",
-    description="Frontier-level AI platform with reasoning, memory, and file generation",
-    version="2.1.0",
+    title="McLeuker Fashion AI Platform",
+    description="Frontier Agentic AI for Fashion, Beauty, Lifestyle, and Culture",
+    version="3.1.0",
     lifespan=lifespan
 )
 
-# CORS middleware
-settings = get_settings()
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -162,505 +141,266 @@ app.add_middleware(
 # Health & Status Endpoints
 # ============================================================================
 
-@app.get("/", response_model=HealthResponse)
-async def root():
-    """Root endpoint - health check."""
-    settings = get_settings()
-    key_status = settings.validate_required_keys()
-    
-    return HealthResponse(
-        status="healthy",
-        version="2.1.0",
-        timestamp=datetime.utcnow().isoformat(),
-        services=key_status
-    )
-
-
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    return await root()
+    return HealthResponse(
+        status="healthy",
+        version="3.1.0",
+        timestamp=datetime.utcnow().isoformat(),
+        services={
+            "grok": bool(settings.XAI_API_KEY),
+            "perplexity": bool(settings.PERPLEXITY_API_KEY),
+            "exa": bool(settings.EXA_API_KEY),
+            "browserless": bool(settings.BROWSERLESS_API_KEY),
+            "e2b": bool(settings.E2B_API_KEY),
+            "nano_banana": bool(settings.NANO_BANANA_API_KEY)
+        }
+    )
 
 
 @app.get("/api/status")
-async def get_status():
-    """Get platform status."""
-    settings = get_settings()
-    key_status = settings.validate_required_keys()
-    
+async def api_status():
+    """Detailed API status."""
     return {
-        "status": "operational",
-        "version": "2.1.0",
-        "services": key_status,
-        "features": {
-            "conversation_memory": True,
-            "real_time_search": key_status.get("has_perplexity", False) or key_status.get("has_search", False),
-            "file_generation": True,
-            "reasoning_display": True
+        "platform": "McLeuker Fashion AI",
+        "version": "3.1.0",
+        "architecture": "V3.1 Killer Blueprint",
+        "brain": "Grok (Unified)",
+        "layers": {
+            "reasoning": "Grok XAI",
+            "search": ["Google", "Bing", "Perplexity", "Exa.ai", "Grok Real-time"],
+            "action": ["Browserless", "Firecrawl"],
+            "analyst": "E2B Sandbox",
+            "output": "Nano Banana"
         },
+        "focus_areas": [
+            "Fashion", "Beauty", "Textile", "Skincare", 
+            "Lifestyle", "Tech", "Sustainability", "Culture", "Catwalks"
+        ],
         "timestamp": datetime.utcnow().isoformat()
     }
 
 
 # ============================================================================
-# Chat Endpoints - Main Interaction
+# Main Chat Endpoint
 # ============================================================================
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
-    Main chat endpoint with full agentic capabilities.
-    
-    Features:
-    - Conversation memory (remembers previous messages)
-    - Real-time web search when needed
-    - File generation on request
-    - Structured reasoning display
+    Main chat endpoint.
+    Processes user queries through the V3.1 orchestrator.
     """
-    global memory_store, llm_provider, search_system, reasoning_engine
-    global context_extractor, output_formatter
     
-    print(f"Chat request: {request.message[:100]}...")
+    # Generate or use existing session ID
+    session_id = request.session_id or str(uuid.uuid4())
+    user_id = request.user_id or "anonymous"
     
-    # Get or create conversation
-    conversation = memory_store.get_or_create_conversation(
-        request.conversation_id,
-        request.user_id
-    )
+    # Get or create session
+    if session_id not in sessions:
+        sessions[session_id] = {
+            "user_id": user_id,
+            "created_at": datetime.utcnow().isoformat(),
+            "conversation_history": [],
+            "credits_used": 0
+        }
     
-    # Add user message to memory
-    conversation.add_message("user", request.message)
+    session = sessions[session_id]
     
-    # Extract and update context
-    await context_extractor.extract_context(conversation, request.message)
-    
-    # Analyze the query with reasoning engine
-    reasoning_chain = await reasoning_engine.analyze_query(
-        request.message,
-        {"topics": conversation.context.topics, "entities": conversation.context.entities}
-    )
-    
-    # Determine credits and mode
-    mode = request.mode
-    credits_used = 5 if mode == "quick" else 50
-    
-    # Build response
-    response_data = {
-        "message": "",
-        "conversation_id": conversation.id,
-        "reasoning": None,
-        "sources": None,
-        "files": None,
-        "follow_up_questions": [],
-        "credits_used": credits_used,
-        "mode": mode
-    }
+    # Build conversation history
+    history = []
+    if request.conversation_history:
+        history = [{"role": m.role, "content": m.content} for m in request.conversation_history]
+    elif session.get("conversation_history"):
+        history = session["conversation_history"]
     
     try:
-        # Check if file generation is needed FIRST (higher priority)
-        if reasoning_chain.requires_file_generation:
-            print(f"File generation requested: {reasoning_chain.output_format}")
-            file_result = await _generate_file_from_request(
-                request.message,
-                reasoning_chain.output_format,
-                conversation
-            )
-            
-            if file_result:
-                formatted = output_formatter.format_file_generation_response(
-                    [file_result],
-                    f"I've created the {reasoning_chain.output_format} file based on your request."
-                )
-                response_data["message"] = formatted.to_markdown()
-                response_data["files"] = formatted.files
-                response_data["follow_up_questions"] = ["What other data would you like to export?", "Would you like me to modify this file?", "Need a different format?"]
-                credits_used = 50
-            else:
-                response_data["message"] = "I encountered an issue generating the file. Please try again with more specific data."
-        
-        # Check if real-time search is needed
-        elif reasoning_chain.requires_search or mode == "deep":
-            print(f"Search triggered for: {request.message[:50]}...")
-            
-            # Perform real-time search
-            search_result = await search_system.smart_search(request.message)
-            
-            answer = search_result.get("answer", "")
-            sources = search_result.get("sources", [])
-            provider = search_result.get("provider", "unknown")
-            
-            print(f"Search result from {provider}: {len(answer)} chars, {len(sources)} sources")
-            
-            if answer and len(answer) > 50:
-                # We got a good answer - format it properly
-                formatted = output_formatter.format_search_response(
-                    request.message,
-                    answer,
-                    [{"title": f"Source {i+1}", "url": s} for i, s in enumerate(sources[:5]) if isinstance(s, str)],
-                    is_real_time=search_result.get("is_real_time", True)
-                )
-                
-                response_data["message"] = formatted.to_markdown()
-                response_data["sources"] = formatted.sources
-                response_data["follow_up_questions"] = formatted.follow_up_questions
-            else:
-                # Search didn't return good results, fall back to LLM
-                print("Search returned insufficient results, falling back to LLM")
-                response_text = await _generate_contextual_response(
-                    request.message,
-                    conversation,
-                    mode
-                )
-                
-                formatted = output_formatter.format_response(
-                    response_text,
-                    style=OutputStyle.DETAILED,
-                    reasoning=reasoning_chain.to_display() if mode == "deep" else None
-                )
-                
-                response_data["message"] = formatted.to_markdown()
-                response_data["follow_up_questions"] = formatted.follow_up_questions
-            
-            # Show reasoning if deep mode
-            if mode == "deep":
-                response_data["reasoning"] = reasoning_chain.to_display()
-                credits_used = 100
-        
-        else:
-            # Regular conversation with context
-            print("Regular conversation mode")
-            response_text = await _generate_contextual_response(
-                request.message,
-                conversation,
-                mode
-            )
-            
-            formatted = output_formatter.format_response(
-                response_text,
-                style=OutputStyle.CONVERSATIONAL if mode == "quick" else OutputStyle.DETAILED,
-                reasoning=reasoning_chain.to_display() if mode == "deep" else None
-            )
-            
-            response_data["message"] = formatted.to_markdown()
-            response_data["follow_up_questions"] = formatted.follow_up_questions
-            
-            if mode == "deep":
-                response_data["reasoning"] = reasoning_chain.to_display()
-        
-        # Add assistant response to memory
-        conversation.add_message("assistant", response_data["message"])
-        
-        response_data["credits_used"] = credits_used
-        
-    except Exception as e:
-        print(f"Chat error: {e}")
-        traceback.print_exc()
-        response_data["message"] = f"I apologize, but I encountered an error processing your request. Please try again."
-        response_data["follow_up_questions"] = ["Can you rephrase your question?", "Would you like to try a different topic?"]
-        conversation.add_message("assistant", response_data["message"])
-    
-    return ChatResponse(**response_data)
-
-
-async def _generate_contextual_response(
-    message: str,
-    conversation: Conversation,
-    mode: str
-) -> str:
-    """Generate a response with full conversation context."""
-    global llm_provider, context_extractor
-    
-    # Build context prompt
-    context_prompt = context_extractor.build_context_prompt(conversation)
-    
-    # Get conversation history
-    history_messages = conversation.get_messages_for_llm(max_messages=10)
-    
-    # Build system prompt
-    system_prompt = f"""You are McLeuker AI, an advanced AI assistant with the following capabilities:
-- Deep knowledge across many domains
-- Real-time information access
-- File generation (Excel, PDF, Word)
-- Intelligent reasoning and analysis
-
-{context_prompt}
-
-Guidelines:
-1. ALWAYS remember and reference previous messages in this conversation
-2. Be helpful, accurate, and thorough
-3. Use emojis appropriately to make responses engaging (📌, 💡, ✅, etc.)
-4. Structure responses with clear sections using markdown headers (##, ###)
-5. Use bullet points (•) for lists
-6. If you don't know something current, say so and offer to search
-7. Provide specific, actionable information
-8. Format your response professionally
-
-Current date: {datetime.utcnow().strftime('%B %d, %Y')}"""
-
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history_messages)
-    messages.append({"role": "user", "content": message})
-    
-    # Generate response
-    response = await llm_provider.complete(
-        messages=messages,
-        temperature=0.7 if mode == "quick" else 0.5,
-        max_tokens=1500 if mode == "quick" else 2500
-    )
-    
-    return response.get("content", "I apologize, I couldn't generate a response.")
-
-
-async def _generate_file_from_request(
-    message: str,
-    file_type: str,
-    conversation: Conversation
-) -> Optional[Dict[str, Any]]:
-    """Generate a file based on the user's request."""
-    global llm_provider, excel_generator, pdf_generator, word_generator
-    
-    try:
-        # Extract data structure from message using LLM
-        extraction_prompt = f"""Extract structured data from this request for generating a {file_type} file:
-
-Request: {message}
-
-Provide the data in JSON format with:
-- "title": Document title
-- "data": Array of objects for the content (at least 5-10 items with realistic data)
-- "columns": Array of column names (for Excel)
-
-Example for Excel about fashion:
-{{"title": "Fashion Week Highlights 2026", "columns": ["Designer", "Collection", "Key Trend", "Rating"], "data": [{{"Designer": "Chanel", "Collection": "Spring 2026", "Key Trend": "Sustainable Luxury", "Rating": 4.8}}, {{"Designer": "Dior", "Collection": "Spring 2026", "Key Trend": "Neo-Romanticism", "Rating": 4.7}}]}}
-
-Generate realistic, detailed data based on the user's request. Respond ONLY with valid JSON."""
-
-        messages = [
-            {"role": "system", "content": "You are a data extraction assistant. Extract and generate structured data from requests. Always provide realistic, detailed data."},
-            {"role": "user", "content": extraction_prompt}
-        ]
-        
-        response = await llm_provider.complete(
-            messages=messages,
-            temperature=0.3,
-            max_tokens=2500
+        # Process through orchestrator
+        result = await orchestrator.process(
+            user_id=user_id,
+            session_id=session_id,
+            query=request.message,
+            conversation_history=history,
+            credits_available=100  # TODO: Get from Supabase
         )
         
-        content = response.get("content", "{}")
+        # Update session history
+        session["conversation_history"].append({"role": "user", "content": request.message})
+        if result.success:
+            session["conversation_history"].append({"role": "assistant", "content": result.response})
+        session["credits_used"] += result.credits_used
         
-        # Parse JSON
-        try:
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                data = json.loads(json_match.group())
-            else:
-                data = {"title": "Generated Document", "data": []}
-        except json.JSONDecodeError:
-            data = {"title": "Generated Document", "data": []}
+        # Keep only last 20 messages
+        if len(session["conversation_history"]) > 20:
+            session["conversation_history"] = session["conversation_history"][-20:]
         
-        title = data.get("title", "Generated Document")
+        return ChatResponse(
+            success=result.success,
+            response=result.response,
+            session_id=session_id,
+            reasoning=result.reasoning,
+            sources=result.sources,
+            files=result.files,
+            images=result.images,
+            follow_up_questions=result.follow_up_questions,
+            credits_used=result.credits_used,
+            needs_user_input=result.needs_user_input,
+            user_input_prompt=result.user_input_prompt,
+            error=result.error
+        )
         
-        # Generate file based on type
-        if file_type == "excel":
-            sheet = ExcelSheet(
-                name="Data",
-                data=data.get("data", []),
-                title=title
-            )
-            result = await excel_generator.generate([sheet])
-            
-            return {
-                "filename": result.filename,
-                "filepath": result.filepath,
-                "type": "Excel",
-                "size": f"{result.size_bytes} bytes"
-            }
-        
-        elif file_type == "pdf":
-            sections = [PDFSection(
-                title=title,
-                content=json.dumps(data.get("data", []), indent=2)
-            )]
-            result = await pdf_generator.generate(sections, title)
-            
-            return {
-                "filename": result.filename,
-                "filepath": result.filepath,
-                "type": "PDF",
-                "size": f"{result.size_bytes} bytes"
-            }
-        
-        elif file_type == "word":
-            sections = [WordSection(
-                title=title,
-                content=json.dumps(data.get("data", []), indent=2)
-            )]
-            result = await word_generator.generate(sections, title)
-            
-            return {
-                "filename": result.filename,
-                "filepath": result.filepath,
-                "type": "Word",
-                "size": f"{result.size_bytes} bytes"
-            }
-        
-        return None
-    
     except Exception as e:
-        print(f"File generation error: {e}")
-        traceback.print_exc()
-        return None
+        return ChatResponse(
+            success=False,
+            response="I encountered an error processing your request. Please try again.",
+            session_id=session_id,
+            error=str(e)
+        )
 
 
 # ============================================================================
-# Search Endpoints
+# Search Endpoint
 # ============================================================================
 
 @app.post("/api/search")
 async def search(request: SearchRequest):
-    """Direct search endpoint."""
-    global search_system
-    
-    result = await search_system.smart_search(request.query)
-    
-    return {
-        "query": request.query,
-        "answer": result.get("answer", ""),
-        "sources": result.get("sources", []),
-        "provider": result.get("provider", "unknown"),
-        "is_real_time": result.get("is_real_time", False)
-    }
-
-
-# ============================================================================
-# File Generation Endpoints
-# ============================================================================
-
-@app.post("/api/files/generate")
-async def generate_file(request: FileGenerationRequest):
-    """Generate a file from content."""
-    global excel_generator, pdf_generator, word_generator
+    """
+    Direct search endpoint.
+    Executes parallel search across all providers.
+    """
     
     try:
-        if request.file_type == "excel":
-            if request.data:
-                sheet = ExcelSheet(
-                    name="Data",
-                    data=request.data,
-                    title=request.title or "Generated Data"
-                )
-                result = await excel_generator.generate([sheet])
+        results = await parallel_search.parallel_search(request.query)
+        return {
+            "success": True,
+            "query": request.query,
+            "synthesized": results.get("synthesized", ""),
+            "sources": results.get("sources", []),
+            "providers_used": results.get("providers_used", [])
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# File Generation Endpoint
+# ============================================================================
+
+@app.post("/api/generate/file")
+async def generate_file(request: FileGenerationRequest):
+    """
+    File generation endpoint.
+    Creates Excel, PDF, or Word files.
+    """
+    
+    try:
+        if request.type.lower() == "excel":
+            result = await analyst_layer.excel_gen.generate(request.data, request.title)
+            
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "filename": result["filename"],
+                    "content_type": result["content_type"],
+                    "data": result["file_data"]
+                }
             else:
-                return {"error": "No data provided for Excel generation"}
-        
-        elif request.file_type == "pdf":
-            sections = [PDFSection(
-                title=request.title or "Document",
-                content=request.content
-            )]
-            result = await pdf_generator.generate(sections, request.title or "Document")
-        
-        elif request.file_type == "word":
-            sections = [WordSection(
-                title=request.title or "Document",
-                content=request.content
-            )]
-            result = await word_generator.generate(sections, request.title or "Document")
-        
+                raise HTTPException(status_code=500, detail=result.get("error"))
         else:
-            return {"error": f"Unsupported file type: {request.file_type}"}
+            raise HTTPException(status_code=400, detail=f"File type '{request.type}' not yet supported")
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Image Generation Endpoint
+# ============================================================================
+
+@app.post("/api/generate/image")
+async def generate_image(request: ImageGenerationRequest):
+    """
+    Image generation endpoint.
+    Creates fashion-focused images using Nano Banana.
+    """
+    
+    try:
+        images = await output_layer.generate_images(
+            request.prompt, 
+            request.num_images, 
+            request.style
+        )
         
         return {
             "success": True,
-            "filename": result.filename,
-            "filepath": result.filepath,
-            "size": result.size_bytes,
-            "download_url": f"/api/files/{result.filename}"
+            "prompt": request.prompt,
+            "style": request.style,
+            "images": images,
+            "count": len(images)
         }
-    
     except Exception as e:
-        return {"error": str(e)}
-
-
-@app.get("/api/files/{filename}")
-async def download_file(filename: str):
-    """Download a generated file."""
-    settings = get_settings()
-    filepath = os.path.join(settings.OUTPUT_DIR, filename)
-    
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    return FileResponse(
-        filepath,
-        filename=filename,
-        media_type="application/octet-stream"
-    )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
-# Conversation Management Endpoints
+# Session Management
 # ============================================================================
 
-@app.get("/api/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str):
-    """Get a conversation by ID."""
-    global memory_store
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str):
+    """Get session information."""
     
-    conversation = memory_store.get_conversation(conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
     
-    return conversation.to_dict()
-
-
-@app.delete("/api/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """Delete a conversation."""
-    global memory_store
-    
-    success = memory_store.delete_conversation(conversation_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    return {"success": True, "message": "Conversation deleted"}
-
-
-@app.get("/api/conversations")
-async def list_conversations(user_id: Optional[str] = None, limit: int = 20):
-    """List conversations."""
-    global memory_store
-    
-    conversations = memory_store.list_conversations(user_id, limit)
+    session = sessions[session_id]
     return {
-        "conversations": [c.to_dict() for c in conversations],
-        "total": len(conversations)
+        "session_id": session_id,
+        "user_id": session.get("user_id"),
+        "created_at": session.get("created_at"),
+        "message_count": len(session.get("conversation_history", [])),
+        "credits_used": session.get("credits_used", 0)
+    }
+
+
+@app.delete("/api/session/{session_id}")
+async def delete_session(session_id: str):
+    """Delete a session."""
+    
+    if session_id in sessions:
+        del sessions[session_id]
+    
+    return {"success": True, "message": "Session deleted"}
+
+
+# ============================================================================
+# Credits Endpoint (Placeholder for Supabase integration)
+# ============================================================================
+
+@app.get("/api/credits/{user_id}")
+async def get_credits(user_id: str):
+    """Get user credit balance."""
+    # TODO: Integrate with Supabase
+    return {
+        "user_id": user_id,
+        "credits_available": 100,
+        "credits_used": 0,
+        "plan": "free"
     }
 
 
 # ============================================================================
-# WebSocket for Streaming (Optional)
+# Run Application
 # ============================================================================
 
-@app.websocket("/ws/chat")
-async def websocket_chat(websocket: WebSocket):
-    """WebSocket endpoint for streaming chat."""
-    await websocket.accept()
+if __name__ == "__main__":
+    import uvicorn
     
-    try:
-        while True:
-            data = await websocket.receive_json()
-            
-            # Process the message
-            request = ChatRequest(**data)
-            response = await chat(request)
-            
-            # Send response
-            await websocket.send_json(response.dict())
-    
-    except WebSocketDisconnect:
-        print("WebSocket disconnected")
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-        await websocket.close()
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(
+        "src.api.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False
+    )
