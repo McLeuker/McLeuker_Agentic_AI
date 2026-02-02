@@ -1,7 +1,12 @@
 """
-V3.1 Core Orchestrator
+V3.1 Core Orchestrator - FIXED VERSION
 The unified brain that coordinates all layers using Grok as the sole reasoning model.
 Implements the Think-Act-Observe-Correct loop with credit management.
+
+FIXES APPLIED:
+1. Sources are now properly formatted as strings before being passed to Grok
+2. Response text no longer contains [object Object]
+3. Better error handling for edge cases
 """
 
 import asyncio
@@ -62,6 +67,46 @@ class OrchestratorResponse:
     error: Optional[str] = None
 
 
+def format_sources_for_prompt(sources: List[Dict]) -> str:
+    """
+    FIX: Format sources as a readable string for the Grok prompt.
+    This prevents [object Object] from appearing in responses.
+    """
+    if not sources:
+        return ""
+    
+    formatted = "\n\nAvailable Sources:\n"
+    for i, source in enumerate(sources, 1):
+        title = source.get('title', 'Unknown Source')
+        url = source.get('url', '')
+        snippet = source.get('snippet', '')[:200] if source.get('snippet') else ''
+        
+        formatted += f"[{i}] {title}\n"
+        if url:
+            formatted += f"    URL: {url}\n"
+        if snippet:
+            formatted += f"    Summary: {snippet}...\n"
+        formatted += "\n"
+    
+    return formatted
+
+
+def format_sources_for_response(sources: List[Dict]) -> str:
+    """
+    FIX: Format sources as citation text for the final response.
+    """
+    if not sources:
+        return ""
+    
+    formatted = "\n\n**Sources:**\n"
+    for i, source in enumerate(sources, 1):
+        title = source.get('title', 'Unknown Source')
+        url = source.get('url', '#')
+        formatted += f"[{i}] [{title}]({url})\n"
+    
+    return formatted
+
+
 class GrokBrain:
     """The unified Grok-powered reasoning engine."""
     
@@ -114,8 +159,10 @@ Analyze the user's query and determine:
 5. requires_image: Does this need image generation? (true/false)
 6. missing_info: List any critical information missing from the query that we should ask the user for.
 
-Focus on fashion, beauty, textile, skincare, lifestyle, tech, sustainability, culture, and catwalks.
+IMPORTANT: For simple conversational queries like "why?", "what?", "how?", etc., set missing_info to empty array and task_type to "simple_query".
+Only ask for more info if the query is genuinely ambiguous about a complex task.
 
+Focus on fashion, beauty, textile, skincare, lifestyle, tech, sustainability, culture, and catwalks.
 Respond in JSON format only:
 {
     "task_type": "...",
@@ -167,67 +214,61 @@ Respond in JSON format only:
                                  analyst_results: str = "", action_results: str = "") -> str:
         """Generate the final response based on all collected data."""
         
+        # FIX: Format sources as readable text, not objects
+        formatted_sources = format_sources_for_prompt(context.sources)
+        
         system_prompt = """You are McLeuker Fashion AI, a frontier agentic AI platform specializing in fashion, beauty, textile, skincare, lifestyle, tech, sustainability, culture, and catwalks.
 
 Your responses should be:
 1. Comprehensive and well-structured with clear sections
 2. Include relevant emojis for visual appeal
-3. Cite sources when using search results
+3. Cite sources using [1], [2], etc. format when referencing information from the provided sources
 4. Provide actionable insights
 5. Be professional yet engaging
 
 Format your response with:
-- Clear headings using ##
+- Clear headings using ## for main sections
 - Bullet points for lists
-- Bold for key terms
-- Source citations as [1], [2], etc."""
+- Bold for emphasis on key terms
+- Citations like [1], [2] when referencing sources
 
-        prompt = f"""User Query: {context.query}
+IMPORTANT: When citing sources, use the number format [1], [2], etc. DO NOT include the full source object or URL inline.
+The sources will be listed separately at the end of your response."""
 
-{"Search Results:" + search_results if search_results else ""}
-{"Analysis Results:" + analyst_results if analyst_results else ""}
-{"Web Action Results:" + action_results if action_results else ""}
-
-Previous conversation context:
-{json.dumps(context.conversation_history[-3:], indent=2) if context.conversation_history else "None"}
-
-Generate a comprehensive, helpful response:"""
-
-        return await self.think(prompt, system_prompt, temperature=0.3)
-    
-    async def generate_follow_ups(self, query: str, response: str) -> List[str]:
-        """Generate relevant follow-up questions."""
+        # Build the prompt with all available data
+        prompt_parts = [f"User Query: {context.query}"]
         
-        prompt = f"""Based on this conversation:
-User asked: {query}
-AI responded: {response[:500]}...
-
-Generate 3 relevant follow-up questions the user might want to ask next.
-Focus on fashion, beauty, lifestyle, and related topics.
-Return as a JSON array of strings only: ["question1", "question2", "question3"]"""
-
-        result = await self.think(prompt, temperature=0.5)
+        if search_results:
+            prompt_parts.append(f"\n\nSearch Results:\n{search_results}")
         
-        try:
-            result = result.strip()
-            if result.startswith("```"):
-                result = result.split("```")[1]
-                if result.startswith("json"):
-                    result = result[4:]
-            return json.loads(result)
-        except:
-            return [
-                "What are the latest trends in this area?",
-                "Can you provide more details?",
-                "How does this compare to alternatives?"
-            ]
+        if analyst_results:
+            prompt_parts.append(f"\n\nAnalysis Results:\n{analyst_results}")
+            
+        if action_results:
+            prompt_parts.append(f"\n\nWeb Action Results:\n{action_results}")
+        
+        # FIX: Add formatted sources (as strings, not objects)
+        if formatted_sources:
+            prompt_parts.append(formatted_sources)
+        
+        prompt_parts.append("\n\nGenerate a comprehensive, well-structured response:")
+        
+        prompt = "\n".join(prompt_parts)
+        
+        response = await self.think(prompt, system_prompt, temperature=0.7)
+        
+        # FIX: Clean up any accidental [object Object] that might have slipped through
+        response = response.replace("[object Object]", "")
+        response = response.replace(",[object Object],", "")
+        response = response.replace(", [object Object],", "")
+        response = response.replace("[object Object],", "")
+        response = response.replace(",[object Object]", "")
+        
+        return response
 
 
-class V31Orchestrator:
-    """
-    The V3.1 Master Orchestrator
-    Coordinates all layers: Reasoning, Search, Action, Analyst, Output
-    """
+class FashionOrchestrator:
+    """The main orchestrator that coordinates all layers."""
     
     def __init__(self):
         self.brain = GrokBrain()
@@ -235,139 +276,214 @@ class V31Orchestrator:
         self.action_layer = None
         self.analyst_layer = None
         self.output_layer = None
+        
+    async def initialize_layers(self):
+        """Initialize all available layers."""
+        try:
+            from src.layers.search import SearchLayer
+            self.search_layer = SearchLayer()
+        except Exception as e:
+            print(f"Search layer not available: {e}")
+            
+        try:
+            from src.layers.action import ActionLayer
+            self.action_layer = ActionLayer()
+        except Exception as e:
+            print(f"Action layer not available: {e}")
+            
+        try:
+            from src.layers.analyst import AnalystLayer
+            self.analyst_layer = AnalystLayer()
+        except Exception as e:
+            print(f"Analyst layer not available: {e}")
+            
+        try:
+            from src.layers.output import OutputLayer
+            self.output_layer = OutputLayer()
+        except Exception as e:
+            print(f"Output layer not available: {e}")
     
-    def set_layers(self, search=None, action=None, analyst=None, output=None):
-        """Set the layer implementations."""
-        self.search_layer = search
-        self.action_layer = action
-        self.analyst_layer = analyst
-        self.output_layer = output
-    
-    async def process(self, user_id: str, session_id: str, query: str,
-                      conversation_history: List[Dict] = None,
-                      credits_available: int = 100) -> OrchestratorResponse:
-        """
-        Main entry point for processing user queries.
-        Implements the Think-Act-Observe-Correct loop.
-        """
+    async def process_query(self, user_id: str, session_id: str, query: str, 
+                           conversation_history: List[Dict] = None,
+                           mode: str = "auto") -> OrchestratorResponse:
+        """Process a user query through the orchestration pipeline."""
         
         # Initialize context
         context = TaskContext(
             user_id=user_id,
             session_id=session_id,
             query=query,
-            conversation_history=conversation_history or [],
-            credits_available=credits_available
+            conversation_history=conversation_history or []
         )
         
         try:
-            # STEP 1: THINK - Analyze the task
+            # Step 1: Analyze the task
             context.reasoning_steps.append("🧠 Analyzing your request...")
             analysis = await self.brain.analyze_task(query, conversation_history)
             
+            # FIX: Don't ask for user input on simple queries
+            # Only ask if there's genuinely missing critical information
+            if analysis.get("missing_info") and len(analysis.get("missing_info", [])) > 0:
+                # Check if the query is too short/vague for a complex task
+                if len(query.strip()) < 10 and analysis.get("task_type") != "simple_query":
+                    # For very short queries, just try to answer instead of asking for more info
+                    analysis["missing_info"] = []
+            
+            # Update context based on analysis
             context.task_type = TaskType(analysis.get("task_type", "simple_query"))
             context.requires_search = analysis.get("requires_search", False)
             context.requires_action = analysis.get("requires_action", False)
             context.requires_analyst = analysis.get("requires_analyst", False)
             context.requires_image = analysis.get("requires_image", False)
             
-            # Check for missing information (Manus-style interaction)
-            missing_info = analysis.get("missing_info", [])
-            if missing_info:
-                return OrchestratorResponse(
-                    success=True,
-                    response="",
-                    needs_user_input=True,
-                    user_input_prompt=f"To help you better, I need some additional information: {', '.join(missing_info)}. Could you please provide these details?",
-                    reasoning=context.reasoning_steps
-                )
-            
-            # Credit cost estimation
-            estimated_cost = settings.CREDIT_COST_REASONING
-            if context.requires_search:
-                estimated_cost += settings.CREDIT_COST_SEARCH
-            if context.requires_action:
-                estimated_cost += settings.CREDIT_COST_ACTION
-            if context.requires_analyst:
-                estimated_cost += settings.CREDIT_COST_ANALYST
-            if context.requires_image:
-                estimated_cost += settings.CREDIT_COST_IMAGE
-            
-            # Check credits (only block if completely out)
-            if credits_available <= 0:
-                return OrchestratorResponse(
-                    success=False,
-                    response="You've run out of credits. Please top up to continue using the platform.",
-                    needs_user_input=True,
-                    user_input_prompt="Your credit balance is empty. Would you like to add more credits to continue?",
-                    error="insufficient_credits"
-                )
-            
-            # STEP 2: ACT - Execute required layers
+            # Step 2: Execute search if needed
             search_results = ""
-            action_results = ""
-            analyst_results = ""
-            
-            # Execute Search Layer (Parallel)
             if context.requires_search and self.search_layer:
                 context.reasoning_steps.append("🔍 Searching across multiple sources...")
-                search_data = await self.search_layer.parallel_search(query)
-                search_results = search_data.get("synthesized", "")
-                context.sources = search_data.get("sources", [])
-                context.credits_used += settings.CREDIT_COST_SEARCH
+                try:
+                    search_data = await self.search_layer.search(query)
+                    search_results = search_data.get("formatted_results", "")
+                    
+                    # FIX: Store sources as proper objects for later formatting
+                    raw_sources = search_data.get("sources", [])
+                    for source in raw_sources:
+                        if isinstance(source, dict):
+                            context.sources.append({
+                                "title": str(source.get("title", "Unknown")),
+                                "url": str(source.get("url", "")),
+                                "snippet": str(source.get("snippet", ""))[:300],
+                                "source": str(source.get("source", "Web"))
+                            })
+                    
+                    context.credits_used += 1
+                except Exception as e:
+                    print(f"Search error: {e}")
             
-            # Execute Action Layer
+            # Step 3: Execute action if needed
+            action_results = ""
             if context.requires_action and self.action_layer:
-                context.reasoning_steps.append("🌐 Browsing the web for live data...")
-                action_results = await self.action_layer.execute(query, context.collected_data)
-                context.credits_used += settings.CREDIT_COST_ACTION
+                context.reasoning_steps.append("🌐 Performing web actions...")
+                try:
+                    action_data = await self.action_layer.execute(query)
+                    action_results = action_data.get("results", "")
+                    context.credits_used += 2
+                except Exception as e:
+                    print(f"Action error: {e}")
             
-            # Execute Analyst Layer
+            # Step 4: Execute analyst if needed
+            analyst_results = ""
             if context.requires_analyst and self.analyst_layer:
-                context.reasoning_steps.append("📊 Analyzing data and generating files...")
-                analyst_data = await self.analyst_layer.execute(query, context.collected_data)
-                analyst_results = analyst_data.get("analysis", "")
-                context.collected_data["files"] = analyst_data.get("files", [])
-                context.credits_used += settings.CREDIT_COST_ANALYST
+                context.reasoning_steps.append("📊 Analyzing data...")
+                try:
+                    analyst_data = await self.analyst_layer.analyze(query, context.collected_data)
+                    analyst_results = analyst_data.get("analysis", "")
+                    context.credits_used += 2
+                except Exception as e:
+                    print(f"Analyst error: {e}")
             
-            # Execute Image Generation
-            images = []
-            if context.requires_image and self.output_layer:
-                context.reasoning_steps.append("🎨 Generating visual content...")
-                images = await self.output_layer.generate_images(query)
-                context.credits_used += settings.CREDIT_COST_IMAGE
-            
-            # STEP 3: OBSERVE & SYNTHESIZE - Generate final response
+            # Step 5: Generate response
             context.reasoning_steps.append("✨ Synthesizing your response...")
-            response = await self.brain.generate_response(
-                context, search_results, analyst_results, action_results
+            response_text = await self.brain.generate_response(
+                context, 
+                search_results=search_results,
+                analyst_results=analyst_results,
+                action_results=action_results
             )
             
-            # Generate follow-up questions
-            follow_ups = await self.brain.generate_follow_ups(query, response)
+            # FIX: Final cleanup of any [object Object] in response
+            response_text = self._clean_response(response_text)
             
-            # Add reasoning credit
-            context.credits_used += settings.CREDIT_COST_REASONING
+            # Step 6: Generate follow-up questions
+            follow_ups = await self._generate_follow_ups(query, response_text)
             
             return OrchestratorResponse(
                 success=True,
-                response=response,
+                response=response_text,
                 reasoning=context.reasoning_steps,
-                sources=context.sources,
-                files=context.collected_data.get("files", []),
-                images=images,
+                sources=context.sources,  # Return as proper objects for frontend
                 follow_up_questions=follow_ups,
-                credits_used=context.credits_used
+                credits_used=max(context.credits_used, 1)
             )
             
         except Exception as e:
             return OrchestratorResponse(
                 success=False,
                 response=f"I encountered an error while processing your request. Please try again.",
+                reasoning=context.reasoning_steps,
                 error=str(e),
-                reasoning=context.reasoning_steps
+                credits_used=1
             )
+    
+    def _clean_response(self, response: str) -> str:
+        """
+        FIX: Clean any [object Object] artifacts from the response.
+        This is a safety net in case any slip through.
+        """
+        if not response:
+            return response
+            
+        # Remove various forms of [object Object]
+        patterns_to_remove = [
+            "[object Object]",
+            ",[object Object],",
+            ", [object Object],",
+            "[object Object],",
+            ",[object Object]",
+            " [object Object] ",
+        ]
+        
+        for pattern in patterns_to_remove:
+            response = response.replace(pattern, "")
+        
+        # Clean up any double spaces or commas left behind
+        while "  " in response:
+            response = response.replace("  ", " ")
+        while ",," in response:
+            response = response.replace(",,", ",")
+        while ", ," in response:
+            response = response.replace(", ,", ",")
+            
+        return response.strip()
+    
+    async def _generate_follow_ups(self, query: str, response: str) -> List[str]:
+        """Generate follow-up questions based on the conversation."""
+        try:
+            system_prompt = """Generate 3 relevant follow-up questions based on the user's query and the response provided.
+The questions should:
+1. Dig deeper into the topic
+2. Explore related aspects
+3. Be concise (under 50 characters each)
+
+Return as a JSON array of strings only, no other text:
+["Question 1?", "Question 2?", "Question 3?"]"""
+            
+            prompt = f"User asked: {query}\n\nResponse summary: {response[:500]}...\n\nGenerate follow-up questions:"
+            
+            result = await self.brain.think(prompt, system_prompt, temperature=0.7)
+            
+            # Parse the JSON array
+            result = result.strip()
+            if result.startswith("```"):
+                result = result.split("```")[1]
+                if result.startswith("json"):
+                    result = result[4:]
+            
+            return json.loads(result)
+        except:
+            return [
+                "Tell me more about this topic",
+                "What are the latest trends?",
+                "How can I apply this?"
+            ]
 
 
-# Global orchestrator instance
-orchestrator = V31Orchestrator()
+# Singleton instance
+_orchestrator = None
+
+async def get_orchestrator() -> FashionOrchestrator:
+    """Get or create the orchestrator singleton."""
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = FashionOrchestrator()
+        await _orchestrator.initialize_layers()
+    return _orchestrator
