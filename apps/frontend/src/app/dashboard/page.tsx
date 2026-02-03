@@ -109,7 +109,7 @@ export default function DashboardPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/v5/chat`, {
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
