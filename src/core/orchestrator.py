@@ -1,445 +1,413 @@
 """
-McLeuker AI V5.1 - Core Orchestrator
-====================================
-The brain of the system. Coordinates all layers and enforces the response contract.
+McLeuker AI V5.1 - Core Orchestrator with Response Contract
+============================================================
+Enforces structured output format for consistent frontend rendering.
 
-Architecture:
-User Input
- → Intent Router
- → Query Planner  
- → Tool Executor (Grok + Search)
- → Response Contract Builder
- → File Generator (if needed)
- → Structured Response
-
-Key improvements over V5:
-1. ENFORCES response contract - LLM fills slots, doesn't decide layout
-2. Separates content from citations
-3. Generates real files
-4. Prevents domain overfitting
+Design Principles:
+1. STRUCTURED output - always return ResponseContract format
+2. CLEAN separation - content vs sources vs files
+3. NO inline citations in prose - sources are separate objects
+4. GUARANTEED format - frontend can rely on response structure
 """
 
-import os
-import json
 import asyncio
-import aiohttp
+import json
+import os
 import re
-from datetime import datetime
-from typing import Dict, Any, List, Optional, AsyncGenerator
 import uuid
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from dataclasses import dataclass, field, asdict
+import httpx
 
-from ..schemas.response_contract import (
+# Use absolute imports instead of relative
+from src.schemas.response_contract import (
     ResponseContract, Source, GeneratedFile, TableData, KeyInsight,
-    ActionItem, LayoutSection, IntentType, DomainType, StreamingChunk,
-    create_empty_response
+    LayoutSection, IntentType, DomainType
 )
-from ..layers.intent.intent_router import intent_router
-from ..services.file_generator import file_generator
+from src.layers.intent.intent_router import intent_router, IntentResult
+from src.services.file_generator import file_generator
 
 
-class V51Orchestrator:
+@dataclass
+class OrchestratorResponse:
+    """Response from the orchestrator - follows ResponseContract"""
+    success: bool
+    response: Optional[ResponseContract] = None
+    error: Optional[str] = None
+    reasoning_steps: List[str] = field(default_factory=list)
+    credits_used: int = 0
+    session_id: str = ""
+    
+    def to_dict(self) -> dict:
+        result = {
+            "success": self.success,
+            "error": self.error,
+            "reasoning_steps": self.reasoning_steps,
+            "credits_used": self.credits_used,
+            "session_id": self.session_id
+        }
+        if self.response:
+            result["response"] = self.response.to_dict()
+        return result
+
+
+class V5Orchestrator:
     """
-    V5.1 Orchestrator with Response Contract Enforcement
+    V5.1 Orchestrator with Response Contract enforcement.
+    
+    Key improvements over V5.0:
+    - Structured output format (ResponseContract)
+    - Clean source management (no inline citations)
+    - File generation pipeline
+    - Intent-aware processing
     """
     
     def __init__(self):
-        # API Keys
-        self.grok_api_key = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
-        self.serper_api_key = os.getenv("SERPER_API_KEY")
+        self.grok_api_key = os.getenv("XAI_API_KEY", "")
+        self.grok_base_url = "https://api.x.ai/v1"
+        self.perplexity_api_key = os.getenv("PERPLEXITY_API_KEY", "")
+        self.session_contexts: Dict[str, List[Dict]] = {}
         
-        # Grok API endpoint
-        self.grok_url = "https://api.x.ai/v1/chat/completions"
-        
-        # Current date for context
-        self.current_date = datetime.now().strftime("%B %d, %Y")
-        
-        # Session storage
-        self.sessions: Dict[str, List[Dict]] = {}
-    
     async def process(
         self,
-        message: str,
-        session_id: str = None,
-        mode: str = "quick"
-    ) -> ResponseContract:
+        query: str,
+        session_id: Optional[str] = None,
+        mode: str = "auto",
+        domain_filter: Optional[str] = None
+    ) -> OrchestratorResponse:
         """
-        Main processing pipeline with response contract enforcement.
+        Process a user query and return structured response.
         """
-        session_id = session_id or str(uuid.uuid4())
-        start_time = datetime.now()
+        reasoning_steps = []
         
         try:
-            # === STEP 1: Intent Classification ===
-            classification = intent_router.classify(message)
-            intent = classification['intent']
-            domain = classification['domain']
+            # Generate session ID if not provided
+            if not session_id:
+                session_id = str(uuid.uuid4())
             
-            # === STEP 2: Search (if needed) ===
-            sources = []
-            search_context = ""
+            # Step 1: Intent Classification
+            reasoning_steps.append("Analyzing query intent...")
+            intent_result = intent_router.classify(query)
+            reasoning_steps.append(f"Intent: {intent_result.intent_type.value}, Domain: {intent_result.domain.value}")
             
-            if classification['requires_search']:
-                search_results = await self._search(message, mode)
-                sources = self._parse_sources(search_results)
-                search_context = self._format_search_context(search_results)
+            # Override search mode if specified
+            search_mode = mode if mode != "auto" else intent_result.search_mode
             
-            # === STEP 3: Generate Response with Grok ===
-            # Use structured prompt that enforces clean output
-            structured_response = await self._generate_structured_response(
-                message=message,
-                intent=intent,
-                domain=domain,
-                search_context=search_context,
-                sources=sources
+            # Step 2: Search for information
+            reasoning_steps.append(f"Searching ({search_mode} mode)...")
+            search_results = await self._search(query, search_mode, intent_result.domain)
+            reasoning_steps.append(f"Found {len(search_results)} sources")
+            
+            # Step 3: Generate response with Grok
+            reasoning_steps.append("Generating response...")
+            response_contract = await self._generate_response(
+                query=query,
+                search_results=search_results,
+                intent_result=intent_result,
+                session_id=session_id
             )
+            reasoning_steps.append("Response generated successfully")
             
-            # === STEP 4: Generate Files (if requested) ===
-            files = []
-            if classification['requires_file_generation']:
-                files = await self._generate_files(
-                    structured_response,
-                    classification['file_type'],
-                    message
-                )
+            # Step 4: Generate files if needed
+            if intent_result.intent_type == IntentType.DATA:
+                reasoning_steps.append("Generating data files...")
+                files = await self._generate_files(query, response_contract)
+                response_contract.files = files
             
-            # === STEP 5: Build Response Contract ===
-            processing_time = int((datetime.now() - start_time).total_seconds() * 1000)
+            # Calculate credits
+            credits_used = 2 if search_mode == "quick" else 5
             
-            response = ResponseContract(
-                session_id=session_id,
-                intent=intent,
-                domain=domain,
-                confidence=classification['confidence'],
-                summary=structured_response.get('summary', ''),
-                main_content=structured_response.get('main_content', ''),
-                key_insights=self._parse_insights(structured_response.get('key_insights', [])),
-                tables=self._parse_tables(structured_response.get('tables', [])),
-                sections=self._parse_sections(structured_response.get('sections', [])),
-                sources=sources,
-                source_count=len(sources),
-                files=files,
-                action_items=self._parse_actions(structured_response.get('action_items', [])),
-                follow_up_questions=structured_response.get('follow_up_questions', []),
-                credits_used=2 if mode == 'quick' else 5,
-                processing_time_ms=processing_time,
-                success=True
+            return OrchestratorResponse(
+                success=True,
+                response=response_contract,
+                reasoning_steps=reasoning_steps,
+                credits_used=credits_used,
+                session_id=session_id
             )
-            
-            return response
             
         except Exception as e:
-            return create_empty_response(session_id, str(e))
+            reasoning_steps.append(f"Error: {str(e)}")
+            return OrchestratorResponse(
+                success=False,
+                error=str(e),
+                reasoning_steps=reasoning_steps,
+                session_id=session_id or ""
+            )
     
-    async def _search(self, query: str, mode: str) -> List[Dict]:
-        """Perform web search using Serper API"""
-        if not self.serper_api_key:
-            return []
+    async def _search(
+        self, 
+        query: str, 
+        mode: str, 
+        domain: DomainType
+    ) -> List[Dict[str, Any]]:
+        """Search for information using available APIs"""
+        results = []
         
-        num_results = 5 if mode == 'quick' else 10
+        # Try Perplexity first
+        if self.perplexity_api_key:
+            try:
+                perplexity_results = await self._search_perplexity(query, mode)
+                results.extend(perplexity_results)
+            except Exception as e:
+                print(f"Perplexity search failed: {e}")
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://google.serper.dev/search",
-                    headers={
-                        "X-API-KEY": self.serper_api_key,
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "q": query,
-                        "num": num_results
-                    },
-                    timeout=aiohttp.ClientTimeout(total=15)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data.get("organic", [])
-        except Exception as e:
-            print(f"Search error: {e}")
+        # Fallback to Grok's knowledge
+        if not results:
+            results = await self._search_grok(query, domain)
+        
+        return results[:10]  # Limit to 10 sources
+    
+    async def _search_perplexity(self, query: str, mode: str) -> List[Dict]:
+        """Search using Perplexity API"""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.perplexity_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama-3.1-sonar-small-128k-online",
+                    "messages": [
+                        {"role": "user", "content": f"Search for: {query}. Return factual information with sources."}
+                    ],
+                    "return_citations": True
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                citations = data.get("citations", [])
+                return [
+                    {
+                        "title": f"Source {i+1}",
+                        "url": url,
+                        "snippet": ""
+                    }
+                    for i, url in enumerate(citations)
+                ]
         
         return []
     
-    def _parse_sources(self, search_results: List[Dict]) -> List[Source]:
-        """Convert search results to Source objects"""
-        sources = []
-        for result in search_results[:5]:
-            sources.append(Source(
-                title=result.get("title", ""),
-                url=result.get("link", ""),
-                snippet=result.get("snippet", ""),
-                publisher=self._extract_publisher(result.get("link", ""))
-            ))
-        return sources
-    
-    def _extract_publisher(self, url: str) -> str:
-        """Extract publisher name from URL"""
-        try:
-            from urllib.parse import urlparse
-            domain = urlparse(url).netloc
-            # Remove www. and .com/.org etc
-            parts = domain.replace("www.", "").split(".")
-            return parts[0].title() if parts else ""
-        except:
-            return ""
-    
-    def _format_search_context(self, search_results: List[Dict]) -> str:
-        """Format search results as context for Grok"""
-        if not search_results:
-            return ""
+    async def _search_grok(self, query: str, domain: DomainType) -> List[Dict]:
+        """Use Grok to generate search-like results with real-time data"""
+        if not self.grok_api_key:
+            return []
         
-        context_parts = ["SEARCH RESULTS:"]
-        for i, result in enumerate(search_results, 1):
-            context_parts.append(f"""
-Source {i}: {result.get('title', '')}
-URL: {result.get('link', '')}
-Content: {result.get('snippet', '')}
-""")
-        return "\n".join(context_parts)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.grok_base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.grok_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "grok-3-latest",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": f"You are a research assistant. For the query, provide 5 relevant sources with titles and URLs from reputable {domain.value} publications. Format as JSON array with 'title', 'url', 'snippet' fields."
+                        },
+                        {"role": "user", "content": query}
+                    ],
+                    "temperature": 0.3
+                }
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                
+                # Try to parse JSON from response
+                try:
+                    # Find JSON array in response
+                    json_match = re.search(r'\[[\s\S]*\]', content)
+                    if json_match:
+                        sources = json.loads(json_match.group())
+                        return sources
+                except:
+                    pass
+        
+        return []
     
-    async def _generate_structured_response(
+    async def _generate_response(
         self,
-        message: str,
-        intent: IntentType,
-        domain: DomainType,
-        search_context: str,
-        sources: List[Source]
-    ) -> Dict[str, Any]:
-        """
-        Generate response using Grok with STRUCTURED output enforcement.
+        query: str,
+        search_results: List[Dict],
+        intent_result: IntentResult,
+        session_id: str
+    ) -> ResponseContract:
+        """Generate structured response using Grok"""
         
-        Key: LLM fills slots, doesn't decide layout freely.
-        """
+        # Build context from search results
+        sources_context = "\n".join([
+            f"[{i+1}] {r.get('title', 'Source')}: {r.get('snippet', '')}"
+            for i, r in enumerate(search_results)
+        ])
         
-        # Build the structured prompt
-        system_prompt = f"""You are McLeuker AI, a professional fashion and lifestyle intelligence assistant.
-Today's date: {self.current_date}
+        # System prompt for structured output
+        system_prompt = f"""You are McLeuker AI, a professional {intent_result.domain.value} expert.
+        
+IMPORTANT RULES:
+1. Write clean prose WITHOUT inline citations like [1] or [2]
+2. Do NOT reference sources in the text
+3. Provide actionable, specific information
+4. Use markdown formatting (headers, bold, bullets)
+5. Be comprehensive but concise
+6. Today's date is {datetime.now().strftime('%B %d, %Y')}
 
-CRITICAL OUTPUT RULES:
-1. Write CLEAN PROSE without inline citations like [1][2][3]
-2. DO NOT put citation numbers in the main content
-3. Sources are provided separately - just write naturally
-4. Structure your response in clear sections
-5. Be concise but comprehensive
-6. Focus on actionable insights
+The sources will be displayed separately in the UI, so focus on the content itself."""
 
-User Intent: {intent.value}
-Domain: {domain.value}
+        user_prompt = f"""Query: {query}
 
-You MUST respond with a JSON object in this EXACT format:
-{{
-    "summary": "1-2 sentence TL;DR",
-    "main_content": "Clean prose WITHOUT any [1][2][3] citations. Write naturally.",
-    "key_insights": [
-        {{"title": "Insight title", "description": "Brief explanation"}}
-    ],
-    "tables": [
-        {{"title": "Table title", "headers": ["Col1", "Col2"], "rows": [["val1", "val2"]]}}
-    ],
-    "action_items": [
-        {{"action": "What to do", "details": "How to do it"}}
-    ],
-    "follow_up_questions": ["Question 1?", "Question 2?"]
-}}
+Available information:
+{sources_context}
 
-IMPORTANT: The main_content must be CLEAN TEXT without any citation markers."""
+Provide a comprehensive response with:
+1. A brief summary (2-3 sentences)
+2. Key insights (3-5 bullet points)
+3. Detailed sections as needed
+4. Actionable recommendations
 
-        user_prompt = f"""User Query: {message}
+Remember: NO inline citations in your response."""
 
-{search_context}
-
-Generate a structured response following the JSON format specified. Remember:
-- NO inline citations in main_content
-- Write clean, professional prose
-- Include actionable insights
-- Generate tables if comparing data"""
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.grok_url,
-                    headers={
-                        "Authorization": f"Bearer {self.grok_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": "grok-3-latest",
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        "temperature": 0.7,
-                        "max_tokens": 4000
-                    },
-                    timeout=aiohttp.ClientTimeout(total=60)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        content = data["choices"][0]["message"]["content"]
-                        
-                        # Parse JSON response
-                        return self._parse_structured_response(content)
-                    else:
-                        error_text = await resp.text()
-                        print(f"Grok API error: {resp.status} - {error_text}")
-                        return self._fallback_response(message)
-                        
-        except Exception as e:
-            print(f"Grok generation error: {e}")
-            return self._fallback_response(message)
+        # Call Grok
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.grok_base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.grok_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "grok-3-latest",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 2000
+                }
+            )
+            
+            if response.status_code != 200:
+                raise Exception(f"Grok API error: {response.status_code}")
+            
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+        
+        # Parse response into structured format
+        return self._parse_to_contract(
+            content=content,
+            query=query,
+            search_results=search_results,
+            intent_result=intent_result
+        )
     
-    def _parse_structured_response(self, content: str) -> Dict[str, Any]:
-        """Parse the structured JSON response from Grok"""
-        try:
-            # Try to extract JSON from the response
-            # Handle cases where Grok wraps JSON in markdown code blocks
-            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
-            if json_match:
-                content = json_match.group(1)
-            else:
-                # Try to find JSON object directly
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    content = json_match.group(0)
-            
-            parsed = json.loads(content)
-            
-            # Clean any remaining citations from main_content
-            if 'main_content' in parsed:
-                parsed['main_content'] = self._remove_citations(parsed['main_content'])
-            
-            return parsed
-            
-        except json.JSONDecodeError:
-            # If JSON parsing fails, extract content manually
-            return {
-                'summary': '',
-                'main_content': self._remove_citations(content),
-                'key_insights': [],
-                'tables': [],
-                'action_items': [],
-                'follow_up_questions': []
-            }
-    
-    def _remove_citations(self, text: str) -> str:
-        """Remove inline citations like [1], [2][3], etc."""
-        # Remove citation patterns
-        text = re.sub(r'\[\d+\]', '', text)
-        text = re.sub(r'\[\d+,\s*\d+\]', '', text)
-        text = re.sub(r'\[\d+-\d+\]', '', text)
-        # Clean up extra spaces
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'\s+([.,;:])', r'\1', text)
-        return text.strip()
-    
-    def _fallback_response(self, message: str) -> Dict[str, Any]:
-        """Fallback response when Grok fails"""
-        return {
-            'summary': 'I encountered an issue processing your request.',
-            'main_content': f'I apologize, but I was unable to fully process your query: "{message}". Please try again or rephrase your question.',
-            'key_insights': [],
-            'tables': [],
-            'action_items': [],
-            'follow_up_questions': ['Would you like to try a different query?']
-        }
+    def _parse_to_contract(
+        self,
+        content: str,
+        query: str,
+        search_results: List[Dict],
+        intent_result: IntentResult
+    ) -> ResponseContract:
+        """Parse Grok response into ResponseContract format"""
+        
+        # Extract summary (first paragraph or first 2 sentences)
+        paragraphs = content.split('\n\n')
+        summary = paragraphs[0] if paragraphs else content[:200]
+        
+        # Clean any remaining citations from content
+        clean_content = re.sub(r'\[\d+\]', '', content)
+        clean_content = re.sub(r'\s+', ' ', clean_content).strip()
+        
+        # Create sources from search results
+        sources = [
+            Source(
+                id=f"src_{i+1}",
+                title=r.get("title", f"Source {i+1}"),
+                url=r.get("url", ""),
+                snippet=r.get("snippet", ""),
+                domain=intent_result.domain.value,
+                reliability_score=0.8
+            )
+            for i, r in enumerate(search_results)
+        ]
+        
+        # Extract key insights (look for bullet points)
+        insights = []
+        bullet_pattern = r'[-•*]\s*(.+?)(?=\n|$)'
+        bullet_matches = re.findall(bullet_pattern, content)
+        for i, match in enumerate(bullet_matches[:5]):
+            insights.append(KeyInsight(
+                id=f"insight_{i+1}",
+                text=match.strip(),
+                importance="high" if i < 2 else "medium",
+                source_ids=[f"src_{(i % len(sources)) + 1}"] if sources else []
+            ))
+        
+        # Create layout sections
+        sections = []
+        header_pattern = r'^#+\s*(.+?)$'
+        headers = re.findall(header_pattern, content, re.MULTILINE)
+        for i, header in enumerate(headers[:5]):
+            sections.append(LayoutSection(
+                id=f"section_{i+1}",
+                title=header.strip(),
+                content_type="text",
+                order=i+1
+            ))
+        
+        # Generate follow-up questions
+        follow_ups = [
+            f"What specific aspects of {intent_result.domain.value} would you like to explore further?",
+            "Would you like me to generate a detailed report on this topic?",
+            "Are there any particular brands or products you'd like me to focus on?"
+        ]
+        
+        return ResponseContract(
+            query=query,
+            summary=summary[:500],
+            main_content=clean_content,
+            sources=sources,
+            files=[],
+            tables=[],
+            key_insights=insights,
+            layout_sections=sections,
+            intent_type=intent_result.intent_type.value,
+            domain=intent_result.domain.value,
+            confidence_score=intent_result.confidence,
+            follow_up_questions=follow_ups,
+            generated_at=datetime.now().isoformat()
+        )
     
     async def _generate_files(
         self,
-        structured_response: Dict[str, Any],
-        file_type: str,
-        original_query: str
+        query: str,
+        response: ResponseContract
     ) -> List[GeneratedFile]:
-        """Generate actual downloadable files"""
+        """Generate downloadable files based on response data"""
         files = []
         
-        try:
-            # Extract table data for file generation
-            tables = structured_response.get('tables', [])
-            
-            if file_type == 'excel' and tables:
-                for table in tables:
-                    if isinstance(table, dict) and 'headers' in table and 'rows' in table:
-                        table_data = TableData(
-                            title=table.get('title', 'Data'),
-                            headers=table['headers'],
-                            rows=table['rows']
-                        )
-                        file = file_generator.generate_excel_from_table(
-                            table_data,
-                            title=table.get('title', 'McLeuker AI Report')
-                        )
-                        files.append(file)
-            
-            elif file_type == 'csv' and tables:
-                for table in tables:
-                    if isinstance(table, dict) and 'headers' in table and 'rows' in table:
-                        # Convert to list of dicts
-                        data = []
-                        for row in table['rows']:
-                            row_dict = {table['headers'][i]: row[i] for i in range(min(len(table['headers']), len(row)))}
-                            data.append(row_dict)
-                        file = file_generator.generate_csv(data, title=table.get('title', 'data'))
-                        files.append(file)
-            
-            elif file_type == 'pdf':
-                content = structured_response.get('main_content', '')
-                file = file_generator.generate_pdf(
-                    content=content,
-                    title=f"McLeuker AI Report",
-                    tables=[TableData(**t) for t in tables if isinstance(t, dict)]
+        # Generate Excel if data-related query
+        if response.tables or "data" in query.lower() or "excel" in query.lower():
+            try:
+                excel_file = await file_generator.generate_excel(
+                    title=f"McLeuker Report - {query[:50]}",
+                    data={
+                        "Summary": response.summary,
+                        "Key Insights": [i.text for i in response.key_insights],
+                        "Sources": [{"Title": s.title, "URL": s.url} for s in response.sources]
+                    }
                 )
-                files.append(file)
-                
-        except Exception as e:
-            print(f"File generation error: {e}")
+                if excel_file:
+                    files.append(excel_file)
+            except Exception as e:
+                print(f"Excel generation failed: {e}")
         
         return files
-    
-    def _parse_insights(self, insights: List) -> List[KeyInsight]:
-        """Parse key insights from response"""
-        parsed = []
-        for insight in insights:
-            if isinstance(insight, dict):
-                parsed.append(KeyInsight(
-                    title=insight.get('title', ''),
-                    description=insight.get('description', '')
-                ))
-        return parsed
-    
-    def _parse_tables(self, tables: List) -> List[TableData]:
-        """Parse tables from response"""
-        parsed = []
-        for table in tables:
-            if isinstance(table, dict) and 'headers' in table and 'rows' in table:
-                parsed.append(TableData(
-                    title=table.get('title'),
-                    headers=table['headers'],
-                    rows=table['rows']
-                ))
-        return parsed
-    
-    def _parse_sections(self, sections: List) -> List[LayoutSection]:
-        """Parse layout sections from response"""
-        parsed = []
-        for section in sections:
-            if isinstance(section, dict):
-                parsed.append(LayoutSection(
-                    title=section.get('title', ''),
-                    content=section.get('content', '')
-                ))
-        return parsed
-    
-    def _parse_actions(self, actions: List) -> List[ActionItem]:
-        """Parse action items from response"""
-        parsed = []
-        for action in actions:
-            if isinstance(action, dict):
-                parsed.append(ActionItem(
-                    action=action.get('action', ''),
-                    details=action.get('details'),
-                    link=action.get('link')
-                ))
-        return parsed
 
 
-# Singleton instance
-orchestrator = V51Orchestrator()
+# Global instance
+orchestrator = V5Orchestrator()
