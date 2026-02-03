@@ -21,9 +21,18 @@ mcleuker-ai/
 | Component | Technology | Deployment |
 |-----------|------------|------------|
 | **Frontend** | Next.js 16, TypeScript, Tailwind CSS, Zustand | Vercel |
-| **Backend** | FastAPI, Python, Grok AI, Supabase | Railway |
+| **Backend** | FastAPI, Python, Grok AI | Railway |
 | **Shared Types** | TypeScript | Internal package |
 | **Build System** | Turborepo, PNPM | - |
+
+## Design System
+
+The frontend uses a premium dark theme inspired by OpenAI's ChatGPT:
+
+- **Colors:** Grayscale with graphite glass effects
+- **Typography:** Inter (sans-serif) + Cormorant Garamond (editorial)
+- **Components:** Minimal, clean, with subtle animations
+- **UI Library:** Radix UI primitives (shadcn/ui style)
 
 ## Quick Start
 
@@ -37,8 +46,8 @@ mcleuker-ai/
 
 ```bash
 # Clone the repository
-git clone https://github.com/mcleuker/mcleuker-ai.git
-cd mcleuker-ai
+git clone https://github.com/McLeuker/McLeuker_Agentic_AI.git
+cd McLeuker_Agentic_AI
 
 # Install all dependencies
 pnpm install
@@ -95,18 +104,19 @@ pnpm build:frontend
 
 ### Frontend (`apps/frontend`)
 
-The Next.js application that provides the user interface.
+The Next.js application with premium dark theme UI.
 
 ```
 apps/frontend/
 ├── src/
 │   ├── app/              # Next.js App Router pages
-│   ├── components/       # React components
-│   │   ├── chat/        # Chat interface components
-│   │   └── layout/      # Layout components
+│   ├── components/
+│   │   ├── ui/          # Reusable UI components (40+ components)
+│   │   └── dashboard/   # Dashboard-specific components
+│   ├── hooks/           # Custom React hooks
 │   ├── lib/             # Utilities and API client
 │   ├── stores/          # Zustand state management
-│   └── types/           # TypeScript types (re-exports shared-types)
+│   └── types/           # TypeScript types
 └── public/              # Static assets
 ```
 
@@ -116,12 +126,11 @@ The FastAPI application that powers the AI functionality.
 
 ```
 apps/backend/
-├── src/
-│   ├── api/             # API routes and main application
-│   ├── core/            # Core business logic
-│   ├── layers/          # AI processing layers
-│   ├── database/        # Database connections
-│   └── services/        # External service integrations
+├── main.py              # FastAPI application entry
+├── orchestrator.py      # AI orchestration logic
+├── search_layer.py      # Search and research layer
+├── settings.py          # Configuration settings
+├── src/                 # Source modules
 ├── Dockerfile           # Container configuration
 └── requirements.txt     # Python dependencies
 ```
@@ -130,10 +139,18 @@ apps/backend/
 
 TypeScript types shared between frontend and backend, including the V5.1 Response Contract.
 
-```
-packages/shared-types/
-└── src/
-    └── index.ts         # All shared type definitions
+```typescript
+interface V51Response {
+  success: boolean;
+  response: {
+    answer: string;
+    key_insights?: KeyInsight[];
+    sources?: Source[];
+    follow_up_questions?: string[];
+    metadata?: ResponseMetadata;
+  };
+  error?: string;
+}
 ```
 
 ## Environment Variables
@@ -149,8 +166,6 @@ packages/shared-types/
 | Variable | Description |
 |----------|-------------|
 | `XAI_API_KEY` | Grok API key |
-| `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_KEY` | Supabase anon key |
 | `PERPLEXITY_API_KEY` | Perplexity search API |
 | `EXA_API_KEY` | Exa.ai search API |
 
@@ -160,11 +175,10 @@ See `apps/backend/.env.example` for the complete list.
 
 | Command | Description |
 |---------|-------------|
-| `pnpm dev` | Run all apps in development mode |
-| `pnpm dev:frontend` | Run frontend only |
-| `pnpm dev:backend` | Run backend only |
+| `pnpm install` | Install all dependencies |
 | `pnpm build` | Build all packages |
-| `pnpm build:frontend` | Build frontend only |
+| `pnpm dev:frontend` | Run frontend in development mode |
+| `pnpm dev:backend` | Run backend in development mode |
 | `pnpm lint` | Lint all packages |
 | `pnpm clean` | Clean all build artifacts |
 
