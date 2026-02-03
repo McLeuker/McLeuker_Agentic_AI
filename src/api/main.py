@@ -1,306 +1,218 @@
 """
-McLeuker AI V5 - Main API
-FastAPI-based REST API with streaming support.
+McLeuker AI V5.1 - FastAPI Main Application
+============================================
+API endpoints with response contract enforcement and file serving.
 
-Endpoints:
-- POST /api/chat - Main chat endpoint
-- POST /api/chat/stream - Streaming chat endpoint
-- GET /health - Health check
-- GET /api/status - Detailed status
+Key improvements:
+1. /api/chat returns ResponseContract (structured JSON)
+2. /files/{filename} serves real downloadable files
+3. Proper CORS for frontend integration
+4. Health check with service status
 """
 
-import asyncio
-import json
-import uuid
+import os
 from datetime import datetime
-from typing import Dict, List, Optional, Any
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from pydantic import BaseModel
+import uvicorn
 
-from src.config.settings import settings
-from src.core.orchestrator import orchestrator, OrchestratorResponse
-
-
-# =============================================================================
-# Pydantic Models
-# =============================================================================
-
-class ChatMessage(BaseModel):
-    """A single chat message."""
-    role: str = Field(..., description="Message role: 'user' or 'assistant'")
-    content: str = Field(..., description="Message content")
+# Import V5.1 components
+from ..core.orchestrator import orchestrator
+from ..schemas.response_contract import ResponseContract, IntentType, DomainType
+from ..services.file_generator import file_generator
+from ..layers.intent.intent_router import intent_router
 
 
-class ChatRequest(BaseModel):
-    """Request body for chat endpoint."""
-    message: str = Field(..., description="User message")
-    session_id: Optional[str] = Field(None, description="Session ID for conversation continuity")
-    user_id: Optional[str] = Field(None, description="User ID for credit tracking")
-    conversation_history: Optional[List[ChatMessage]] = Field(default=[], description="Previous messages")
-    mode: Optional[str] = Field("auto", description="Mode: 'quick', 'deep', or 'auto'")
-
-
-class ChatResponse(BaseModel):
-    """Response body for chat endpoint."""
-    success: bool
-    response: str
-    session_id: str
-    reasoning: List[str] = []
-    sources: List[Dict] = []
-    files: List[Dict] = []
-    images: List[str] = []
-    follow_up_questions: List[str] = []
-    credits_used: int = 0
-    error: Optional[str] = None
-
-
-class HealthResponse(BaseModel):
-    """Response body for health check."""
-    status: str
-    version: str
-    timestamp: str
-    services: Dict[str, bool]
-
-
-# =============================================================================
-# Application Setup
-# =============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
-    # Startup
-    print("🚀 McLeuker AI V5 starting...")
-    print(f"✅ Grok configured: {settings.is_grok_configured()}")
-    print(f"✅ Search configured: {settings.is_search_configured()}")
-    print(f"✅ Supabase configured: {settings.is_supabase_configured()}")
-    print(f"📅 Current date: {datetime.now().strftime('%B %d, %Y')}")
-    yield
-    # Shutdown
-    print("👋 McLeuker AI V5 shutting down...")
-
-
+# === APP SETUP ===
 app = FastAPI(
-    title="McLeuker AI V5",
-    description="Frontier Agentic AI for Fashion, Beauty, Lifestyle, and Culture",
-    version="5.0.0",
-    lifespan=lifespan
+    title="McLeuker AI V5.1",
+    description="Fashion Intelligence Platform with Response Contract Architecture",
+    version="5.1.0"
 )
 
-# CORS Configuration
+# CORS - Allow all origins for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# =============================================================================
-# Health & Status Endpoints
-# =============================================================================
-
-@app.get("/", response_class=JSONResponse)
-async def root():
-    """Root endpoint - basic info."""
-    return {
-        "name": "McLeuker AI",
-        "version": "5.0.0",
-        "status": "online",
-        "docs": "/docs"
-    }
+# === REQUEST MODELS ===
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+    mode: str = "quick"  # quick or deep
+    domain: Optional[str] = None
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint."""
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    timestamp: str
+    services: dict
+
+
+# === ENDPOINTS ===
+
+@app.get("/health")
+async def health_check() -> HealthResponse:
+    """Health check endpoint for Railway deployment"""
     return HealthResponse(
         status="healthy",
-        version="5.0.0",
+        version="5.1.0",
         timestamp=datetime.utcnow().isoformat(),
         services={
-            "grok": settings.is_grok_configured(),
-            "search": settings.is_search_configured(),
-            "supabase": settings.is_supabase_configured()
+            "grok": bool(os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")),
+            "search": bool(os.getenv("SERPER_API_KEY")),
+            "file_generation": True,
+            "intent_router": True
         }
     )
 
 
-@app.get("/api/status")
-async def api_status():
-    """Detailed API status."""
+@app.get("/")
+async def root():
+    """Root endpoint"""
     return {
-        "platform": "McLeuker AI",
-        "version": "5.0.0",
-        "architecture": "V5 Agentic",
-        "brain": "Grok (XAI)",
-        "layers": {
-            "intent_router": "Rule-based fast detection",
-            "context_manager": "Session-based memory",
-            "query_planner": "Automatic mode selection",
-            "tool_executor": "Parallel search + Grok",
-            "response_synthesizer": "Clean formatting with citations"
-        },
-        "focus_areas": [
-            "Fashion", "Beauty", "Textile", "Skincare",
-            "Lifestyle", "Tech", "Sustainability", "Culture", "Catwalks"
-        ],
-        "current_date": datetime.now().strftime("%B %d, %Y"),
-        "services": {
-            "grok": settings.is_grok_configured(),
-            "perplexity": bool(settings.PERPLEXITY_API_KEY),
-            "exa": bool(settings.EXA_API_KEY),
-            "google": bool(settings.GOOGLE_SEARCH_API_KEY),
-            "bing": bool(settings.BING_API_KEY)
-        }
-    }
-
-
-# =============================================================================
-# Chat Endpoints
-# =============================================================================
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """
-    Main chat endpoint - processes user queries.
-    
-    Modes:
-    - quick: Fast response with minimal search
-    - deep: Comprehensive research with extensive search
-    - auto: Automatically determines the best approach
-    """
-    # Generate session ID if not provided
-    session_id = request.session_id or str(uuid.uuid4())
-    user_id = request.user_id or "anonymous"
-    
-    # Convert conversation history to dict format
-    history = [
-        {"role": msg.role, "content": msg.content}
-        for msg in (request.conversation_history or [])
-    ]
-    
-    # Process the request through the orchestrator
-    result = await orchestrator.process(
-        query=request.message,
-        session_id=session_id,
-        user_id=user_id,
-        mode=request.mode or "auto",
-        conversation_history=history
-    )
-    
-    return ChatResponse(
-        success=result.success,
-        response=result.response,
-        session_id=result.session_id,
-        reasoning=result.reasoning,
-        sources=result.sources,
-        files=result.files,
-        images=result.images,
-        follow_up_questions=result.follow_up_questions,
-        credits_used=result.credits_used,
-        error=result.error
-    )
-
-
-@app.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
-    """
-    Streaming chat endpoint - returns Server-Sent Events.
-    
-    Event types:
-    - status: Progress updates (understanding, planning, searching, generating)
-    - content: Response text chunks
-    - sources: Search sources used
-    - done: Stream complete
-    """
-    session_id = request.session_id or str(uuid.uuid4())
-    user_id = request.user_id or "anonymous"
-    
-    history = [
-        {"role": msg.role, "content": msg.content}
-        for msg in (request.conversation_history or [])
-    ]
-    
-    async def generate():
-        async for event in orchestrator.process_stream(
-            query=request.message,
-            session_id=session_id,
-            user_id=user_id,
-            mode=request.mode or "auto",
-            conversation_history=history
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
-    
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Session-ID": session_id
-        }
-    )
-
-
-# =============================================================================
-# Search Endpoint (Direct access)
-# =============================================================================
-
-@app.post("/api/search")
-async def search(query: str, providers: Optional[List[str]] = None):
-    """Direct search endpoint for testing."""
-    from src.layers.search.search_layer import search_layer
-    
-    result = await search_layer.search(query, providers=providers)
-    
-    return {
-        "success": result.success,
-        "query": result.query,
-        "providers_used": result.providers_used,
-        "results": [
-            {
-                "title": r.title,
-                "url": r.url,
-                "snippet": r.snippet,
-                "source": r.source
-            }
-            for r in result.results
+        "name": "McLeuker AI",
+        "version": "5.1.0",
+        "architecture": "Response Contract",
+        "features": [
+            "Structured output (no inline citations)",
+            "Real file generation (Excel, PDF, CSV)",
+            "Persistent sources",
+            "Intent-based routing",
+            "Domain-flexible responses"
         ]
     }
 
 
-# =============================================================================
-# Error Handlers
-# =============================================================================
+@app.post("/api/chat")
+async def chat(request: ChatRequest) -> dict:
+    """
+    Main chat endpoint - returns ResponseContract.
+    
+    The response follows the contract:
+    - main_content: Clean prose WITHOUT citations
+    - sources: Persistent array of source objects
+    - files: Real downloadable file URLs
+    - key_insights: Structured bullet points
+    - tables: Structured table data
+    """
+    try:
+        # Process with V5.1 orchestrator
+        response = await orchestrator.process(
+            message=request.message,
+            session_id=request.session_id,
+            mode=request.mode
+        )
+        
+        # Convert ResponseContract to dict for JSON response
+        return response.dict()
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "session_id": request.session_id,
+            "intent": IntentType.GENERAL.value,
+            "domain": DomainType.GENERAL.value,
+            "summary": "An error occurred",
+            "main_content": f"I apologize, but I encountered an error: {str(e)}",
+            "sources": [],
+            "files": [],
+            "key_insights": [],
+            "tables": [],
+            "action_items": [],
+            "follow_up_questions": ["Would you like to try again?"],
+            "credits_used": 0
+        }
+
+
+@app.post("/api/classify")
+async def classify_intent(request: ChatRequest) -> dict:
+    """
+    Classify user intent without generating response.
+    Useful for frontend to prepare UI before full response.
+    """
+    classification = intent_router.classify(request.message)
+    return {
+        "intent": classification['intent'].value,
+        "domain": classification['domain'].value,
+        "confidence": classification['confidence'],
+        "requires_search": classification['requires_search'],
+        "requires_file_generation": classification['requires_file_generation'],
+        "suggested_mode": classification['suggested_mode']
+    }
+
+
+@app.get("/files/{filename}")
+async def download_file(filename: str):
+    """
+    Serve generated files for download.
+    This enables real file downloads instead of text-pretending-to-be-files.
+    """
+    filepath = file_generator.get_file_path(filename)
+    
+    if not filepath:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Determine media type
+    if filename.endswith('.xlsx'):
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif filename.endswith('.pdf'):
+        media_type = "application/pdf"
+    elif filename.endswith('.csv'):
+        media_type = "text/csv"
+    elif filename.endswith('.pptx'):
+        media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    else:
+        media_type = "application/octet-stream"
+    
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type=media_type
+    )
+
+
+@app.get("/api/sources/{session_id}")
+async def get_sources(session_id: str):
+    """
+    Get sources for a session - enables persistent source display.
+    Sources don't disappear on re-render because they're stored server-side.
+    """
+    # In production, this would fetch from database
+    # For now, return empty (sources are included in chat response)
+    return {
+        "session_id": session_id,
+        "sources": [],
+        "message": "Sources are included in chat response. This endpoint is for future persistent storage."
+    }
+
+
+# === ERROR HANDLERS ===
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler for unhandled errors."""
     return JSONResponse(
         status_code=500,
         content={
             "success": False,
-            "error": "Internal server error",
-            "message": str(exc) if settings.DEBUG else "An unexpected error occurred"
+            "error": str(exc),
+            "detail": "Internal server error"
         }
     )
 
 
-# =============================================================================
-# Run Server
-# =============================================================================
+# === MAIN ===
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "src.api.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG
-    )
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
