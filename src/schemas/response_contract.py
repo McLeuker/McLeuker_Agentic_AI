@@ -29,6 +29,8 @@ class IntentType(str, Enum):
     STRATEGY = "strategy"           # Business strategy, planning
     COMPARISON = "comparison"       # Compare products, brands, markets
     NEWS = "news"                   # Current events, what's happening
+    CREATIVE = "creative"           # Generate images, mood boards
+    DATA = "data"                   # Data analysis, statistics
     GENERAL = "general"             # General questions, chat
 
 
@@ -41,6 +43,10 @@ class DomainType(str, Enum):
     LIFESTYLE = "lifestyle"
     LUXURY = "luxury"
     RETAIL = "retail"
+    CULTURE = "culture"             # Art, music, film, events
+    TECHNOLOGY = "technology"       # Tech, AI, digital
+    TEXTILE = "textile"             # Fabrics, materials
+    CATWALKS = "catwalks"           # Runway shows, fashion weeks
     GENERAL = "general"
 
 
