@@ -16,13 +16,20 @@ import {
   ArrowRight
 } from "lucide-react";
 
+interface KeyInsight {
+  icon: string;
+  title: string;
+  description: string;
+  importance: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
   sources?: Array<{ title: string; url: string; }>;
-  keyInsights?: string[];
+  keyInsights?: KeyInsight[];
   followUpQuestions?: string[];
 }
 
@@ -125,7 +132,7 @@ export default function DashboardPage() {
       // Parse V5.1 response
       let content = "";
       let sources: Array<{ title: string; url: string; }> = [];
-      let keyInsights: string[] = [];
+      let keyInsights: KeyInsight[] = [];
       let followUpQuestions: string[] = [];
 
       if (data.response) {
@@ -319,11 +326,14 @@ export default function DashboardPage() {
                           <Lightbulb className="w-4 h-4 text-white/60" />
                           <span className="text-sm font-medium text-white/70">Key Insights</span>
                         </div>
-                        <ul className="space-y-2">
+                        <ul className="space-y-3">
                           {message.keyInsights.map((insight, i) => (
-                            <li key={i} className="flex items-start gap-2 text-sm text-white/70">
-                              <span className="text-white/40">•</span>
-                              {insight}
+                            <li key={i} className="flex items-start gap-3 text-sm">
+                              <span className="text-lg">{insight.icon || '💡'}</span>
+                              <div>
+                                <span className="font-medium text-white/80">{insight.title}: </span>
+                                <span className="text-white/60">{insight.description}</span>
+                              </div>
                             </li>
                           ))}
                         </ul>
