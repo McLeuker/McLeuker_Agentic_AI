@@ -1,14 +1,15 @@
 """
-V3.1 Core Module
-Contains the main orchestrator and Grok brain.
+V5 Core Module
+Contains the main orchestrator and brain.
 """
 
-from src.core.orchestrator import V31Orchestrator, GrokBrain, TaskContext, OrchestratorResponse, orchestrator
+from src.core.orchestrator import V5Orchestrator, OrchestratorResponse, orchestrator
+from src.core.brain import brain, BrainResponse
 
 __all__ = [
-    "V31Orchestrator",
-    "GrokBrain", 
-    "TaskContext",
+    "V5Orchestrator",
     "OrchestratorResponse",
-    "orchestrator"
+    "orchestrator",
+    "brain",
+    "BrainResponse"
 ]
