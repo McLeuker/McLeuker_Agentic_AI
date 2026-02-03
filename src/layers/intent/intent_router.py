@@ -1,260 +1,279 @@
 """
 McLeuker AI V5.1 - Intent Router
 ================================
-This layer classifies user intent BEFORE calling the LLM.
+Prevents domain overfitting by properly classifying user intent.
 
-Key improvements over V5:
-1. Distinguishes: research | advice | shopping | doc_generation | strategy
-2. Prevents domain lock-in (fashion-only bias)
-3. Detects file generation requests
-4. Infers tone and complexity
-
-This fixes the "domain overfitting" issue from ChatGPT diagnosis.
+Design Principles:
+1. FLEXIBLE classification - not everything is fashion
+2. SMART defaults - assume general query unless clear indicators
+3. NO excessive questions - answer first, clarify later
+4. DOMAIN hints - use keywords, not rigid rules
 """
 
+from dataclasses import dataclass
+from enum import Enum
+from typing import Optional, List
 import re
-from typing import Tuple, Dict, Any
-from ..schemas.response_contract import IntentType, DomainType
+
+# Use absolute imports instead of relative
+from src.schemas.response_contract import IntentType, DomainType
+
+
+@dataclass
+class IntentResult:
+    """Result of intent classification"""
+    intent_type: IntentType
+    domain: DomainType
+    confidence: float
+    search_mode: str  # quick, deep, auto
+    needs_clarification: bool
+    clarification_question: Optional[str] = None
+    detected_keywords: List[str] = None
+    
+    def __post_init__(self):
+        if self.detected_keywords is None:
+            self.detected_keywords = []
 
 
 class IntentRouter:
     """
-    Smart intent classification without excessive clarification.
-    Routes queries to appropriate processing pipelines.
+    V5.1 Intent Router - Smart classification without excessive questions
     """
     
-    # File generation keywords
-    FILE_KEYWORDS = {
-        'excel': ['excel', 'spreadsheet', 'xlsx', 'xls', 'sheet'],
-        'pdf': ['pdf', 'document', 'report file'],
-        'ppt': ['ppt', 'pptx', 'powerpoint', 'presentation', 'slides', 'deck'],
-        'csv': ['csv', 'data file', 'export data']
+    # Domain keyword patterns - expanded beyond fashion
+    DOMAIN_PATTERNS = {
+        DomainType.FASHION: [
+            r'\b(fashion|style|outfit|clothing|wear|dress|trend|runway|catwalk|designer|couture)\b',
+            r'\b(ss\d{2}|fw\d{2}|spring|summer|fall|winter)\s*(collection|season|show)\b',
+            r'\b(vogue|elle|harper|bazaar|gq|esquire)\b'
+        ],
+        DomainType.BEAUTY: [
+            r'\b(beauty|makeup|cosmetic|skincare|skin\s*care|foundation|lipstick|mascara)\b',
+            r'\b(serum|moisturizer|cleanser|toner|sunscreen|spf)\b',
+            r'\b(glow|radiant|hydrat|anti-aging|wrinkle)\b'
+        ],
+        DomainType.LIFESTYLE: [
+            r'\b(lifestyle|wellness|fitness|health|diet|nutrition|mindfulness)\b',
+            r'\b(travel|vacation|destination|hotel|resort)\b',
+            r'\b(home|decor|interior|design|furniture)\b'
+        ],
+        DomainType.CULTURE: [
+            r'\b(culture|art|music|film|movie|book|literature|exhibition)\b',
+            r'\b(celebrity|influencer|social\s*media|viral|trending)\b',
+            r'\b(event|festival|concert|premiere|award)\b'
+        ],
+        DomainType.SUSTAINABILITY: [
+            r'\b(sustainab|eco|green|organic|ethical|fair\s*trade)\b',
+            r'\b(recycl|upcycl|circular|zero\s*waste|carbon)\b',
+            r'\b(environment|climate|biodegradable|renewable)\b'
+        ],
+        DomainType.TECHNOLOGY: [
+            r'\b(tech|digital|ai|artificial\s*intelligence|machine\s*learning)\b',
+            r'\b(app|software|platform|startup|innovation)\b',
+            r'\b(wearable|smart|iot|blockchain|nft)\b'
+        ],
+        DomainType.GENERAL: []  # Fallback
     }
     
     # Intent patterns
     INTENT_PATTERNS = {
-        IntentType.DOC_GENERATION: [
-            r'generat[e|ing]\s+(me\s+)?(an?\s+)?excel',
-            r'generat[e|ing]\s+(me\s+)?(an?\s+)?spreadsheet',
-            r'generat[e|ing]\s+(me\s+)?(an?\s+)?pdf',
-            r'generat[e|ing]\s+(me\s+)?(an?\s+)?ppt',
-            r'generat[e|ing]\s+(me\s+)?(an?\s+)?presentation',
-            r'create\s+(me\s+)?(an?\s+)?excel',
-            r'create\s+(me\s+)?(an?\s+)?spreadsheet',
-            r'make\s+(me\s+)?(an?\s+)?excel',
-            r'give\s+me\s+(an?\s+)?excel',
-            r'export\s+(to|as)\s+excel',
-            r'download\s+as',
+        IntentType.RESEARCH: [
+            r'\b(research|analyze|study|investigate|explore|deep\s*dive)\b',
+            r'\b(comprehensive|detailed|thorough|in-depth|complete)\b',
+            r'\b(report|analysis|overview|summary)\b'
         ],
         IntentType.SHOPPING: [
-            r'where\s+(can\s+i|to|should\s+i)\s+buy',
-            r'recommend\s+(me\s+)?shops?',
-            r'physical\s+stores?',
-            r'visit\s+(these\s+)?shops?',
-            r'what\s+to\s+wear',
-            r'dress\s+between\s+\d+\s+and\s+\d+',
-            r'budget\s+\d+',
-            r'under\s+\d+\s*(euros?|\$|dollars?)',
-            r'shops?\s+in\s+paris',
-            r'stores?\s+in\s+',
-        ],
-        IntentType.COMPARISON: [
-            r'compare\s+',
-            r'vs\.?\s+',
-            r'versus\s+',
-            r'difference\s+between',
-            r'which\s+is\s+better',
-            r'pricing\s+across',
-            r'market\s+share',
-        ],
-        IntentType.NEWS: [
-            r"what'?s\s+(happening|going\s+on|new)",
-            r'news\s+(today|this\s+week|now)',
-            r'right\s+now\s+\d{4}',
-            r'today\s+\d{4}',
-            r'this\s+week',
-            r'latest\s+',
-            r'current\s+',
-            r'now\s+in\s+\d{4}',
-        ],
-        IntentType.RESEARCH: [
-            r'insights?\s+(of|about|on|for)',
-            r'analysis\s+(of|about|on)',
-            r'research\s+',
-            r'deep\s+dive',
-            r'comprehensive',
-            r'master\s+(excel|sheet|list)',
-            r'overview\s+of',
+            r'\b(buy|purchase|shop|order|get|find|where\s*to\s*buy)\b',
+            r'\b(price|cost|affordable|budget|expensive|cheap)\b',
+            r'\b(recommend|suggestion|best|top|review)\b'
         ],
         IntentType.ADVICE: [
-            r'what\s+should\s+i',
-            r'recommend\s+(me)?',
-            r'suggest',
-            r'advice',
-            r'tips?\s+for',
-            r'how\s+to',
-            r'best\s+way\s+to',
+            r'\b(advice|tip|help|guide|how\s*to|should\s*i)\b',
+            r'\b(recommend|suggest|what\s*do\s*you\s*think)\b',
+            r'\b(opinion|perspective|insight)\b'
         ],
-        IntentType.STRATEGY: [
-            r'strategy',
-            r'business\s+plan',
-            r'market\s+entry',
-            r'competitive\s+analysis',
-            r'swot',
+        IntentType.CREATIVE: [
+            r'\b(create|generate|make|design|write|compose)\b',
+            r'\b(mood\s*board|inspiration|idea|concept)\b',
+            r'\b(image|visual|graphic|presentation)\b'
         ],
-    }
-    
-    # Domain keywords
-    DOMAIN_KEYWORDS = {
-        DomainType.FASHION: [
-            'fashion', 'clothing', 'apparel', 'runway', 'collection', 'designer',
-            'dress', 'outfit', 'wear', 'style', 'trend', 'silhouette', 'couture',
-            'rtw', 'ready-to-wear', 'fashion week', 'pfw', 'nyfw', 'milan',
-            'dior', 'chanel', 'gucci', 'louis vuitton', 'prada', 'balenciaga'
+        IntentType.DATA: [
+            r'\b(data|statistic|number|figure|metric|kpi)\b',
+            r'\b(excel|spreadsheet|csv|chart|graph|table)\b',
+            r'\b(compare|comparison|versus|vs)\b'
         ],
-        DomainType.BEAUTY: [
-            'beauty', 'makeup', 'cosmetics', 'lipstick', 'foundation', 'mascara',
-            'eyeshadow', 'blush', 'highlighter', 'beauty trends'
-        ],
-        DomainType.SKINCARE: [
-            'skincare', 'skin care', 'serum', 'moisturizer', 'cleanser', 'retinol',
-            'vitamin c', 'spf', 'sunscreen', 'acne', 'anti-aging', 'ingredients'
-        ],
-        DomainType.SUSTAINABILITY: [
-            'sustainability', 'sustainable', 'eco', 'green', 'ethical', 'circular',
-            'recycled', 'organic', 'carbon', 'emissions', 'esg', 'environment'
-        ],
-        DomainType.LUXURY: [
-            'luxury', 'premium', 'high-end', 'exclusive', 'lvmh', 'kering',
-            'hermes', 'birkin', 'handbag', 'pricing', 'market share'
-        ],
-        DomainType.LIFESTYLE: [
-            'lifestyle', 'wellness', 'health', 'fitness', 'travel', 'experience',
-            'consumer', 'behavior', 'culture', 'values'
-        ],
-        DomainType.RETAIL: [
-            'retail', 'store', 'shop', 'ecommerce', 'omnichannel', 'brick and mortar',
-            'physical store', 'boutique', 'flagship'
-        ],
+        IntentType.GENERAL: []  # Fallback
     }
     
     def __init__(self):
         self.last_intent = None
-        self.last_domain = None
+        self.context_history = []
     
-    def classify(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    def classify(self, query: str, context: Optional[List[str]] = None) -> IntentResult:
         """
-        Classify user intent and domain from query.
-        Returns structured classification result.
+        Classify user intent without excessive questions.
+        
+        Strategy:
+        1. Check for explicit domain/intent indicators
+        2. Use context from conversation history
+        3. Default to GENERAL if unclear (don't ask!)
+        4. Only ask clarification for truly ambiguous cases
         """
-        query_lower = query.lower().strip()
+        query_lower = query.lower()
         
-        # Detect intent
-        intent = self._detect_intent(query_lower)
+        # Detect domain
+        domain, domain_confidence, domain_keywords = self._detect_domain(query_lower)
         
-        # Detect domain (flexible, not forced)
-        domain = self._detect_domain(query_lower)
+        # Detect intent type
+        intent_type, intent_confidence, intent_keywords = self._detect_intent(query_lower)
         
-        # Detect file type if doc generation
-        file_type = self._detect_file_type(query_lower) if intent == IntentType.DOC_GENERATION else None
+        # Determine search mode
+        search_mode = self._determine_search_mode(query_lower, intent_type)
         
-        # Calculate confidence
-        confidence = self._calculate_confidence(query_lower, intent, domain)
+        # Check if clarification is truly needed (very rare!)
+        needs_clarification, clarification_question = self._check_clarification_need(
+            query_lower, domain, intent_type, domain_confidence, intent_confidence
+        )
         
-        # Detect complexity
-        complexity = self._detect_complexity(query_lower)
+        # Combine keywords
+        all_keywords = domain_keywords + intent_keywords
+        
+        # Calculate overall confidence
+        overall_confidence = (domain_confidence + intent_confidence) / 2
+        
+        result = IntentResult(
+            intent_type=intent_type,
+            domain=domain,
+            confidence=overall_confidence,
+            search_mode=search_mode,
+            needs_clarification=needs_clarification,
+            clarification_question=clarification_question,
+            detected_keywords=all_keywords
+        )
         
         # Store for context
-        self.last_intent = intent
-        self.last_domain = domain
+        self.last_intent = result
         
-        return {
-            'intent': intent,
-            'domain': domain,
-            'file_type': file_type,
-            'confidence': confidence,
-            'complexity': complexity,
-            'requires_search': self._requires_search(intent),
-            'requires_file_generation': intent == IntentType.DOC_GENERATION,
-            'suggested_mode': 'deep' if complexity == 'high' else 'quick'
-        }
+        return result
     
-    def _detect_intent(self, query: str) -> IntentType:
-        """Detect primary intent from query patterns"""
-        for intent, patterns in self.INTENT_PATTERNS.items():
+    def _detect_domain(self, query: str) -> tuple:
+        """Detect the domain with confidence score"""
+        best_domain = DomainType.GENERAL
+        best_score = 0.0
+        best_keywords = []
+        
+        for domain, patterns in self.DOMAIN_PATTERNS.items():
+            if not patterns:
+                continue
+                
+            keywords = []
+            score = 0.0
+            
             for pattern in patterns:
-                if re.search(pattern, query, re.IGNORECASE):
-                    return intent
+                matches = re.findall(pattern, query, re.IGNORECASE)
+                if matches:
+                    keywords.extend(matches)
+                    score += len(matches) * 0.3
+            
+            if score > best_score:
+                best_score = score
+                best_domain = domain
+                best_keywords = keywords
         
-        # Default to research for complex queries, general for simple
-        if len(query.split()) > 15:
-            return IntentType.RESEARCH
-        return IntentType.GENERAL
+        # Cap confidence at 1.0
+        confidence = min(best_score, 1.0) if best_score > 0 else 0.3
+        
+        return best_domain, confidence, best_keywords
     
-    def _detect_domain(self, query: str) -> DomainType:
-        """Detect domain - flexible, not forced"""
-        scores = {domain: 0 for domain in DomainType}
+    def _detect_intent(self, query: str) -> tuple:
+        """Detect the intent type with confidence score"""
+        best_intent = IntentType.GENERAL
+        best_score = 0.0
+        best_keywords = []
         
-        for domain, keywords in self.DOMAIN_KEYWORDS.items():
-            for keyword in keywords:
-                if keyword in query:
-                    scores[domain] += 1
+        for intent, patterns in self.INTENT_PATTERNS.items():
+            if not patterns:
+                continue
+                
+            keywords = []
+            score = 0.0
+            
+            for pattern in patterns:
+                matches = re.findall(pattern, query, re.IGNORECASE)
+                if matches:
+                    keywords.extend(matches)
+                    score += len(matches) * 0.3
+            
+            if score > best_score:
+                best_score = score
+                best_intent = intent
+                best_keywords = keywords
         
-        # Get highest scoring domain
-        max_score = max(scores.values())
-        if max_score > 0:
-            for domain, score in scores.items():
-                if score == max_score:
-                    return domain
+        # Cap confidence at 1.0
+        confidence = min(best_score, 1.0) if best_score > 0 else 0.3
         
-        return DomainType.GENERAL
+        return best_intent, confidence, best_keywords
     
-    def _detect_file_type(self, query: str) -> str:
-        """Detect requested file type"""
-        for file_type, keywords in self.FILE_KEYWORDS.items():
-            for keyword in keywords:
-                if keyword in query:
-                    return file_type
-        return 'excel'  # Default to Excel
+    def _determine_search_mode(self, query: str, intent_type: IntentType) -> str:
+        """Determine search mode based on query and intent"""
+        # Deep search indicators
+        deep_patterns = [
+            r'\b(comprehensive|detailed|thorough|in-depth|complete|full)\b',
+            r'\b(research|analyze|study|investigate|deep\s*dive)\b',
+            r'\b(all|everything|entire|whole)\b'
+        ]
+        
+        # Quick search indicators
+        quick_patterns = [
+            r'\b(quick|fast|brief|simple|short|summary)\b',
+            r'\b(just|only|main|key|top)\b'
+        ]
+        
+        for pattern in deep_patterns:
+            if re.search(pattern, query, re.IGNORECASE):
+                return "deep"
+        
+        for pattern in quick_patterns:
+            if re.search(pattern, query, re.IGNORECASE):
+                return "quick"
+        
+        # Default based on intent
+        if intent_type == IntentType.RESEARCH:
+            return "deep"
+        elif intent_type == IntentType.SHOPPING:
+            return "quick"
+        
+        return "auto"
     
-    def _calculate_confidence(self, query: str, intent: IntentType, domain: DomainType) -> float:
-        """Calculate classification confidence"""
-        confidence = 0.7  # Base confidence
+    def _check_clarification_need(
+        self, 
+        query: str, 
+        domain: DomainType, 
+        intent_type: IntentType,
+        domain_confidence: float,
+        intent_confidence: float
+    ) -> tuple:
+        """
+        Check if clarification is truly needed.
         
-        # Boost for clear intent patterns
-        if intent != IntentType.GENERAL:
-            confidence += 0.15
+        V5.1 Philosophy: Almost NEVER ask for clarification!
+        - Answer first, refine later
+        - Use smart defaults
+        - Only ask if query is truly incomprehensible
+        """
+        # Very short queries might need clarification
+        words = query.split()
+        if len(words) < 2:
+            return True, "Could you tell me more about what you're looking for?"
         
-        # Boost for clear domain keywords
-        if domain != DomainType.GENERAL:
-            confidence += 0.1
+        # If both confidence scores are very low, might need help
+        if domain_confidence < 0.2 and intent_confidence < 0.2:
+            # But still try to answer! Only ask if truly stuck
+            return False, None
         
-        # Reduce for very short queries
-        if len(query.split()) < 5:
-            confidence -= 0.1
-        
-        return min(0.99, max(0.5, confidence))
-    
-    def _detect_complexity(self, query: str) -> str:
-        """Detect query complexity"""
-        word_count = len(query.split())
-        
-        if word_count > 30 or 'comprehensive' in query or 'detailed' in query:
-            return 'high'
-        elif word_count > 15:
-            return 'medium'
-        return 'low'
-    
-    def _requires_search(self, intent: IntentType) -> bool:
-        """Determine if intent requires web search"""
-        search_intents = {
-            IntentType.RESEARCH,
-            IntentType.NEWS,
-            IntentType.COMPARISON,
-            IntentType.SHOPPING
-        }
-        return intent in search_intents
+        # Default: NO clarification needed
+        return False, None
 
 
-# Singleton instance
+# Global instance
 intent_router = IntentRouter()
