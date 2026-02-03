@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { TopNavigation } from "@/components/layout/TopNavigation";
 import { Footer } from "@/components/layout/Footer";
@@ -199,15 +200,25 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Hero Section - Fashion Intelligence */}
-      <section className="relative min-h-[70vh] lg:min-h-[80vh] flex items-center justify-center overflow-hidden bg-black">
-        {/* Background gradient overlay */}
-        <div 
-          className="absolute inset-0" 
-          style={{
-            background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.82) 60%, rgba(0,0,0,0.90) 100%)'
-          }}
-        />
+      {/* Hero Section - Fashion Intelligence with Runway Image */}
+      <section className="relative min-h-[70vh] lg:min-h-[80vh] flex items-center justify-center overflow-hidden">
+        {/* Background Image with Grayscale + Dark Overlay */}
+        <div className="absolute inset-0">
+          <Image 
+            src="/images/hero-runway.jpg" 
+            alt="Fashion runway" 
+            fill
+            className="object-cover grayscale contrast-[1.08] brightness-[0.85]"
+            priority
+          />
+          {/* Dark gradient overlay for readability */}
+          <div 
+            className="absolute inset-0" 
+            style={{
+              background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.82) 60%, rgba(0,0,0,0.90) 100%)'
+            }}
+          />
+        </div>
 
         {/* Hero Content */}
         <div className="relative z-10 container mx-auto px-6 lg:px-12 py-20 lg:py-32">
@@ -260,13 +271,13 @@ export default function LandingPage() {
       </section>
 
       {/* Quote Section */}
-      <section className="py-20 lg:py-28 bg-[#070707]">
+      <section className="py-32 lg:py-40 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
           <blockquote className="max-w-4xl mx-auto text-center">
-            <p className="font-editorial text-2xl md:text-3xl lg:text-4xl text-white/[0.85] leading-[1.4] italic">
-              "We believe fashion intelligence should be as refined as the industry it serves."
+            <p className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.92] leading-[1.2]">
+              &ldquo;We believe fashion intelligence should be as refined as the industry it serves.&rdquo;
             </p>
-            <footer className="mt-6 text-white/50">
+            <footer className="mt-8 text-white/50 text-lg">
               — McLeuker AI
             </footer>
           </blockquote>
@@ -274,224 +285,260 @@ export default function LandingPage() {
       </section>
 
       {/* Solutions Section */}
-      <section className="py-20 lg:py-28 bg-[#0A0A0A]">
+      <section className="py-24 lg:py-32 bg-[#0B0B0B]">
         <div className="container mx-auto px-6 lg:px-12">
-          <div className="text-center mb-12 lg:mb-16">
-            <p className="text-xs sm:text-sm text-white/40 uppercase tracking-[0.2em] mb-3">
-              Our Expertise
-            </p>
-            <h2 className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.92]">
-              Comprehensive Solutions
-            </h2>
-          </div>
+          <div className="max-w-[1120px] mx-auto">
+            {/* Section Header */}
+            <div className="text-center mb-20">
+              <p className="text-sm text-white/50 uppercase tracking-[0.2em] mb-4">
+                Our Expertise
+              </p>
+              <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
+                Comprehensive Solutions
+              </h2>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto">
-            {services.map((service, i) => (
-              <div
-                key={i}
+            {/* Services Grid */}
+            <div className="grid md:grid-cols-2 gap-8 lg:gap-10">
+              {services.map((service, i) => (
+                <div 
+                  key={i} 
+                  className={cn(
+                    "group p-8 lg:p-10 rounded-[20px]",
+                    "bg-gradient-to-b from-[#1A1A1A] to-[#141414]",
+                    "border border-white/[0.10]",
+                    "hover:border-white/[0.18]",
+                    "transition-all duration-200 cursor-pointer"
+                  )}
+                >
+                  <div className="flex items-start justify-between mb-6">
+                    <span className="text-5xl font-editorial text-white/15">
+                      0{i + 1}
+                    </span>
+                    <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-white/70 group-hover:translate-x-1 transition-all" />
+                  </div>
+                  <h3 className="text-xl lg:text-2xl font-medium text-white/[0.92] mb-3">
+                    {service.title}
+                  </h3>
+                  <p className="text-white/60 leading-relaxed">
+                    {service.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {/* CTA */}
+            <div className="text-center mt-16">
+              <Link
+                href="/solutions"
                 className={cn(
-                  "p-8 rounded-[20px]",
-                  "bg-gradient-to-b from-[#141414] to-[#0F0F0F]",
-                  "border border-white/[0.08]",
-                  "hover:border-white/[0.14] transition-colors",
-                  "group"
+                  "inline-flex items-center gap-2 px-8 py-3",
+                  "bg-[#141414] border border-white/[0.10] rounded-full",
+                  "text-white/80 hover:bg-[#1A1A1A] hover:border-white/[0.18]",
+                  "transition-colors"
                 )}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <span className="text-4xl font-editorial text-white/20">
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <ArrowRight className="w-5 h-5 text-white/30 group-hover:text-white/60 group-hover:translate-x-1 transition-all" />
-                </div>
-                <h3 className="text-xl font-medium text-white/[0.92] mb-3">
-                  {service.title}
-                </h3>
-                <p className="text-white/55 leading-relaxed">
-                  {service.description}
+                Explore All Solutions
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Visual Showcase - Atelier (with Grayscale Image) */}
+      <section className="py-24 lg:py-32 bg-[#070707]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-7xl mx-auto">
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+              {/* Image with Grayscale Filter */}
+              <div className="relative rounded-[20px] overflow-hidden shadow-[0_14px_40px_rgba(0,0,0,0.55)] aspect-[4/5]">
+                <Image 
+                  src="/images/fashion-atelier.jpg" 
+                  alt="Fashion atelier workspace" 
+                  fill
+                  className="object-cover grayscale contrast-105 brightness-90"
+                />
+              </div>
+
+              {/* Content */}
+              <div className="lg:py-12">
+                <p className="text-sm text-white/50 uppercase tracking-[0.2em] mb-4">
+                  Crafted for Excellence
                 </p>
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
+                  Intelligence meets craftsmanship
+                </h2>
+                <p className="text-white/65 text-lg leading-relaxed mb-8">
+                  Just as the finest ateliers combine tradition with innovation, 
+                  McLeuker AI blends deep fashion expertise with cutting-edge artificial intelligence. 
+                  Every insight is curated, every report is refined.
+                </p>
+                <ul className="space-y-4 mb-10">
+                  {[
+                    "Professional-grade reports and presentations",
+                    "Structured data exports ready for your workflow",
+                    "Real deliverables, not just conversations"
+                  ].map((item, i) => (
+                    <li key={i} className="flex items-center gap-3 text-white/[0.85]">
+                      <div className="w-1.5 h-1.5 rounded-full bg-white/60"></div>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href="/signup"
+                  className={cn(
+                    "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
+                    "bg-white text-black font-medium",
+                    "hover:bg-white/90 transition-colors"
+                  )}
+                >
+                  Start Your Journey
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
               </div>
-            ))}
-          </div>
-
-          <div className="text-center mt-12">
-            <Link
-              href="/solutions"
-              className={cn(
-                "inline-flex items-center gap-2 px-6 py-3 rounded-full",
-                "border border-white/[0.18] text-white/90",
-                "hover:bg-white/[0.08] transition-colors"
-              )}
-            >
-              Explore All Solutions
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Craftsmanship Section */}
-      <section className="py-20 lg:py-28 bg-[#070707]">
-        <div className="container mx-auto px-6 lg:px-12">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center max-w-6xl mx-auto">
-            {/* Image placeholder */}
-            <div className="aspect-[4/3] rounded-[20px] bg-gradient-to-br from-[#1A1A1A] to-[#0F0F0F] border border-white/[0.08]" />
-            
-            {/* Content */}
-            <div>
-              <p className="text-xs sm:text-sm text-white/40 uppercase tracking-[0.2em] mb-3">
-                Crafted for Excellence
-              </p>
-              <h2 className="font-editorial text-3xl md:text-4xl text-white/[0.92] mb-6">
-                Intelligence meets craftsmanship
-              </h2>
-              <p className="text-white/65 leading-relaxed mb-8">
-                Just as the finest ateliers combine tradition with innovation, McLeuker AI blends deep fashion expertise with cutting-edge artificial intelligence. Every insight is curated, every report is refined.
-              </p>
-              <ul className="space-y-4 mb-8">
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/50 mt-2" />
-                  <span className="text-white/70">Professional-grade reports and presentations</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/50 mt-2" />
-                  <span className="text-white/70">Structured data exports ready for your workflow</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/50 mt-2" />
-                  <span className="text-white/70">Real deliverables, not just conversations</span>
-                </li>
-              </ul>
-              <Link
-                href="/signup"
-                className={cn(
-                  "inline-flex items-center gap-2 px-6 py-3 rounded-full",
-                  "border border-white/[0.18] text-white/90",
-                  "hover:bg-white/[0.08] transition-colors"
-                )}
-              >
-                Start Your Journey
-                <ArrowRight className="w-4 h-4" />
-              </Link>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Sustainability Section */}
-      <section className="py-20 lg:py-28 bg-[#0A0A0A]">
+      {/* Sustainability Focus - Dark with Grayscale Image */}
+      <section className="py-24 lg:py-32 bg-[#0B0B0B]">
         <div className="container mx-auto px-6 lg:px-12">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center max-w-6xl mx-auto">
-            {/* Content */}
-            <div className="order-2 lg:order-1">
-              <p className="text-xs sm:text-sm text-white/40 uppercase tracking-[0.2em] mb-3">
-                Sustainability First
-              </p>
-              <h2 className="font-editorial text-3xl md:text-4xl text-white/[0.92] mb-6">
-                Fashion with purpose
-              </h2>
-              <p className="text-white/65 leading-relaxed mb-8">
-                Sustainability isn't an afterthought—it's woven into everything we do. From supplier certifications to impact assessments, we help brands make informed decisions that benefit both business and planet.
-              </p>
-              
-              {/* Stats */}
-              <div className="grid grid-cols-2 gap-6 mb-8">
-                <div>
-                  <p className="text-4xl font-editorial text-white/[0.92] mb-1">85%</p>
-                  <p className="text-sm text-white/50">Time saved on sustainability research</p>
+          <div className="max-w-7xl mx-auto">
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
+              {/* Content - Left on desktop */}
+              <div className="lg:py-12 order-2 lg:order-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-white/[0.10] mb-6">
+                  <Leaf className="w-4 h-4 text-white/60" />
+                  <span className="text-sm text-white/60">
+                    Sustainability First
+                  </span>
                 </div>
-                <div>
-                  <p className="text-4xl font-editorial text-white/[0.92] mb-1">100+</p>
-                  <p className="text-sm text-white/50">Certification databases tracked</p>
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
+                  Fashion with purpose
+                </h2>
+                <p className="text-white/65 text-lg leading-relaxed mb-8">
+                  Sustainability isn&apos;t an afterthought—it&apos;s woven into everything we do. 
+                  From supplier certifications to impact assessments, we help brands 
+                  make informed decisions that benefit both business and planet.
+                </p>
+                <div className="grid grid-cols-2 gap-8 mb-10">
+                  <div>
+                    <p className="text-4xl font-editorial text-white/[0.92] mb-2">85%</p>
+                    <p className="text-sm text-white/50">Time saved on sustainability research</p>
+                  </div>
+                  <div>
+                    <p className="text-4xl font-editorial text-white/[0.92] mb-2">100+</p>
+                    <p className="text-sm text-white/50">Certification databases tracked</p>
+                  </div>
                 </div>
+                <Link
+                  href="/about"
+                  className={cn(
+                    "inline-flex items-center gap-2 px-8 py-3",
+                    "bg-[#141414] border border-white/[0.10] rounded-full",
+                    "text-white hover:bg-[#1A1A1A] hover:border-white/[0.18]",
+                    "transition-colors"
+                  )}
+                >
+                  Learn About Our Mission
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
               </div>
-              
-              <Link
-                href="/about"
-                className={cn(
-                  "inline-flex items-center gap-2 px-6 py-3 rounded-full",
-                  "border border-white/[0.18] text-white/90",
-                  "hover:bg-white/[0.08] transition-colors"
-                )}
-              >
-                Learn About Our Mission
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-            
-            {/* Image placeholder */}
-            <div className="order-1 lg:order-2 aspect-[4/3] rounded-[20px] bg-gradient-to-br from-[#1A1A1A] to-[#0F0F0F] border border-white/[0.08] flex items-center justify-center">
-              <Leaf className="w-20 h-20 text-white/20" />
+
+              {/* Image - Right on desktop (with Grayscale) */}
+              <div className="relative rounded-[20px] overflow-hidden shadow-[0_14px_40px_rgba(0,0,0,0.55)] order-1 lg:order-2 aspect-[4/5]">
+                <Image 
+                  src="/images/sustainable-materials.jpg" 
+                  alt="Sustainable fashion materials" 
+                  fill
+                  className="object-cover grayscale contrast-105 brightness-90"
+                />
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Testimonials Section */}
-      <section className="py-20 lg:py-28 bg-[#070707]">
+      <section className="py-24 lg:py-32 bg-[#0A0A0A]">
         <div className="container mx-auto px-6 lg:px-12">
-          <div className="text-center mb-12 lg:mb-16">
-            <p className="text-xs sm:text-sm text-white/40 uppercase tracking-[0.2em] mb-3">
-              Trusted by Industry Leaders
-            </p>
-            <h2 className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.92]">
-              What Our Clients Say
-            </h2>
-          </div>
+          <div className="max-w-[1120px] mx-auto">
+            {/* Section Header */}
+            <div className="text-center mb-20">
+              <p className="text-sm text-white/50 uppercase tracking-[0.2em] mb-4">
+                Trusted by Industry Leaders
+              </p>
+              <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
+                What Our Clients Say
+              </h2>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-            {testimonials.map((testimonial, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "p-8 rounded-[20px]",
-                  "bg-gradient-to-b from-[#141414] to-[#0F0F0F]",
-                  "border border-white/[0.08]"
-                )}
-              >
-                <blockquote className="text-white/70 leading-relaxed mb-6 italic">
-                  "{testimonial.quote}"
-                </blockquote>
-                <div>
-                  <p className="text-white/[0.92] font-medium">{testimonial.author}</p>
-                  <p className="text-sm text-white/50">{testimonial.company}</p>
+            {/* Testimonials Grid */}
+            <div className="grid md:grid-cols-3 gap-6">
+              {testimonials.map((testimonial, i) => (
+                <div 
+                  key={i} 
+                  className={cn(
+                    "p-8 rounded-[20px]",
+                    "bg-gradient-to-b from-[#232323] to-[#191919]",
+                    "border border-white/[0.12]",
+                    "shadow-[0_14px_40px_rgba(0,0,0,0.55)]"
+                  )}
+                >
+                  <blockquote className="text-white/[0.85] text-lg leading-relaxed mb-8">
+                    &ldquo;{testimonial.quote}&rdquo;
+                  </blockquote>
+                  <div>
+                    <p className="text-sm font-medium text-white/[0.92]">
+                      {testimonial.author}
+                    </p>
+                    <p className="text-sm text-white/50">
+                      {testimonial.company}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 lg:py-28 bg-[#0A0A0A]">
-        <div className="container mx-auto px-6 lg:px-12 text-center">
-          <h2 className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.92] mb-6">
-            Elevate your fashion intelligence
-          </h2>
-          <p className="text-white/65 text-lg mb-10 max-w-2xl mx-auto">
-            Join leading fashion brands transforming their research with AI-powered insights.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/signup"
-              className={cn(
-                "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                "bg-white text-black font-medium",
-                "hover:bg-white/90 transition-colors"
-              )}
-            >
-              Start Free Trial
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <Link
-              href="/pricing"
-              className={cn(
-                "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                "border border-white/[0.18] text-white/90",
-                "hover:bg-white/[0.08] transition-colors"
-              )}
-            >
-              View Pricing
-            </Link>
+      {/* Final CTA Section */}
+      <section className="py-32 lg:py-40 bg-[#070707]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.92] mb-8 leading-[1.1]">
+              Elevate your fashion intelligence
+            </h2>
+            <p className="text-white/60 text-lg mb-12 max-w-xl mx-auto">
+              Join leading fashion brands transforming their research with AI-powered insights.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link
+                href="/signup"
+                className={cn(
+                  "inline-flex items-center gap-2 px-10 py-4 rounded-full",
+                  "bg-white text-black font-medium",
+                  "hover:bg-white/90 transition-colors"
+                )}
+              >
+                Start Free Trial
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/pricing"
+                className={cn(
+                  "inline-flex items-center gap-2 px-10 py-4 rounded-full",
+                  "bg-[#141414] border border-white/[0.10] text-white",
+                  "hover:bg-[#1A1A1A] transition-colors"
+                )}
+              >
+                View Pricing
+              </Link>
+            </div>
           </div>
         </div>
       </section>
