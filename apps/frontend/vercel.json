@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "cd ../.. && pnpm install && pnpm turbo run build --filter=frontend",
-  "installCommand": "pnpm install",
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "pnpm build",
   "regions": ["iad1"],
   "headers": [
     {
