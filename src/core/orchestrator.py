@@ -1,52 +1,65 @@
 """
-V3.1 Core Orchestrator - FIXED VERSION
-The unified brain that coordinates all layers using Grok as the sole reasoning model.
-Implements the Think-Act-Observe-Correct loop with credit management.
+McLeuker AI V5 - Orchestrator
+The central controller that coordinates all layers using an agentic approach.
 
-FIXES APPLIED:
-1. Sources are now properly formatted as strings before being passed to Grok
-2. Response text no longer contains [object Object]
-3. Better error handling for edge cases
+Architecture Layers:
+1. Intent Router - Quick classification without asking questions
+2. Context Manager - Proper conversation memory
+3. Query Planner - Break complex queries into steps
+4. Tool Executor - Unified interface for all tools
+5. Response Synthesizer - Clean output formatting
+
+Design Principles (Inspired by Manus AI):
+- NEVER ask for clarification unless absolutely necessary
+- ALWAYS provide a response, even if partial
+- Use the brain for reasoning, not classification
+- Implement proper streaming for real-time feedback
+- Graceful fallbacks on errors
 """
 
 import asyncio
 import json
-import time
-from typing import Dict, List, Optional, Any, Tuple
+import re
+from typing import Dict, List, Optional, Any, AsyncGenerator
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
-import aiohttp
 
 from src.config.settings import settings
+from src.core.brain import brain, BrainResponse
+from src.layers.search.search_layer import search_layer, SearchResponse
 
 
-class TaskType(Enum):
-    """Types of tasks the orchestrator can handle."""
-    SIMPLE_QUERY = "simple_query"
-    RESEARCH = "research"
-    DATA_ANALYSIS = "data_analysis"
-    WEB_ACTION = "web_action"
-    IMAGE_GENERATION = "image_generation"
-    FILE_GENERATION = "file_generation"
-    MULTI_STEP = "multi_step"
+class QueryIntent(Enum):
+    """Types of query intents - determined quickly without LLM."""
+    SIMPLE_CHAT = "simple_chat"           # General conversation
+    FASHION_QUERY = "fashion_query"       # Fashion-related questions
+    BEAUTY_QUERY = "beauty_query"         # Beauty/skincare questions
+    TREND_RESEARCH = "trend_research"     # Deep trend analysis
+    DATA_REQUEST = "data_request"         # Data/statistics request
+    FILE_GENERATION = "file_generation"   # Generate files (Excel, PDF)
+    IMAGE_REQUEST = "image_request"       # Generate images
+    FOLLOW_UP = "follow_up"               # Follow-up to previous query
+
+
+class SearchMode(Enum):
+    """Search modes for different query types."""
+    NONE = "none"           # No search needed
+    QUICK = "quick"         # Fast search, fewer results
+    DEEP = "deep"           # Comprehensive search
 
 
 @dataclass
-class TaskContext:
-    """Context for a task execution."""
+class OrchestratorContext:
+    """Context for a single orchestration request."""
     user_id: str
     session_id: str
     query: str
+    mode: str = "auto"  # quick, deep, or auto
     conversation_history: List[Dict] = field(default_factory=list)
-    credits_available: int = 100
-    credits_used: int = 0
-    task_type: TaskType = TaskType.SIMPLE_QUERY
-    requires_search: bool = False
-    requires_action: bool = False
-    requires_analyst: bool = False
-    requires_image: bool = False
-    pending_user_input: Optional[str] = None
-    collected_data: Dict = field(default_factory=dict)
+    intent: QueryIntent = QueryIntent.SIMPLE_CHAT
+    search_mode: SearchMode = SearchMode.NONE
+    search_results: List[Dict] = field(default_factory=list)
     reasoning_steps: List[str] = field(default_factory=list)
     sources: List[Dict] = field(default_factory=list)
 
@@ -56,434 +69,336 @@ class OrchestratorResponse:
     """Response from the orchestrator."""
     success: bool
     response: str
+    session_id: str
     reasoning: List[str] = field(default_factory=list)
     sources: List[Dict] = field(default_factory=list)
     files: List[Dict] = field(default_factory=list)
     images: List[str] = field(default_factory=list)
     follow_up_questions: List[str] = field(default_factory=list)
     credits_used: int = 0
-    needs_user_input: bool = False
-    user_input_prompt: Optional[str] = None
     error: Optional[str] = None
 
 
-def format_sources_for_prompt(sources: List[Dict]) -> str:
+class V5Orchestrator:
     """
-    FIX: Format sources as a readable string for the Grok prompt.
-    This prevents [object Object] from appearing in responses.
+    The V5 Orchestrator - A robust agentic controller.
+    
+    Key improvements over V3:
+    1. Fast intent detection without LLM calls
+    2. Proper search mode selection based on query
+    3. No excessive clarification loops
+    4. Better error handling with fallbacks
+    5. Proper source formatting
     """
-    if not sources:
-        return ""
     
-    formatted = "\n\nAvailable Sources:\n"
-    for i, source in enumerate(sources, 1):
-        title = source.get('title', 'Unknown Source')
-        url = source.get('url', '')
-        snippet = source.get('snippet', '')[:200] if source.get('snippet') else ''
-        
-        formatted += f"[{i}] {title}\n"
-        if url:
-            formatted += f"    URL: {url}\n"
-        if snippet:
-            formatted += f"    Summary: {snippet}...\n"
-        formatted += "\n"
+    # Keywords for intent detection (fast, no LLM needed)
+    FASHION_KEYWORDS = [
+        "fashion", "style", "outfit", "wear", "clothing", "dress", "designer",
+        "runway", "catwalk", "collection", "trend", "wardrobe", "accessory",
+        "shoes", "bag", "luxury", "streetwear", "haute couture", "ready-to-wear"
+    ]
     
-    return formatted
-
-
-def format_sources_for_response(sources: List[Dict]) -> str:
-    """
-    FIX: Format sources as citation text for the final response.
-    """
-    if not sources:
-        return ""
+    BEAUTY_KEYWORDS = [
+        "beauty", "makeup", "skincare", "cosmetic", "foundation", "lipstick",
+        "serum", "moisturizer", "cleanser", "routine", "glow", "anti-aging",
+        "sunscreen", "hair", "nail", "fragrance", "perfume"
+    ]
     
-    formatted = "\n\n**Sources:**\n"
-    for i, source in enumerate(sources, 1):
-        title = source.get('title', 'Unknown Source')
-        url = source.get('url', '#')
-        formatted += f"[{i}] [{title}]({url})\n"
+    RESEARCH_KEYWORDS = [
+        "analyze", "research", "compare", "report", "statistics", "data",
+        "market", "industry", "forecast", "comprehensive", "in-depth", "deep dive"
+    ]
     
-    return formatted
-
-
-class GrokBrain:
-    """The unified Grok-powered reasoning engine."""
+    FILE_KEYWORDS = [
+        "excel", "spreadsheet", "pdf", "document", "file", "export", "download",
+        "generate file", "create report"
+    ]
+    
+    IMAGE_KEYWORDS = [
+        "image", "picture", "photo", "visual", "mood board", "generate image",
+        "create image", "show me"
+    ]
     
     def __init__(self):
-        self.api_key = settings.XAI_API_KEY
-        self.model = settings.GROK_MODEL
-        self.base_url = settings.GROK_API_BASE
-        
-    async def think(self, prompt: str, system_prompt: str = None, temperature: float = 0.1) -> str:
-        """Execute a reasoning step using Grok."""
-        if not self.api_key:
-            raise ValueError("Grok API key not configured")
-        
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": settings.LLM_MAX_TOKENS
-                },
-                timeout=aiohttp.ClientTimeout(total=60)
-            ) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    raise Exception(f"Grok API error: {resp.status} - {error_text}")
-                
-                data = await resp.json()
-                return data["choices"][0]["message"]["content"]
+        self.brain = brain
+        self.search = search_layer
     
-    async def analyze_task(self, query: str, conversation_history: List[Dict] = None) -> Dict:
-        """Analyze the user's query to determine task type and requirements."""
+    async def process(
+        self,
+        query: str,
+        session_id: str,
+        user_id: str = "anonymous",
+        mode: str = "auto",
+        conversation_history: Optional[List[Dict]] = None
+    ) -> OrchestratorResponse:
+        """
+        Process a user query through the V5 pipeline.
         
-        system_prompt = """You are a task analyzer for a fashion and lifestyle AI platform.
-Analyze the user's query and determine:
-1. task_type: One of [simple_query, research, data_analysis, web_action, image_generation, file_generation, multi_step]
-2. requires_search: Does this need real-time web search? (true/false)
-3. requires_action: Does this need web browsing/interaction? (true/false)
-4. requires_analyst: Does this need data analysis or file generation? (true/false)
-5. requires_image: Does this need image generation? (true/false)
-6. missing_info: List any critical information missing from the query that we should ask the user for.
-
-IMPORTANT: For simple conversational queries like "why?", "what?", "how?", etc., set missing_info to empty array and task_type to "simple_query".
-Only ask for more info if the query is genuinely ambiguous about a complex task.
-
-Focus on fashion, beauty, textile, skincare, lifestyle, tech, sustainability, culture, and catwalks.
-Respond in JSON format only:
-{
-    "task_type": "...",
-    "requires_search": true/false,
-    "requires_action": true/false,
-    "requires_analyst": true/false,
-    "requires_image": true/false,
-    "missing_info": ["list of missing info"] or [],
-    "reasoning": "brief explanation of your analysis"
-}"""
-
-        context = ""
-        if conversation_history:
-            context = "\n\nPrevious conversation:\n"
-            for msg in conversation_history[-5:]:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                context += f"{role}: {content}\n"
-        
-        prompt = f"{context}\n\nUser query: {query}\n\nAnalyze this task:"
-        
-        response = await self.think(prompt, system_prompt, temperature=0.0)
-        
-        # Parse JSON response
-        try:
-            # Clean up response if needed
-            response = response.strip()
-            if response.startswith("```json"):
-                response = response[7:]
-            if response.startswith("```"):
-                response = response[3:]
-            if response.endswith("```"):
-                response = response[:-3]
-            
-            return json.loads(response)
-        except json.JSONDecodeError:
-            # Default analysis if parsing fails
-            return {
-                "task_type": "simple_query",
-                "requires_search": True,
-                "requires_action": False,
-                "requires_analyst": False,
-                "requires_image": False,
-                "missing_info": [],
-                "reasoning": "Default analysis due to parsing error"
-            }
-    
-    async def generate_response(self, context: TaskContext, search_results: str = "", 
-                                 analyst_results: str = "", action_results: str = "") -> str:
-        """Generate the final response based on all collected data."""
-        
-        # FIX: Format sources as readable text, not objects
-        formatted_sources = format_sources_for_prompt(context.sources)
-        
-        system_prompt = """You are McLeuker Fashion AI, a frontier agentic AI platform specializing in fashion, beauty, textile, skincare, lifestyle, tech, sustainability, culture, and catwalks.
-
-Your responses should be:
-1. Comprehensive and well-structured with clear sections
-2. Include relevant emojis for visual appeal
-3. Cite sources using [1], [2], etc. format when referencing information from the provided sources
-4. Provide actionable insights
-5. Be professional yet engaging
-
-Format your response with:
-- Clear headings using ## for main sections
-- Bullet points for lists
-- Bold for emphasis on key terms
-- Citations like [1], [2] when referencing sources
-
-IMPORTANT: When citing sources, use the number format [1], [2], etc. DO NOT include the full source object or URL inline.
-The sources will be listed separately at the end of your response."""
-
-        # Build the prompt with all available data
-        prompt_parts = [f"User Query: {context.query}"]
-        
-        if search_results:
-            prompt_parts.append(f"\n\nSearch Results:\n{search_results}")
-        
-        if analyst_results:
-            prompt_parts.append(f"\n\nAnalysis Results:\n{analyst_results}")
-            
-        if action_results:
-            prompt_parts.append(f"\n\nWeb Action Results:\n{action_results}")
-        
-        # FIX: Add formatted sources (as strings, not objects)
-        if formatted_sources:
-            prompt_parts.append(formatted_sources)
-        
-        prompt_parts.append("\n\nGenerate a comprehensive, well-structured response:")
-        
-        prompt = "\n".join(prompt_parts)
-        
-        response = await self.think(prompt, system_prompt, temperature=0.7)
-        
-        # FIX: Clean up any accidental [object Object] that might have slipped through
-        response = response.replace("[object Object]", "")
-        response = response.replace(",[object Object],", "")
-        response = response.replace(", [object Object],", "")
-        response = response.replace("[object Object],", "")
-        response = response.replace(",[object Object]", "")
-        
-        return response
-
-
-class FashionOrchestrator:
-    """The main orchestrator that coordinates all layers."""
-    
-    def __init__(self):
-        self.brain = GrokBrain()
-        self.search_layer = None
-        self.action_layer = None
-        self.analyst_layer = None
-        self.output_layer = None
-        
-    async def initialize_layers(self):
-        """Initialize all available layers."""
-        try:
-            from src.layers.search import SearchLayer
-            self.search_layer = SearchLayer()
-        except Exception as e:
-            print(f"Search layer not available: {e}")
-            
-        try:
-            from src.layers.action import ActionLayer
-            self.action_layer = ActionLayer()
-        except Exception as e:
-            print(f"Action layer not available: {e}")
-            
-        try:
-            from src.layers.analyst import AnalystLayer
-            self.analyst_layer = AnalystLayer()
-        except Exception as e:
-            print(f"Analyst layer not available: {e}")
-            
-        try:
-            from src.layers.output import OutputLayer
-            self.output_layer = OutputLayer()
-        except Exception as e:
-            print(f"Output layer not available: {e}")
-    
-    async def process_query(self, user_id: str, session_id: str, query: str, 
-                           conversation_history: List[Dict] = None,
-                           mode: str = "auto") -> OrchestratorResponse:
-        """Process a user query through the orchestration pipeline."""
-        
+        Pipeline:
+        1. Detect intent (fast, rule-based)
+        2. Determine search mode
+        3. Execute search if needed
+        4. Generate response with brain
+        5. Format and return response
+        """
         # Initialize context
-        context = TaskContext(
+        ctx = OrchestratorContext(
             user_id=user_id,
             session_id=session_id,
             query=query,
+            mode=mode,
             conversation_history=conversation_history or []
         )
         
         try:
-            # Step 1: Analyze the task
-            context.reasoning_steps.append("🧠 Analyzing your request...")
-            analysis = await self.brain.analyze_task(query, conversation_history)
+            # Step 1: Detect intent (fast, no LLM)
+            ctx.intent = self._detect_intent(query, conversation_history)
+            ctx.reasoning_steps.append(f"Intent detected: {ctx.intent.value}")
             
-            # FIX: Don't ask for user input on simple queries
-            # Only ask if there's genuinely missing critical information
-            if analysis.get("missing_info") and len(analysis.get("missing_info", [])) > 0:
-                # Check if the query is too short/vague for a complex task
-                if len(query.strip()) < 10 and analysis.get("task_type") != "simple_query":
-                    # For very short queries, just try to answer instead of asking for more info
-                    analysis["missing_info"] = []
+            # Step 2: Determine search mode
+            ctx.search_mode = self._determine_search_mode(ctx)
+            ctx.reasoning_steps.append(f"Search mode: {ctx.search_mode.value}")
             
-            # Update context based on analysis
-            context.task_type = TaskType(analysis.get("task_type", "simple_query"))
-            context.requires_search = analysis.get("requires_search", False)
-            context.requires_action = analysis.get("requires_action", False)
-            context.requires_analyst = analysis.get("requires_analyst", False)
-            context.requires_image = analysis.get("requires_image", False)
+            # Step 3: Execute search if needed
+            if ctx.search_mode != SearchMode.NONE:
+                search_response = await self._execute_search(ctx)
+                if search_response.success:
+                    ctx.search_results = [
+                        {
+                            "title": r.title,
+                            "url": r.url,
+                            "snippet": r.snippet,
+                            "source": r.source
+                        }
+                        for r in search_response.results
+                    ]
+                    ctx.sources = ctx.search_results
+                    ctx.reasoning_steps.append(f"Found {len(ctx.search_results)} search results")
             
-            # Step 2: Execute search if needed
-            search_results = ""
-            if context.requires_search and self.search_layer:
-                context.reasoning_steps.append("🔍 Searching across multiple sources...")
-                try:
-                    search_data = await self.search_layer.search(query)
-                    search_results = search_data.get("formatted_results", "")
-                    
-                    # FIX: Store sources as proper objects for later formatting
-                    raw_sources = search_data.get("sources", [])
-                    for source in raw_sources:
-                        if isinstance(source, dict):
-                            context.sources.append({
-                                "title": str(source.get("title", "Unknown")),
-                                "url": str(source.get("url", "")),
-                                "snippet": str(source.get("snippet", ""))[:300],
-                                "source": str(source.get("source", "Web"))
-                            })
-                    
-                    context.credits_used += 1
-                except Exception as e:
-                    print(f"Search error: {e}")
+            # Step 4: Generate response with brain
+            brain_response = await self._generate_response(ctx)
             
-            # Step 3: Execute action if needed
-            action_results = ""
-            if context.requires_action and self.action_layer:
-                context.reasoning_steps.append("🌐 Performing web actions...")
-                try:
-                    action_data = await self.action_layer.execute(query)
-                    action_results = action_data.get("results", "")
-                    context.credits_used += 2
-                except Exception as e:
-                    print(f"Action error: {e}")
-            
-            # Step 4: Execute analyst if needed
-            analyst_results = ""
-            if context.requires_analyst and self.analyst_layer:
-                context.reasoning_steps.append("📊 Analyzing data...")
-                try:
-                    analyst_data = await self.analyst_layer.analyze(query, context.collected_data)
-                    analyst_results = analyst_data.get("analysis", "")
-                    context.credits_used += 2
-                except Exception as e:
-                    print(f"Analyst error: {e}")
-            
-            # Step 5: Generate response
-            context.reasoning_steps.append("✨ Synthesizing your response...")
-            response_text = await self.brain.generate_response(
-                context, 
-                search_results=search_results,
-                analyst_results=analyst_results,
-                action_results=action_results
-            )
-            
-            # FIX: Final cleanup of any [object Object] in response
-            response_text = self._clean_response(response_text)
-            
-            # Step 6: Generate follow-up questions
-            follow_ups = await self._generate_follow_ups(query, response_text)
-            
-            return OrchestratorResponse(
-                success=True,
-                response=response_text,
-                reasoning=context.reasoning_steps,
-                sources=context.sources,  # Return as proper objects for frontend
-                follow_up_questions=follow_ups,
-                credits_used=max(context.credits_used, 1)
-            )
-            
+            # Step 5: Format and return response
+            return self._build_response(ctx, brain_response)
+        
         except Exception as e:
             return OrchestratorResponse(
                 success=False,
-                response=f"I encountered an error while processing your request. Please try again.",
-                reasoning=context.reasoning_steps,
-                error=str(e),
-                credits_used=1
+                response=f"I apologize, but I encountered an error processing your request. Please try again.",
+                session_id=session_id,
+                reasoning=ctx.reasoning_steps + [f"Error: {str(e)}"],
+                error=str(e)
             )
     
-    def _clean_response(self, response: str) -> str:
+    async def process_stream(
+        self,
+        query: str,
+        session_id: str,
+        user_id: str = "anonymous",
+        mode: str = "auto",
+        conversation_history: Optional[List[Dict]] = None
+    ) -> AsyncGenerator[Dict, None]:
         """
-        FIX: Clean any [object Object] artifacts from the response.
-        This is a safety net in case any slip through.
+        Process a query with streaming response.
+        Yields status updates and response chunks.
         """
-        if not response:
-            return response
-            
-        # Remove various forms of [object Object]
-        patterns_to_remove = [
-            "[object Object]",
-            ",[object Object],",
-            ", [object Object],",
-            "[object Object],",
-            ",[object Object]",
-            " [object Object] ",
-        ]
+        ctx = OrchestratorContext(
+            user_id=user_id,
+            session_id=session_id,
+            query=query,
+            mode=mode,
+            conversation_history=conversation_history or []
+        )
         
-        for pattern in patterns_to_remove:
-            response = response.replace(pattern, "")
+        # Yield initial status
+        yield {"type": "status", "step": "understanding", "message": "Understanding request"}
         
-        # Clean up any double spaces or commas left behind
-        while "  " in response:
-            response = response.replace("  ", " ")
-        while ",," in response:
-            response = response.replace(",,", ",")
-        while ", ," in response:
-            response = response.replace(", ,", ",")
-            
-        return response.strip()
+        # Detect intent
+        ctx.intent = self._detect_intent(query, conversation_history)
+        yield {"type": "status", "step": "planning", "message": "Planning approach"}
+        
+        # Determine and execute search
+        ctx.search_mode = self._determine_search_mode(ctx)
+        
+        if ctx.search_mode != SearchMode.NONE:
+            yield {"type": "status", "step": "searching", "message": "Gathering information"}
+            search_response = await self._execute_search(ctx)
+            if search_response.success:
+                ctx.search_results = [
+                    {"title": r.title, "url": r.url, "snippet": r.snippet, "source": r.source}
+                    for r in search_response.results
+                ]
+                ctx.sources = ctx.search_results
+        
+        yield {"type": "status", "step": "generating", "message": "Generating answer"}
+        
+        # Stream the response
+        async for chunk in self.brain.think_stream(
+            query=query,
+            search_results=ctx.search_results if ctx.search_results else None,
+            conversation_history=conversation_history
+        ):
+            yield {"type": "content", "chunk": chunk}
+        
+        yield {"type": "status", "step": "complete", "message": "Finalizing output"}
+        
+        # Yield sources at the end
+        if ctx.sources:
+            yield {"type": "sources", "sources": ctx.sources}
+        
+        yield {"type": "done"}
     
-    async def _generate_follow_ups(self, query: str, response: str) -> List[str]:
-        """Generate follow-up questions based on the conversation."""
-        try:
-            system_prompt = """Generate 3 relevant follow-up questions based on the user's query and the response provided.
-The questions should:
-1. Dig deeper into the topic
-2. Explore related aspects
-3. Be concise (under 50 characters each)
-
-Return as a JSON array of strings only, no other text:
-["Question 1?", "Question 2?", "Question 3?"]"""
-            
-            prompt = f"User asked: {query}\n\nResponse summary: {response[:500]}...\n\nGenerate follow-up questions:"
-            
-            result = await self.brain.think(prompt, system_prompt, temperature=0.7)
-            
-            # Parse the JSON array
-            result = result.strip()
-            if result.startswith("```"):
-                result = result.split("```")[1]
-                if result.startswith("json"):
-                    result = result[4:]
-            
-            return json.loads(result)
-        except:
-            return [
-                "Tell me more about this topic",
-                "What are the latest trends?",
-                "How can I apply this?"
+    def _detect_intent(
+        self,
+        query: str,
+        conversation_history: Optional[List[Dict]] = None
+    ) -> QueryIntent:
+        """
+        Fast intent detection using keyword matching.
+        No LLM call needed - this is instant.
+        """
+        query_lower = query.lower()
+        
+        # Check for follow-up patterns
+        if conversation_history and len(conversation_history) > 0:
+            follow_up_patterns = [
+                "why", "how", "what about", "tell me more", "explain",
+                "can you", "what do you mean", "elaborate", "continue"
             ]
+            if any(query_lower.startswith(p) for p in follow_up_patterns):
+                return QueryIntent.FOLLOW_UP
+        
+        # Check for file generation
+        if any(kw in query_lower for kw in self.FILE_KEYWORDS):
+            return QueryIntent.FILE_GENERATION
+        
+        # Check for image generation
+        if any(kw in query_lower for kw in self.IMAGE_KEYWORDS):
+            return QueryIntent.IMAGE_REQUEST
+        
+        # Check for research/data requests
+        if any(kw in query_lower for kw in self.RESEARCH_KEYWORDS):
+            return QueryIntent.TREND_RESEARCH
+        
+        # Check for fashion queries
+        if any(kw in query_lower for kw in self.FASHION_KEYWORDS):
+            return QueryIntent.FASHION_QUERY
+        
+        # Check for beauty queries
+        if any(kw in query_lower for kw in self.BEAUTY_KEYWORDS):
+            return QueryIntent.BEAUTY_QUERY
+        
+        # Default to simple chat
+        return QueryIntent.SIMPLE_CHAT
+    
+    def _determine_search_mode(self, ctx: OrchestratorContext) -> SearchMode:
+        """
+        Determine the appropriate search mode based on intent and user preference.
+        """
+        # User explicitly requested a mode
+        if ctx.mode == "quick":
+            return SearchMode.QUICK
+        elif ctx.mode == "deep":
+            return SearchMode.DEEP
+        
+        # Auto mode - determine based on intent
+        if ctx.intent in [QueryIntent.TREND_RESEARCH, QueryIntent.DATA_REQUEST]:
+            return SearchMode.DEEP
+        elif ctx.intent in [QueryIntent.FASHION_QUERY, QueryIntent.BEAUTY_QUERY]:
+            return SearchMode.QUICK
+        elif ctx.intent == QueryIntent.FOLLOW_UP:
+            # For follow-ups, only search if the original query needed search
+            return SearchMode.NONE
+        elif ctx.intent in [QueryIntent.FILE_GENERATION, QueryIntent.IMAGE_REQUEST]:
+            return SearchMode.NONE
+        
+        # For simple chat, check if it seems like a factual question
+        query_lower = ctx.query.lower()
+        question_words = ["what", "who", "when", "where", "which", "how many", "how much"]
+        if any(query_lower.startswith(w) for w in question_words):
+            return SearchMode.QUICK
+        
+        return SearchMode.NONE
+    
+    async def _execute_search(self, ctx: OrchestratorContext) -> SearchResponse:
+        """Execute search based on the determined mode."""
+        num_results = 5 if ctx.search_mode == SearchMode.QUICK else 10
+        return await self.search.search(ctx.query, num_results=num_results)
+    
+    async def _generate_response(self, ctx: OrchestratorContext) -> BrainResponse:
+        """Generate the response using the brain."""
+        # Build context from conversation history
+        context = None
+        if ctx.intent == QueryIntent.FOLLOW_UP and ctx.conversation_history:
+            # For follow-ups, include the last exchange as context
+            last_messages = ctx.conversation_history[-2:]
+            context = "\n".join([f"{m['role']}: {m['content']}" for m in last_messages])
+        
+        return await self.brain.think(
+            query=ctx.query,
+            context=context,
+            search_results=ctx.search_results if ctx.search_results else None,
+            conversation_history=ctx.conversation_history
+        )
+    
+    def _build_response(
+        self,
+        ctx: OrchestratorContext,
+        brain_response: BrainResponse
+    ) -> OrchestratorResponse:
+        """Build the final orchestrator response."""
+        # Format sources for the response
+        formatted_sources = []
+        for source in ctx.sources:
+            formatted_sources.append({
+                "title": source.get("title", "Unknown"),
+                "url": source.get("url", ""),
+                "snippet": source.get("snippet", "")[:200]
+            })
+        
+        # Calculate credits used
+        credits = 1  # Base cost
+        if ctx.search_mode == SearchMode.DEEP:
+            credits = 10
+        elif ctx.search_mode == SearchMode.QUICK:
+            credits = 2
+        
+        # Generate follow-up questions based on intent
+        follow_ups = self._generate_follow_ups(ctx)
+        
+        return OrchestratorResponse(
+            success=brain_response.success,
+            response=brain_response.content,
+            session_id=ctx.session_id,
+            reasoning=ctx.reasoning_steps + brain_response.reasoning,
+            sources=formatted_sources,
+            follow_up_questions=follow_ups,
+            credits_used=credits,
+            error=brain_response.error
+        )
+    
+    def _generate_follow_ups(self, ctx: OrchestratorContext) -> List[str]:
+        """Generate relevant follow-up questions based on the query intent."""
+        if ctx.intent == QueryIntent.FASHION_QUERY:
+            return [
+                "What are the key pieces to invest in?",
+                "How can I style this trend?",
+                "Which brands are leading this trend?"
+            ]
+        elif ctx.intent == QueryIntent.BEAUTY_QUERY:
+            return [
+                "What products do you recommend?",
+                "How do I incorporate this into my routine?",
+                "Are there any budget-friendly alternatives?"
+            ]
+        elif ctx.intent == QueryIntent.TREND_RESEARCH:
+            return [
+                "Can you provide more data on this?",
+                "What's the market forecast?",
+                "Who are the key players?"
+            ]
+        return []
 
 
-# Singleton instance
-_orchestrator = None
-
-async def get_orchestrator() -> FashionOrchestrator:
-    """Get or create the orchestrator singleton."""
-    global _orchestrator
-    if _orchestrator is None:
-        _orchestrator = FashionOrchestrator()
-        await _orchestrator.initialize_layers()
-    return _orchestrator
+# Global orchestrator instance
+orchestrator = V5Orchestrator()
