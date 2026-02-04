@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { 
   Send, 
@@ -20,8 +21,14 @@ import {
   FileText,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  LogOut,
+  User,
+  Trash2
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useConversations, ChatMessage, Conversation } from "@/hooks/useConversations";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 
 // =============================================================================
 // Types for Streaming Events (matches backend)
@@ -44,7 +51,7 @@ interface KeyInsight {
   importance: string;
 }
 
-interface Message {
+interface LocalMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -54,13 +61,6 @@ interface Message {
   followUpQuestions?: string[];
   isStreaming?: boolean;
   reasoning?: StreamEvent[];
-}
-
-interface Conversation {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: Date;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -119,7 +119,6 @@ function ReasoningPanel({
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-b from-[#0D0D0D] to-[#080808] border-l border-white/[0.08]">
-      {/* Header */}
       <div className="h-14 flex items-center justify-between px-4 border-b border-white/[0.08]">
         <div className="flex items-center gap-2">
           <div className={cn(
@@ -137,7 +136,6 @@ function ReasoningPanel({
         </button>
       </div>
 
-      {/* Events List */}
       <div ref={panelRef} className="flex-1 overflow-y-auto p-4 space-y-3">
         {events.length === 0 ? (
           <div className="text-center text-white/40 text-sm py-12">
@@ -189,20 +187,7 @@ function ReasoningPanel({
                         )}>
                           {event.data?.mode === 'deep' ? '🔬 Deep' : '⚡ Quick'}
                         </span>
-                        <span className="text-xs text-white/40">
-                          {event.data?.domain}
-                        </span>
                       </div>
-                      {event.data?.plan && (
-                        <ul className="space-y-1 mt-2">
-                          {event.data.plan.map((step: string, i: number) => (
-                            <li key={i} className="text-xs text-white/50 flex items-start gap-2">
-                              <span className="text-white/30">•</span>
-                              {step}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
                     </div>
                   )}
                   {event.type === 'searching' && event.data?.message}
@@ -218,22 +203,6 @@ function ReasoningPanel({
                   )}
                   {event.type === 'analyzing' && event.data?.message}
                   {event.type === 'generating' && event.data?.message}
-                  {event.type === 'insight' && (
-                    <div className="bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1 text-amber-300 text-xs">
-                      💡 {event.data?.text}
-                    </div>
-                  )}
-                  {event.type === 'progress' && (
-                    <div className="space-y-1">
-                      <div className="text-xs">{event.data?.message}</div>
-                      <div className="w-full bg-white/10 rounded-full h-1.5">
-                        <div 
-                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-                          style={{ width: `${event.data?.percentage || 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
                   {event.type === 'complete' && (
                     <div className="text-emerald-400 text-xs">
                       ✓ Generated with {event.data?.sources_used || 0} sources
@@ -249,7 +218,6 @@ function ReasoningPanel({
         )}
       </div>
 
-      {/* Progress Footer */}
       {isActive && events.length > 0 && (
         <div className="p-3 border-t border-white/[0.08] bg-white/[0.02]">
           <div className="flex items-center gap-2">
@@ -304,12 +272,27 @@ function SearchModeSelector({
 }
 
 // =============================================================================
-// Main Dashboard Component
+// Dashboard Content Component
 // =============================================================================
 
-export default function DashboardPage() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
+function DashboardContent() {
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+  const {
+    conversations,
+    currentConversation,
+    messages,
+    loading: conversationsLoading,
+    createConversation,
+    saveMessage,
+    updateConversationTitle,
+    deleteConversation,
+    selectConversation,
+    startNewChat,
+    setCurrentConversation,
+  } = useConversations();
+
+  const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -318,32 +301,42 @@ export default function DashboardPage() {
   const [reasoningEvents, setReasoningEvents] = useState<StreamEvent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Check for pre-filled prompt from landing page
+  // Sync local messages with Supabase messages
   useEffect(() => {
-    const domainPrompt = sessionStorage.getItem("domainPrompt");
-    if (domainPrompt) {
-      sessionStorage.removeItem("domainPrompt");
-      setInput(domainPrompt);
-      setTimeout(() => {
-        handleSendMessage(domainPrompt);
-      }, 500);
+    if (messages.length > 0) {
+      const converted: LocalMessage[] = messages.map(msg => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: new Date(msg.created_at),
+        sources: msg.sources,
+        keyInsights: msg.keyInsights,
+        followUpQuestions: msg.followUpQuestions,
+      }));
+      setLocalMessages(converted);
+    } else {
+      setLocalMessages([]);
     }
-  }, []);
+  }, [messages]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [currentConversation?.messages]);
+  }, [localMessages]);
 
-  const createNewConversation = () => {
-    const newConv: Conversation = {
-      id: Date.now().toString(),
-      title: "New Chat",
-      messages: [],
-      createdAt: new Date(),
-    };
-    setConversations(prev => [newConv, ...prev]);
-    setCurrentConversation(newConv);
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/');
+  };
+
+  const handleNewChat = () => {
+    startNewChat();
+    setLocalMessages([]);
+    setReasoningEvents([]);
+  };
+
+  const handleSelectConversation = async (conv: Conversation) => {
+    await selectConversation(conv);
     setReasoningEvents([]);
   };
 
@@ -351,173 +344,131 @@ export default function DashboardPage() {
     const text = messageText || input;
     if (!text.trim() || isLoading) return;
 
+    setInput("");
+    setIsLoading(true);
+    setReasoningEvents([]);
+
     // Create conversation if none exists
-    let conv = currentConversation;
-    if (!conv) {
-      conv = {
-        id: Date.now().toString(),
-        title: text.slice(0, 50) + (text.length > 50 ? "..." : ""),
-        messages: [],
-        createdAt: new Date(),
-      };
-      setConversations(prev => [conv!, ...prev]);
-      setCurrentConversation(conv);
+    let convId = currentConversation?.id;
+    if (!convId) {
+      const newConv = await createConversation(text.slice(0, 50) + (text.length > 50 ? "..." : ""));
+      if (!newConv) {
+        setIsLoading(false);
+        return;
+      }
+      convId = newConv.id;
     }
 
-    // Add user message
-    const userMessage: Message = {
+    // Add user message locally
+    const userMessage: LocalMessage = {
       id: Date.now().toString(),
       role: 'user',
       content: text,
       timestamp: new Date(),
     };
+    setLocalMessages(prev => [...prev, userMessage]);
+
+    // Save user message to Supabase
+    await saveMessage(convId, 'user', text);
 
     // Add placeholder assistant message
     const assistantId = (Date.now() + 1).toString();
-    const assistantMessage: Message = {
+    const assistantMessage: LocalMessage = {
       id: assistantId,
       role: 'assistant',
       content: '',
       timestamp: new Date(),
       isStreaming: true,
     };
-
-    const updatedConv = {
-      ...conv,
-      title: conv.messages.length === 0 ? text.slice(0, 50) + (text.length > 50 ? "..." : "") : conv.title,
-      messages: [...conv.messages, userMessage, assistantMessage],
-    };
-    setCurrentConversation(updatedConv);
-    setConversations(prev => prev.map(c => c.id === conv!.id ? updatedConv : c));
-    setInput("");
-    setIsLoading(true);
-    setReasoningEvents([]);
+    setLocalMessages(prev => [...prev, assistantMessage]);
 
     try {
-      // Try streaming endpoint first
-      const response = await fetch(`${API_URL}/api/chat/stream`, {
+      // Call the API
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
           mode: searchMode,
-          session_id: sessionStorage.getItem('session_id') || undefined,
+          session_id: convId,
         }),
       });
 
-      if (!response.ok) throw new Error('Streaming failed');
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      const data = await response.json();
+      
+      // Parse the response
+      let content = '';
+      let sources: Array<{ title: string; url: string }> = [];
+      let keyInsights: KeyInsight[] = [];
+      let followUpQuestions: string[] = [];
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const event: StreamEvent = JSON.parse(line.slice(6));
-                setReasoningEvents(prev => [...prev, event]);
-
-                if (event.type === 'complete') {
-                  const responseData = event.data.response;
-                  
-                  // Update the assistant message with final content
-                  setCurrentConversation(prev => {
-                    if (!prev) return prev;
-                    return {
-                      ...prev,
-                      messages: prev.messages.map(msg => 
-                        msg.id === assistantId 
-                          ? {
-                              ...msg,
-                              content: responseData?.main_content || responseData?.summary || '',
-                              sources: responseData?.sources?.map((s: any) => ({
-                                title: s.title || 'Source',
-                                url: s.url || '#'
-                              })) || [],
-                              keyInsights: responseData?.key_insights || [],
-                              followUpQuestions: responseData?.follow_up_questions || [],
-                              isStreaming: false,
-                            }
-                          : msg
-                      )
-                    };
-                  });
-
-                  // Store session ID
-                  if (event.data.session_id) {
-                    sessionStorage.setItem('session_id', event.data.session_id);
-                  }
-                }
-              } catch (e) {
-                console.error('Failed to parse event:', e);
-              }
-            }
-          }
+      if (data.response) {
+        const resp = data.response;
+        content = resp.main_content || resp.summary || '';
+        
+        if (resp.sources) {
+          sources = resp.sources.map((s: any) => ({
+            title: s.title || 'Source',
+            url: s.url || '',
+          }));
+        }
+        
+        if (resp.key_insights) {
+          keyInsights = resp.key_insights.map((i: any) => ({
+            icon: i.icon || '💡',
+            title: i.title,
+            text: i.description,
+            importance: i.importance || 'medium',
+          }));
+        }
+        
+        if (resp.follow_up_questions) {
+          followUpQuestions = resp.follow_up_questions;
         }
       }
-    } catch (error) {
-      console.error("Streaming error, falling back:", error);
-      
-      // Fallback to non-streaming endpoint
-      try {
-        const response = await fetch(`${API_URL}/api/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: text,
-            mode: searchMode,
-          }),
-        });
 
-        const data = await response.json();
-        const responseData = data.response || data;
+      // Update local message
+      setLocalMessages(prev => prev.map(msg => 
+        msg.id === assistantId 
+          ? {
+              ...msg,
+              content,
+              sources,
+              keyInsights,
+              followUpQuestions,
+              isStreaming: false,
+            }
+          : msg
+      ));
 
-        setCurrentConversation(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            messages: prev.messages.map(msg => 
-              msg.id === assistantId 
-                ? {
-                    ...msg,
-                    content: responseData?.main_content || responseData?.summary || responseData?.answer || 'Response received',
-                    sources: responseData?.sources?.map((s: any) => ({
-                      title: s.title || 'Source',
-                      url: s.url || '#'
-                    })) || [],
-                    keyInsights: responseData?.key_insights || [],
-                    followUpQuestions: responseData?.follow_up_questions || [],
-                    isStreaming: false,
-                  }
-                : msg
-            )
-          };
-        });
-      } catch (fallbackError) {
-        console.error("Fallback error:", fallbackError);
-        setCurrentConversation(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            messages: prev.messages.map(msg => 
-              msg.id === assistantId 
-                ? {
-                    ...msg,
-                    content: 'Sorry, there was an error processing your request. Please try again.',
-                    isStreaming: false,
-                  }
-                : msg
-            )
-          };
-        });
+      // Save assistant message to Supabase
+      await saveMessage(convId, 'assistant', JSON.stringify({
+        content,
+        sources,
+        keyInsights,
+        followUpQuestions,
+      }));
+
+      // Update conversation title if first message
+      if (localMessages.length <= 2) {
+        await updateConversationTitle(convId, text.slice(0, 50) + (text.length > 50 ? "..." : ""));
       }
+
+    } catch (error) {
+      console.error("Error sending message:", error);
+      setLocalMessages(prev => prev.map(msg => 
+        msg.id === assistantId 
+          ? {
+              ...msg,
+              content: 'Sorry, there was an error processing your request. Please try again.',
+              isStreaming: false,
+            }
+          : msg
+      ));
     } finally {
       setIsLoading(false);
     }
@@ -556,7 +507,7 @@ export default function DashboardPage() {
         {/* New Chat Button */}
         <div className="p-3">
           <button
-            onClick={createNewConversation}
+            onClick={handleNewChat}
             className={cn(
               "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg",
               "bg-gradient-to-r from-blue-600/20 to-purple-600/20",
@@ -574,28 +525,58 @@ export default function DashboardPage() {
 
         {/* Conversations List */}
         {sidebarOpen && (
-          <div className="px-3 py-2 overflow-y-auto max-h-[calc(100vh-140px)]">
+          <div className="px-3 py-2 overflow-y-auto max-h-[calc(100vh-200px)]">
             <p className="text-xs text-white/40 uppercase tracking-wider mb-2 px-2">Recent</p>
             <div className="space-y-1">
               {conversations.map(conv => (
-                <button
-                  key={conv.id}
-                  onClick={() => {
-                    setCurrentConversation(conv);
-                    setReasoningEvents([]);
-                  }}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left",
-                    "hover:bg-white/[0.08] transition-colors",
-                    currentConversation?.id === conv.id 
-                      ? "bg-white/[0.10] text-white" 
-                      : "text-white/60"
-                  )}
-                >
-                  <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                  <span className="text-sm truncate">{conv.title}</span>
-                </button>
+                <div key={conv.id} className="group relative">
+                  <button
+                    onClick={() => handleSelectConversation(conv)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left",
+                      "hover:bg-white/[0.08] transition-colors",
+                      currentConversation?.id === conv.id 
+                        ? "bg-white/[0.10] text-white" 
+                        : "text-white/60"
+                    )}
+                  >
+                    <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                    <span className="text-sm truncate flex-1">{conv.title}</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteConversation(conv.id);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* User Section */}
+        {sidebarOpen && user && (
+          <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-white/[0.08]">
+            <div className="flex items-center gap-3 px-2 py-2">
+              <div className="w-8 h-8 rounded-full bg-purple-600/30 flex items-center justify-center">
+                <User className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white/80 truncate">
+                  {user.email}
+                </p>
+              </div>
+              <button
+                onClick={handleSignOut}
+                className="p-1.5 rounded hover:bg-white/[0.08] text-white/40 hover:text-white transition-colors"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
           </div>
         )}
@@ -636,13 +617,13 @@ export default function DashboardPage() {
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto px-6 py-8">
           <div className="max-w-3xl mx-auto space-y-6">
-            {!currentConversation || currentConversation.messages.length === 0 ? (
+            {localMessages.length === 0 ? (
               <div className="text-center py-20">
                 <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-white/[0.08] flex items-center justify-center mx-auto mb-6">
                   <Sparkles className="w-10 h-10 text-purple-400" />
                 </div>
                 <h2 className="text-2xl font-editorial text-white/90 mb-3">
-                  McLeuker AI
+                  Welcome, {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
                 </h2>
                 <p className="text-white/50 max-w-md mx-auto mb-8">
                   Your AI-powered fashion intelligence assistant. Ask about trends, 
@@ -671,7 +652,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             ) : (
-              currentConversation.messages.map(message => (
+              localMessages.map(message => (
                 <div key={message.id} className={cn(
                   "flex",
                   message.role === 'user' ? "justify-end" : "justify-start"
@@ -855,5 +836,17 @@ export default function DashboardPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// =============================================================================
+// Main Dashboard Page with Protected Route
+// =============================================================================
+
+export default function DashboardPage() {
+  return (
+    <ProtectedRoute>
+      <DashboardContent />
+    </ProtectedRoute>
   );
 }
