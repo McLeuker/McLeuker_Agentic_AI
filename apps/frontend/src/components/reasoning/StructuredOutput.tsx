@@ -240,6 +240,16 @@ function InsightCard({ insight, index }: { insight: KeyInsight; index: number })
     low: 'border-white/10 bg-white/5'
   };
   
+  // Format description to handle markdown bold
+  const formattedDescription = insight.description
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white/80">$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>');
+  
+  // Clean up title if it has markdown
+  const cleanTitle = insight.title
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1');
+  
   return (
     <div className={cn(
       "p-4 rounded-xl border",
@@ -248,8 +258,11 @@ function InsightCard({ insight, index }: { insight: KeyInsight; index: number })
       <div className="flex items-start gap-3">
         <span className="text-xl">{insight.icon || '💡'}</span>
         <div className="flex-1">
-          <h4 className="font-medium text-white/90 mb-1">{insight.title}</h4>
-          <p className="text-sm text-white/60 leading-relaxed">{insight.description}</p>
+          <h4 className="font-medium text-white/90 mb-1">{cleanTitle}</h4>
+          <p 
+            className="text-sm text-white/60 leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: formattedDescription }}
+          />
         </div>
       </div>
     </div>
@@ -286,24 +299,41 @@ function SourceCard({ source, index }: { source: Source; index: number }) {
 }
 
 function FormattedContent({ content }: { content: string }) {
-  // Simple markdown-like formatting
+  // Enhanced markdown-like formatting
   const formatContent = (text: string) => {
     // Split by double newlines for paragraphs
     const paragraphs = text.split(/\n\n+/);
     
     return paragraphs.map((para, i) => {
-      // Check for headers
+      // Skip empty paragraphs
+      if (!para.trim()) return null;
+      
+      // Check for H1 headers (# )
+      if (para.startsWith('# ')) {
+        const headerText = para.replace(/^#\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
+        return (
+          <h1 key={i} className="text-xl font-bold text-white mt-4 mb-3">
+            {headerText}
+          </h1>
+        );
+      }
+      
+      // Check for H2 headers (## )
       if (para.startsWith('## ')) {
+        const headerText = para.replace(/^##\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
         return (
           <h2 key={i} className="text-lg font-semibold text-white/90 mt-4 mb-2">
-            {para.replace('## ', '')}
+            {headerText}
           </h2>
         );
       }
+      
+      // Check for H3 headers (### )
       if (para.startsWith('### ')) {
+        const headerText = para.replace(/^###\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1');
         return (
           <h3 key={i} className="text-base font-semibold text-white/90 mt-3 mb-2">
-            {para.replace('### ', '')}
+            {headerText}
           </h3>
         );
       }
@@ -312,21 +342,28 @@ function FormattedContent({ content }: { content: string }) {
       if (para.includes('\n- ') || para.startsWith('- ')) {
         const items = para.split('\n').filter(line => line.trim());
         return (
-          <ul key={i} className="list-disc list-inside space-y-1 my-2">
-            {items.map((item, j) => (
-              <li key={j} className="text-white/70">
-                {item.replace(/^[-•*]\s*/, '')}
-              </li>
-            ))}
+          <ul key={i} className="list-disc list-inside space-y-2 my-3">
+            {items.map((item, j) => {
+              // Format bold text in list items
+              const formattedItem = item
+                .replace(/^[-•*]\s*/, '')
+                .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white/90">$1</strong>');
+              return (
+                <li 
+                  key={j} 
+                  className="text-white/70"
+                  dangerouslySetInnerHTML={{ __html: formattedItem }}
+                />
+              );
+            })}
           </ul>
         );
       }
       
       // Regular paragraph with bold text support
-      const formattedPara = para.replace(
-        /\*\*(.+?)\*\*/g, 
-        '<strong class="text-white/90">$1</strong>'
-      );
+      const formattedPara = para
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white/90">$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em class="text-white/80">$1</em>');
       
       return (
         <p 
@@ -335,7 +372,7 @@ function FormattedContent({ content }: { content: string }) {
           dangerouslySetInnerHTML={{ __html: formattedPara }}
         />
       );
-    });
+    }).filter(Boolean);
   };
   
   return <>{formatContent(content)}</>;
