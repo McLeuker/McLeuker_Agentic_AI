@@ -491,87 +491,95 @@ function DashboardContent() {
       const domainPrompt = getDomainSystemPrompt();
       const fullQuery = domainPrompt ? `${text}${domainPrompt}` : text;
 
-      const response = await fetch(`${API_URL}/api/research/stream`, {
+      // Use the correct /api/chat endpoint (non-streaming)
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user?.id || 'anonymous'}`,
         },
         body: JSON.stringify({
-          query: fullQuery,
-          mode: searchMode,
-          domain: currentSector,
-          user_id: user?.id,
+          message: fullQuery,
+          mode: searchMode === 'deep' ? 'deep' : 'auto',
+          domain_filter: currentSector !== 'all' ? currentSector : null,
+          session_id: user?.id || null,
         }),
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error:', errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let accumulatedContent = '';
+      const data = await response.json();
+      
+      // Extract response data from the API response
+      let mainContent = '';
       let sources: Array<{ title: string; url: string }> = [];
       let keyInsights: KeyInsight[] = [];
       let followUpQuestions: string[] = [];
+      let creditsUsed = 0;
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-
-                // Handle different event types
-                switch (data.type) {
-                  case 'content':
-                    accumulatedContent += data.data?.chunk || '';
-                    setLocalMessages(prev => prev.map(msg => 
-                      msg.id === assistantId 
-                        ? { ...msg, content: accumulatedContent }
-                        : msg
-                    ));
-                    break;
-                  case 'source':
-                    if (data.data?.url && data.data?.title) {
-                      sources.push({ title: data.data.title, url: data.data.url });
-                    }
-                    break;
-                  case 'insight':
-                    if (data.data) {
-                      keyInsights.push(data.data);
-                    }
-                    break;
-                  case 'complete':
-                    if (data.data?.follow_up_questions) {
-                      followUpQuestions = data.data.follow_up_questions;
-                    }
-                    if (data.data?.credits_used) {
-                      setCreditBalance(prev => Math.max(0, prev - data.data.credits_used));
-                    }
-                    break;
-                }
-              } catch (e) {
-                console.error('Error parsing SSE data:', e);
-              }
+      if (data.success && data.response) {
+        const resp = data.response;
+        
+        // Build main content from sections or main_content
+        if (resp.main_content) {
+          mainContent = resp.main_content;
+        } else if (resp.sections && resp.sections.length > 0) {
+          mainContent = resp.sections.map((s: any) => {
+            if (s.title && s.content) {
+              return `## ${s.title}\n${s.content}`;
             }
-          }
+            return s.content || '';
+          }).join('\n\n');
         }
+        
+        // Add summary if available
+        if (resp.summary && !mainContent.includes(resp.summary)) {
+          mainContent = resp.summary + '\n\n' + mainContent;
+        }
+        
+        // Extract sources
+        if (resp.sources && Array.isArray(resp.sources)) {
+          sources = resp.sources.map((s: any) => ({
+            title: s.title || s.publisher || 'Source',
+            url: s.url || '#'
+          }));
+        }
+        
+        // Extract key insights
+        if (resp.key_insights && Array.isArray(resp.key_insights)) {
+          keyInsights = resp.key_insights.map((insight: any) => ({
+            icon: insight.icon || '💡',
+            title: insight.title || 'Insight',
+            description: insight.description || insight.text || '',
+            importance: insight.importance || 'medium'
+          }));
+        }
+        
+        // Extract follow-up questions
+        if (resp.follow_up_questions && Array.isArray(resp.follow_up_questions)) {
+          followUpQuestions = resp.follow_up_questions;
+        }
+        
+        // Get credits used
+        creditsUsed = resp.credits_used || data.credits_used || 2;
+      } else {
+        mainContent = data.message || 'Response received but could not be parsed.';
       }
 
-      // Finalize message
+      // Update credit balance
+      if (creditsUsed > 0) {
+        setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+      }
+
+      // Update the assistant message with the response
       setLocalMessages(prev => prev.map(msg => 
         msg.id === assistantId 
           ? { 
               ...msg, 
-              content: accumulatedContent || 'I apologize, but I was unable to generate a response. Please try again.',
+              content: mainContent || 'I apologize, but I was unable to generate a response. Please try again.',
               isStreaming: false,
               sources,
               keyInsights,
