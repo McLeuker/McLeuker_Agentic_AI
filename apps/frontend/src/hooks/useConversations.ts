@@ -110,11 +110,15 @@ export function useConversations() {
     if (!user) return null;
 
     try {
+      // Generate a unique session_id for this conversation
+      const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
       const { data, error } = await supabase
         .from("conversations")
         .insert({
           user_id: user.id,
           title,
+          session_id: sessionId,
         })
         .select()
         .single();
