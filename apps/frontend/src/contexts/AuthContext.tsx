@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const initRef = useRef(false);
+  const sessionCheckRef = useRef(false);
 
   // Refresh session manually
   const refreshSession = useCallback(async () => {
@@ -36,13 +37,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!error && refreshedSession) {
         setSession(refreshedSession);
         setUser(refreshedSession.user);
+        // Also store in localStorage as backup
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('mcleuker-user-id', refreshedSession.user.id);
+        }
       }
     } catch (err) {
       console.error("Session refresh error:", err);
     }
   }, []);
 
-  // Initialize auth state
+  // Initialize auth state - IMPROVED VERSION
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -51,11 +56,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        // First, try to get existing session from storage
+        // CRITICAL: Check localStorage first for faster initial load
+        const storedUserId = typeof window !== 'undefined' ? localStorage.getItem('mcleuker-user-id') : null;
+        
+        // Get session from Supabase
         const { data: { session: existingSession }, error } = await supabase.auth.getSession();
         
         if (error) {
           console.error("Error getting session:", error);
+          // Clear stored user ID if session is invalid
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('mcleuker-user-id');
+          }
           if (mounted) {
             setLoading(false);
           }
@@ -67,19 +79,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(existingSession);
             setUser(existingSession.user);
             
-            // Check if token needs refresh (within 5 minutes of expiry)
+            // Store user ID for faster subsequent loads
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('mcleuker-user-id', existingSession.user.id);
+            }
+            
+            // Check if token needs refresh (within 10 minutes of expiry)
             const expiresAt = existingSession.expires_at;
             if (expiresAt) {
               const expiryTime = expiresAt * 1000;
               const now = Date.now();
-              const fiveMinutes = 5 * 60 * 1000;
+              const tenMinutes = 10 * 60 * 1000;
               
-              if (expiryTime - now < fiveMinutes) {
+              if (expiryTime - now < tenMinutes) {
                 // Token is about to expire, refresh it
                 await refreshSession();
               }
             }
+          } else if (storedUserId) {
+            // We have a stored user ID but no session - try to refresh
+            console.log("Stored user ID found, attempting session refresh...");
+            const { data: { session: refreshedSession } } = await supabase.auth.refreshSession();
+            if (refreshedSession) {
+              setSession(refreshedSession);
+              setUser(refreshedSession.user);
+            } else {
+              // Clear invalid stored data
+              localStorage.removeItem('mcleuker-user-id');
+            }
           }
+          
           setLoading(false);
 
           // If user is logged in and on login page, redirect to dashboard
@@ -95,16 +124,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // Set up auth state listener
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         console.log("Auth state changed:", event, currentSession?.user?.email);
         
         if (!mounted) return;
 
+        // Update state
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
+
+        // Store/clear user ID
+        if (typeof window !== 'undefined') {
+          if (currentSession?.user) {
+            localStorage.setItem('mcleuker-user-id', currentSession.user.id);
+          } else {
+            localStorage.removeItem('mcleuker-user-id');
+          }
+        }
 
         // Handle different auth events
         if (event === 'SIGNED_IN') {
@@ -123,21 +162,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
+    // Then initialize
     initializeAuth();
 
-    // Set up periodic token refresh (every 10 minutes)
-    const refreshInterval = setInterval(() => {
-      if (session) {
-        refreshSession();
+    // Set up periodic token refresh (every 5 minutes)
+    const refreshInterval = setInterval(async () => {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      if (currentSession) {
+        const expiresAt = currentSession.expires_at;
+        if (expiresAt) {
+          const expiryTime = expiresAt * 1000;
+          const now = Date.now();
+          const tenMinutes = 10 * 60 * 1000;
+          
+          if (expiryTime - now < tenMinutes) {
+            await refreshSession();
+          }
+        }
       }
-    }, 10 * 60 * 1000);
+    }, 5 * 60 * 1000);
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
       clearInterval(refreshInterval);
     };
-  }, [pathname, router, refreshSession, session]);
+  }, [pathname, router, refreshSession]);
 
   // Redirect unauthenticated users from protected routes
   useEffect(() => {
@@ -202,14 +252,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           redirectTo: `${window.location.origin}/auth/callback`,
           queryParams: {
             access_type: 'offline',
-            // Use 'select_account' instead of 'consent' to allow choosing account
-            // without forcing re-consent every time
-            prompt: 'select_account',
+            // CRITICAL: Use 'none' to skip consent if already authorized
+            // This prevents re-login on every visit
+            prompt: 'none',
           },
         },
       });
       
       if (error) {
+        // If 'none' fails (user needs to consent), fall back to 'select_account'
+        if (error.message?.includes('interaction_required') || error.message?.includes('consent_required')) {
+          const { error: retryError } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+              redirectTo: `${window.location.origin}/auth/callback`,
+              queryParams: {
+                access_type: 'offline',
+                prompt: 'select_account',
+              },
+            },
+          });
+          
+          if (retryError) {
+            console.error("Google OAuth retry error:", retryError);
+            return { error: retryError as Error };
+          }
+          return { error: null };
+        }
+        
         console.error("Google OAuth error:", error);
         return { error: error as Error };
       }
@@ -227,6 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('mcleuker-auth-session');
         localStorage.removeItem('mcleuker-auth-token');
+        localStorage.removeItem('mcleuker-user-id');
         localStorage.removeItem('auth-return-to');
         localStorage.removeItem('mcleuker-active-chat');
         localStorage.removeItem('mcleuker-chat-messages');
