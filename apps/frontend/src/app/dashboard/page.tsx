@@ -24,9 +24,12 @@ import {
   Loader2,
   LogOut,
   User,
-  Trash2
+  Trash2,
+  Coins,
+  RefreshCw
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSector, SECTORS, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
 import { useConversations, ChatMessage, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { UserMenu } from "@/components/dashboard/UserMenu";
@@ -273,12 +276,139 @@ function SearchModeSelector({
 }
 
 // =============================================================================
+// Domain Tabs Component
+// =============================================================================
+
+function DomainTabs() {
+  const { currentSector, setSector } = useSector();
+  
+  return (
+    <nav className="hidden lg:flex items-center gap-0.5">
+      {SECTORS.map((sector) => (
+        <button
+          key={sector.id}
+          onClick={() => setSector(sector.id)}
+          className={cn(
+            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+            "focus:outline-none focus:ring-2 focus:ring-white/20 focus:ring-offset-2 focus:ring-offset-[#0A0A0A]",
+            currentSector === sector.id
+              ? "bg-white/10 text-white"
+              : "text-white/50 hover:text-white/80 hover:bg-white/5"
+          )}
+        >
+          {sector.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+// =============================================================================
+// Mobile Domain Selector
+// =============================================================================
+
+function MobileDomainSelector() {
+  const { currentSector, setSector } = useSector();
+  
+  return (
+    <div className="lg:hidden border-t border-white/[0.08] px-4 py-2 overflow-x-auto bg-[#0A0A0A]">
+      <div className="flex items-center gap-1 min-w-max">
+        {SECTORS.map((sector) => (
+          <button
+            key={sector.id}
+            onClick={() => setSector(sector.id)}
+            className={cn(
+              "px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
+              "focus:outline-none focus:ring-2 focus:ring-white/20",
+              currentSector === sector.id
+                ? "bg-white/10 text-white"
+                : "text-white/50 hover:text-white/80"
+            )}
+          >
+            {sector.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Domain Starter Panel - Empty State
+// =============================================================================
+
+function DomainStarterPanel({ 
+  onSelectPrompt 
+}: { 
+  onSelectPrompt: (prompt: string) => void;
+}) {
+  const { currentSector, getSectorConfig, getStarters } = useSector();
+  const config = getSectorConfig();
+  const starters = getStarters();
+
+  return (
+    <div className="text-center py-12 px-6 animate-fade-in">
+      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-white/[0.08] flex items-center justify-center mx-auto mb-6">
+        <Sparkles className="w-10 h-10 text-purple-400" />
+      </div>
+      
+      <h1 className="text-3xl md:text-4xl font-serif text-white mb-3">
+        {config.label}
+      </h1>
+      <p className="text-white/60 text-sm max-w-lg mx-auto mb-8">
+        {config.tagline}
+      </p>
+
+      {/* Starter Questions */}
+      <div className="max-w-xl mx-auto">
+        <p className="text-xs text-white/40 uppercase tracking-wider mb-4">
+          Explore {config.label}
+        </p>
+        <div className="grid gap-2">
+          {starters.map((question, index) => (
+            <button
+              key={index}
+              onClick={() => onSelectPrompt(question)}
+              className={cn(
+                "group flex items-center justify-between gap-4 p-4 rounded-lg",
+                "bg-white/[0.03] border border-white/[0.08]",
+                "hover:border-white/[0.15] hover:bg-white/[0.06]",
+                "transition-all duration-200",
+                "text-left"
+              )}
+            >
+              <span className="text-[15px] text-white/90">
+                {question}
+              </span>
+              <ArrowRight className={cn(
+                "h-4 w-4 text-white/40 shrink-0",
+                "group-hover:text-white group-hover:translate-x-0.5",
+                "transition-all duration-200"
+              )} />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Minimal branding */}
+      <div className="mt-8 pt-6 border-t border-white/[0.08] max-w-xl mx-auto">
+        <p className="text-xs text-white/40 text-center">
+          Powered by McLeuker AI • {config.label} Intelligence Mode
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // Dashboard Content Component
 // =============================================================================
 
 function DashboardContent() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { currentSector, getSectorConfig, getDomainSystemPrompt } = useSector();
+  const sectorConfig = getSectorConfig();
   const {
     conversations,
     currentConversation,
@@ -290,210 +420,222 @@ function DashboardContent() {
     deleteConversation,
     selectConversation,
     startNewChat,
-    setCurrentConversation,
   } = useConversations();
 
-  const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [reasoningOpen, setReasoningOpen] = useState(true);
+  const [input, setInput] = useState('');
   const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
+  const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [reasoningEvents, setReasoningEvents] = useState<StreamEvent[]>([]);
+  const [creditBalance, setCreditBalance] = useState(50);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Sync local messages with Supabase messages
-  useEffect(() => {
-    if (messages.length > 0) {
-      const converted: LocalMessage[] = messages.map(msg => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: new Date(msg.created_at),
-        sources: msg.sources,
-        keyInsights: msg.keyInsights,
-        followUpQuestions: msg.followUpQuestions,
-      }));
-      setLocalMessages(converted);
-    } else {
-      setLocalMessages([]);
-    }
-  }, [messages]);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [localMessages]);
 
-  const handleSignOut = async () => {
-    await signOut();
-    router.push('/');
-  };
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
+    }
+  }, [input]);
 
-  const handleNewChat = () => {
-    startNewChat();
-    setLocalMessages([]);
-    setReasoningEvents([]);
-  };
-
-  const handleSelectConversation = async (conv: Conversation) => {
-    await selectConversation(conv);
-    setReasoningEvents([]);
-  };
+  // Clear messages when switching domains (optional - you may want to keep them)
+  useEffect(() => {
+    // Optionally clear messages when switching domains
+    // setLocalMessages([]);
+    // setReasoningEvents([]);
+  }, [currentSector]);
 
   const handleSendMessage = async (messageText?: string) => {
-    const text = messageText || input;
-    if (!text.trim() || isLoading) return;
+    const text = messageText || input.trim();
+    if (!text || isStreaming) return;
 
-    setInput("");
-    setIsLoading(true);
-    setReasoningEvents([]);
-
-    // Create conversation if none exists
-    let convId = currentConversation?.id;
-    if (!convId) {
-      const newConv = await createConversation(text.slice(0, 50) + (text.length > 50 ? "..." : ""));
-      if (!newConv) {
-        setIsLoading(false);
-        return;
-      }
-      convId = newConv.id;
-    }
-
-    // Add user message locally
     const userMessage: LocalMessage = {
-      id: Date.now().toString(),
+      id: `user-${Date.now()}`,
       role: 'user',
       content: text,
       timestamp: new Date(),
     };
+
     setLocalMessages(prev => [...prev, userMessage]);
+    setInput('');
+    setIsStreaming(true);
+    setReasoningEvents([]);
 
-    // Save user message to Supabase
-    await saveMessage(convId, 'user', text);
-
-    // Add placeholder assistant message
-    const assistantId = (Date.now() + 1).toString();
+    // Create assistant placeholder
+    const assistantId = `assistant-${Date.now()}`;
     const assistantMessage: LocalMessage = {
       id: assistantId,
       role: 'assistant',
       content: '',
       timestamp: new Date(),
       isStreaming: true,
+      reasoning: [],
     };
     setLocalMessages(prev => [...prev, assistantMessage]);
 
     try {
-      // Call the API
-      const response = await fetch(`${API_URL}/api/chat`, {
+      // Get domain context
+      const domainPrompt = getDomainSystemPrompt();
+      const fullQuery = domainPrompt ? `${text}${domainPrompt}` : text;
+
+      const response = await fetch(`${API_URL}/api/research/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${user?.id || 'anonymous'}`,
+        },
         body: JSON.stringify({
-          message: text,
+          query: fullQuery,
           mode: searchMode,
-          session_id: convId,
+          domain: currentSector,
+          user_id: user?.id,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      
-      // Parse the response
-      let content = '';
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedContent = '';
       let sources: Array<{ title: string; url: string }> = [];
       let keyInsights: KeyInsight[] = [];
       let followUpQuestions: string[] = [];
 
-      if (data.response) {
-        const resp = data.response;
-        content = resp.main_content || resp.summary || '';
-        
-        if (resp.sources) {
-          sources = resp.sources.map((s: any) => ({
-            title: s.title || 'Source',
-            url: s.url || '',
-          }));
-        }
-        
-        if (resp.key_insights) {
-          keyInsights = resp.key_insights.map((i: any) => ({
-            icon: i.icon || '💡',
-            title: i.title,
-            text: i.description,
-            importance: i.importance || 'medium',
-          }));
-        }
-        
-        if (resp.follow_up_questions) {
-          followUpQuestions = resp.follow_up_questions;
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                
+                // Add to reasoning events
+                if (data.type !== 'content') {
+                  setReasoningEvents(prev => [...prev, data]);
+                }
+
+                // Handle different event types
+                switch (data.type) {
+                  case 'content':
+                    accumulatedContent += data.data?.chunk || '';
+                    setLocalMessages(prev => prev.map(msg => 
+                      msg.id === assistantId 
+                        ? { ...msg, content: accumulatedContent }
+                        : msg
+                    ));
+                    break;
+                  case 'source':
+                    if (data.data?.url && data.data?.title) {
+                      sources.push({ title: data.data.title, url: data.data.url });
+                    }
+                    break;
+                  case 'insight':
+                    if (data.data) {
+                      keyInsights.push(data.data);
+                    }
+                    break;
+                  case 'complete':
+                    if (data.data?.follow_up_questions) {
+                      followUpQuestions = data.data.follow_up_questions;
+                    }
+                    if (data.data?.credits_used) {
+                      setCreditBalance(prev => Math.max(0, prev - data.data.credits_used));
+                    }
+                    break;
+                }
+              } catch (e) {
+                console.error('Error parsing SSE data:', e);
+              }
+            }
+          }
         }
       }
 
-      // Update local message
+      // Finalize message
       setLocalMessages(prev => prev.map(msg => 
         msg.id === assistantId 
-          ? {
-              ...msg,
-              content,
+          ? { 
+              ...msg, 
+              content: accumulatedContent || 'I apologize, but I was unable to generate a response. Please try again.',
+              isStreaming: false,
               sources,
               keyInsights,
               followUpQuestions,
-              isStreaming: false,
+              reasoning: reasoningEvents,
             }
           : msg
       ));
 
-      // Save assistant message to Supabase
-      await saveMessage(convId, 'assistant', JSON.stringify({
-        content,
-        sources,
-        keyInsights,
-        followUpQuestions,
-      }));
-
-      // Update conversation title if first message
-      if (localMessages.length <= 2) {
-        await updateConversationTitle(convId, text.slice(0, 50) + (text.length > 50 ? "..." : ""));
-      }
-
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error('Error sending message:', error);
       setLocalMessages(prev => prev.map(msg => 
         msg.id === assistantId 
-          ? {
-              ...msg,
-              content: 'Sorry, there was an error processing your request. Please try again.',
+          ? { 
+              ...msg, 
+              content: 'I apologize, but there was an error processing your request. Please try again.',
               isStreaming: false,
             }
           : msg
       ));
     } finally {
-      setIsLoading(false);
+      setIsStreaming(false);
     }
   };
 
   const handleFollowUpClick = (question: string) => {
-    setInput(question);
     handleSendMessage(question);
   };
 
+  const handleNewChat = () => {
+    setLocalMessages([]);
+    setReasoningEvents([]);
+    startNewChat();
+  };
+
+  const handleSelectConversation = (conv: Conversation) => {
+    selectConversation(conv);
+    // Load messages for this conversation
+    // For now, just clear local messages
+    setLocalMessages([]);
+    setReasoningEvents([]);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#070707] flex">
-      {/* Left Sidebar - Conversations */}
+    <div className="min-h-screen bg-[#070707] flex w-full overflow-x-hidden">
+      {/* Sidebar */}
       <aside className={cn(
-        "fixed left-0 top-0 h-full z-40",
+        "fixed left-0 top-0 h-screen z-40",
         "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
         "border-r border-white/[0.08]",
-        "transition-all duration-200",
+        "transition-all duration-200 flex flex-col",
         sidebarOpen ? "w-64" : "w-14"
       )}>
-        {/* Sidebar Header */}
+        {/* Logo */}
         <div className="h-14 flex items-center justify-between px-4 border-b border-white/[0.08]">
           {sidebarOpen && (
-            <Link href="/" className="font-editorial text-lg text-white">
+            <Link href="/" className="font-luxury text-lg text-white tracking-wide">
               McLeuker
             </Link>
           )}
@@ -526,7 +668,7 @@ function DashboardContent() {
 
         {/* Conversations List */}
         {sidebarOpen && (
-          <div className="px-3 py-2 overflow-y-auto max-h-[calc(100vh-200px)]">
+          <div className="px-3 py-2 overflow-y-auto flex-1">
             <p className="text-xs text-white/40 uppercase tracking-wider mb-2 px-2">Recent</p>
             <div className="space-y-1">
               {conversations.map(conv => (
@@ -561,7 +703,7 @@ function DashboardContent() {
 
         {/* User Section */}
         {user && (
-          <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-white/[0.08]">
+          <div className="p-3 border-t border-white/[0.08]">
             <UserMenu collapsed={!sidebarOpen} />
           </div>
         )}
@@ -573,17 +715,33 @@ function DashboardContent() {
         sidebarOpen ? "ml-64" : "ml-14",
         reasoningOpen ? "mr-80" : "mr-0"
       )}>
-        {/* Header */}
-        <header className="h-14 border-b border-white/[0.08] flex items-center justify-between px-6 bg-[#0A0A0A]">
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-5 h-5 text-purple-400" />
-            <span className="text-white/80 font-medium">
-              {currentConversation?.title || "McLeuker AI"}
-            </span>
+        {/* Top Navigation with Domain Tabs */}
+        <header className="h-[72px] border-b border-white/[0.08] flex items-center justify-between px-6 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] sticky top-0 z-30">
+          {/* Left: Logo (hidden on desktop since sidebar has it) */}
+          <div className="lg:hidden">
+            <Link href="/" className="font-luxury text-lg text-white tracking-wide">
+              McLeuker
+            </Link>
           </div>
           
-          <div className="flex items-center gap-4">
+          {/* Center: Domain Tabs */}
+          <div className="hidden lg:flex items-center absolute left-1/2 -translate-x-1/2">
+            <DomainTabs />
+          </div>
+          
+          {/* Right: Credits & Mode */}
+          <div className="flex items-center gap-4 ml-auto">
+            {/* Credits Display */}
+            <Link
+              href="/billing"
+              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-colors"
+            >
+              <Coins className="h-3.5 w-3.5 text-white/50" />
+              <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
+            </Link>
+            
             <SearchModeSelector mode={searchMode} onModeChange={setSearchMode} />
+            
             <button
               onClick={() => setReasoningOpen(!reasoningOpen)}
               className={cn(
@@ -594,48 +752,19 @@ function DashboardContent() {
               )}
             >
               <Brain className="w-4 h-4" />
-              <span className="text-sm">Reasoning</span>
+              <span className="text-sm hidden sm:inline">Reasoning</span>
             </button>
           </div>
         </header>
+
+        {/* Mobile Domain Selector */}
+        <MobileDomainSelector />
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto px-6 py-8">
           <div className="max-w-3xl mx-auto space-y-6">
             {localMessages.length === 0 ? (
-              <div className="text-center py-20">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-white/[0.08] flex items-center justify-center mx-auto mb-6">
-                  <Sparkles className="w-10 h-10 text-purple-400" />
-                </div>
-                <h2 className="text-2xl font-editorial text-white/90 mb-3">
-                  Welcome, {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'}
-                </h2>
-                <p className="text-white/50 max-w-md mx-auto mb-8">
-                  Your AI-powered fashion intelligence assistant. Ask about trends, 
-                  sustainability, market analysis, and more.
-                </p>
-                
-                {/* Example Prompts */}
-                <div className="grid grid-cols-2 gap-3 max-w-xl mx-auto">
-                  {[
-                    "What are the top sustainable fashion trends for 2026?",
-                    "Analyze the luxury market in Asia Pacific",
-                    "Compare fast fashion vs slow fashion impact",
-                    "What materials are trending in haute couture?"
-                  ].map((prompt, i) => (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        setInput(prompt);
-                        handleSendMessage(prompt);
-                      }}
-                      className="p-4 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-left text-sm text-white/60 hover:text-white transition-all"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <DomainStarterPanel onSelectPrompt={handleSendMessage} />
             ) : (
               localMessages.map(message => (
                 <div key={message.id} className={cn(
@@ -747,85 +876,69 @@ function DashboardContent() {
           <div className="max-w-3xl mx-auto">
             <div className="relative">
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={`Ask McLeuker AI (${searchMode} mode)...`}
+                onKeyDown={handleKeyDown}
+                placeholder={sectorConfig.placeholder || `Ask McLeuker AI (${searchMode} mode)...`}
+                disabled={isStreaming}
                 className={cn(
-                  "w-full h-24 px-5 py-4 pr-14",
-                  "rounded-[18px]",
-                  "bg-gradient-to-b from-[#1B1B1B] to-[#111111]",
-                  "border border-white/[0.10]",
-                  "text-white/[0.88] placeholder:text-white/40",
-                  "focus:outline-none focus:border-white/[0.18]",
-                  "focus:ring-[3px] focus:ring-white/[0.06]",
-                  "resize-none text-sm"
+                  "w-full min-h-[56px] max-h-[200px] px-5 py-4 pr-14",
+                  "bg-white/[0.05] border border-white/[0.12] rounded-2xl",
+                  "text-white placeholder:text-white/40",
+                  "focus:outline-none focus:border-white/[0.25] focus:bg-white/[0.08]",
+                  "resize-none transition-all",
+                  isStreaming && "opacity-50 cursor-not-allowed"
                 )}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
+                rows={1}
               />
-              <div className="absolute bottom-4 right-4 flex items-center gap-2">
-                <span className={cn(
-                  "text-xs px-2 py-1 rounded",
-                  searchMode === 'quick' 
-                    ? "bg-blue-600/20 text-blue-400" 
-                    : "bg-purple-600/20 text-purple-400"
-                )}>
-                  {searchMode === 'quick' ? '⚡ Quick' : '🔬 Deep'}
-                </span>
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={!input.trim() || isLoading}
-                  className={cn(
-                    "w-10 h-10 rounded-full",
-                    "bg-gradient-to-r from-blue-600 to-purple-600 text-white",
-                    "hover:from-blue-500 hover:to-purple-500",
-                    "disabled:from-gray-600 disabled:to-gray-600 disabled:text-white/40",
-                    "transition-all flex items-center justify-center"
-                  )}
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
+              <button
+                onClick={() => handleSendMessage()}
+                disabled={!input.trim() || isStreaming}
+                className={cn(
+                  "absolute right-3 bottom-3 p-2.5 rounded-xl",
+                  "bg-gradient-to-r from-blue-600 to-purple-600",
+                  "text-white",
+                  "hover:from-blue-500 hover:to-purple-500",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  "transition-all"
+                )}
+              >
+                {isStreaming ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+            <div className="flex items-center justify-between mt-2 px-2">
+              <p className="text-xs text-white/40">
+                {searchMode === 'quick' ? '4-12' : '50'} credits • Press Enter to send
+              </p>
+              <p className="text-xs text-white/40">
+                Shift + Enter for new line
+              </p>
             </div>
           </div>
         </div>
       </main>
 
-      {/* Right Panel - Reasoning (Manus AI-style) */}
+      {/* Reasoning Panel */}
       {reasoningOpen && (
-        <aside className="fixed right-0 top-0 h-full w-80 z-40">
+        <aside className="fixed right-0 top-0 h-screen w-80 z-40">
           <ReasoningPanel 
             events={reasoningEvents} 
-            isActive={isLoading}
+            isActive={isStreaming} 
             onClose={() => setReasoningOpen(false)}
           />
         </aside>
       )}
-
-      {/* Global Styles */}
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.3s ease-out forwards;
-        }
-      `}</style>
     </div>
   );
 }
 
 // =============================================================================
-// Main Dashboard Page with Protected Route
+// Dashboard Page with Protected Route
 // =============================================================================
 
 export default function DashboardPage() {
