@@ -65,6 +65,7 @@ interface Message {
   content: string;
   reasoning_layers: ReasoningLayer[];
   sources: Source[];
+  follow_up_questions: string[];
   timestamp: Date;
   isStreaming: boolean;
 }
@@ -180,7 +181,17 @@ function ReasoningLayerItem({
 // Message Content Component - Renders the final response
 // =============================================================================
 
-function MessageContent({ content, sources }: { content: string; sources: Source[] }) {
+function MessageContent({ 
+  content, 
+  sources, 
+  followUpQuestions,
+  onFollowUpClick 
+}: { 
+  content: string; 
+  sources: Source[]; 
+  followUpQuestions: string[];
+  onFollowUpClick: (question: string) => void;
+}) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(true);
 
@@ -190,34 +201,97 @@ function MessageContent({ content, sources }: { content: string; sources: Source
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Simple markdown-like rendering
+  // Enhanced markdown rendering with bullet points, numbered lists, and emojis
   const renderContent = (text: string) => {
-    return text.split('\n').map((line, i) => {
-      if (!line.trim()) return <br key={i} />;
-      
-      // Headers
-      if (line.startsWith('### ')) {
-        return <h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{line.slice(4)}</h3>;
-      }
-      if (line.startsWith('## ')) {
-        return <h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{line.slice(3)}</h2>;
-      }
-      if (line.startsWith('# ')) {
-        return <h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{line.slice(2)}</h1>;
-      }
-      
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let listItems: string[] = [];
+    let listType: 'ul' | 'ol' | null = null;
+    
+    const processInlineFormatting = (line: string) => {
       // Bold text
       const boldRegex = /\*\*(.*?)\*\*/g;
       const parts = line.split(boldRegex);
+      return parts.map((part, j) => 
+        j % 2 === 1 ? <strong key={j} className="text-white font-medium">{part}</strong> : part
+      );
+    };
+    
+    const flushList = () => {
+      if (listItems.length > 0 && listType) {
+        const ListTag = listType === 'ul' ? 'ul' : 'ol';
+        elements.push(
+          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-1 my-3 ml-2`}>
+            {listItems.map((item, idx) => (
+              <li key={idx} className="text-white/80 leading-relaxed">
+                {processInlineFormatting(item)}
+              </li>
+            ))}
+          </ListTag>
+        );
+        listItems = [];
+        listType = null;
+      }
+    };
+    
+    lines.forEach((line, i) => {
+      // Empty line
+      if (!line.trim()) {
+        flushList();
+        elements.push(<br key={i} />);
+        return;
+      }
       
-      return (
+      // Headers
+      if (line.startsWith('### ')) {
+        flushList();
+        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{line.slice(4)}</h3>);
+        return;
+      }
+      if (line.startsWith('## ')) {
+        flushList();
+        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{line.slice(3)}</h2>);
+        return;
+      }
+      if (line.startsWith('# ')) {
+        flushList();
+        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{line.slice(2)}</h1>);
+        return;
+      }
+      
+      // Bullet points (-, *, •)
+      const bulletMatch = line.match(/^\s*[-*•]\s+(.+)/);
+      if (bulletMatch) {
+        if (listType !== 'ul') {
+          flushList();
+          listType = 'ul';
+        }
+        listItems.push(bulletMatch[1]);
+        return;
+      }
+      
+      // Numbered lists (1., 2., etc.)
+      const numberedMatch = line.match(/^\s*\d+\.\s+(.+)/);
+      if (numberedMatch) {
+        if (listType !== 'ol') {
+          flushList();
+          listType = 'ol';
+        }
+        listItems.push(numberedMatch[1]);
+        return;
+      }
+      
+      // Regular paragraph
+      flushList();
+      elements.push(
         <p key={i} className="text-white/80 leading-relaxed mb-2">
-          {parts.map((part, j) => 
-            j % 2 === 1 ? <strong key={j} className="text-white font-medium">{part}</strong> : part
-          )}
+          {processInlineFormatting(line)}
         </p>
       );
     });
+    
+    flushList();
+    return elements;
   };
 
   return (
@@ -271,6 +345,27 @@ function MessageContent({ content, sources }: { content: string; sources: Source
               >
                 {source.title.length > 40 ? source.title.slice(0, 40) + '...' : source.title}
               </a>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Follow-up Questions */}
+      {followUpQuestions && followUpQuestions.length > 0 && (
+        <div className="pt-4 border-t border-white/10">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="h-4 w-4 text-purple-400" />
+            <span className="text-sm font-medium text-white/70">Suggested Follow-ups</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {followUpQuestions.slice(0, 5).map((question, i) => (
+              <button
+                key={i}
+                onClick={() => onFollowUpClick(question)}
+                className="text-left text-sm px-4 py-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/30 transition-all"
+              >
+                {question}
+              </button>
             ))}
           </div>
         </div>
@@ -694,6 +789,7 @@ function DashboardContent() {
       content: messageText,
       reasoning_layers: [],
       sources: [],
+      follow_up_questions: [],
       timestamp: new Date(),
       isStreaming: false,
     };
@@ -712,6 +808,7 @@ function DashboardContent() {
       content: '',
       reasoning_layers: [],
       sources: [],
+      follow_up_questions: [],
       timestamp: new Date(),
       isStreaming: true,
     };
@@ -821,9 +918,18 @@ function DashboardContent() {
                     ? { ...m, content: currentContent }
                     : m
                 ));
+              } else if (eventType === 'follow_up') {
+                // Handle follow-up questions
+                const questions = eventData.questions || [];
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, follow_up_questions: questions }
+                    : m
+                ));
               } else if (eventType === 'complete') {
                 const finalContent = eventData.content || currentContent;
                 const creditsUsed = eventData.credits_used || (searchMode === 'quick' ? 2 : 5);
+                const followUpQuestions = eventData.follow_up_questions || [];
 
                 // Mark all layers as complete
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
@@ -835,6 +941,7 @@ function DashboardContent() {
                         content: finalContent,
                         reasoning_layers: currentLayers,
                         sources: eventData.sources || currentSources,
+                        follow_up_questions: followUpQuestions,
                         isStreaming: false,
                       }
                     : m
@@ -901,6 +1008,7 @@ function DashboardContent() {
         content: msg.content,
         reasoning_layers: [],
         sources: [],
+        follow_up_questions: [],
         timestamp: new Date(msg.created_at),
         isStreaming: false,
       }));
@@ -1030,7 +1138,9 @@ function DashboardContent() {
                           {message.content ? (
                             <MessageContent 
                               content={message.content} 
-                              sources={message.sources} 
+                              sources={message.sources}
+                              followUpQuestions={message.follow_up_questions}
+                              onFollowUpClick={(q) => handleSendMessage(q)}
                             />
                           ) : message.isStreaming ? (
                             <div className="flex items-center gap-2 text-white/50">

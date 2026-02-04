@@ -451,3 +451,247 @@ async def get_file(file_id: str):
         media_type=media_type,
         filename=file_id
     )
+
+
+# =============================================================================
+# Document Generation Endpoints
+# =============================================================================
+
+class DocumentGenerateRequest(BaseModel):
+    content: str
+    title: str
+    format: str  # excel, powerpoint, word, markdown, pdf
+    template: Optional[str] = None
+
+
+@app.post("/api/document/generate")
+async def generate_document(request: DocumentGenerateRequest):
+    """
+    Generate a document from content.
+    
+    Supported formats:
+    - excel: Generate Excel spreadsheet (.xlsx)
+    - powerpoint: Generate PowerPoint presentation (.pptx)
+    - word: Generate Word document (.docx)
+    - markdown: Generate Markdown file (.md)
+    - pdf: Generate PDF document (.pdf)
+    """
+    import tempfile
+    
+    try:
+        # Create temp directory if not exists
+        os.makedirs("/tmp/mcleuker_files", exist_ok=True)
+        
+        file_id = str(uuid.uuid4())[:12]
+        
+        if request.format == "excel":
+            # Generate Excel file
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = request.title[:31]  # Excel sheet name limit
+            
+            # Style header
+            header_font = Font(bold=True, color="FFFFFF")
+            header_fill = PatternFill(start_color="6B21A8", end_color="6B21A8", fill_type="solid")
+            
+            # Parse content into rows
+            lines = request.content.strip().split('\n')
+            for row_idx, line in enumerate(lines, 1):
+                cells = line.split('\t') if '\t' in line else [line]
+                for col_idx, cell in enumerate(cells, 1):
+                    ws.cell(row=row_idx, column=col_idx, value=cell.strip())
+                    if row_idx == 1:
+                        ws.cell(row=row_idx, column=col_idx).font = header_font
+                        ws.cell(row=row_idx, column=col_idx).fill = header_fill
+            
+            # Auto-adjust column widths
+            for column in ws.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
+            
+            file_path = f"/tmp/mcleuker_files/{file_id}.xlsx"
+            wb.save(file_path)
+            filename = f"{request.title}.xlsx"
+            
+        elif request.format == "powerpoint":
+            # Generate PowerPoint file
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RgbColor
+            
+            prs = Presentation()
+            prs.slide_width = Inches(13.333)
+            prs.slide_height = Inches(7.5)
+            
+            # Parse content into slides
+            slides_content = request.content.split('---SLIDE---')
+            
+            for slide_content in slides_content:
+                slide_content = slide_content.strip()
+                if not slide_content:
+                    continue
+                    
+                slide_layout = prs.slide_layouts[1]  # Title and Content
+                slide = prs.slides.add_slide(slide_layout)
+                
+                lines = slide_content.split('\n')
+                title_text = lines[0] if lines else request.title
+                body_text = '\n'.join(lines[1:]) if len(lines) > 1 else ""
+                
+                slide.shapes.title.text = title_text
+                if slide.shapes.placeholders[1]:
+                    slide.shapes.placeholders[1].text = body_text
+            
+            file_path = f"/tmp/mcleuker_files/{file_id}.pptx"
+            prs.save(file_path)
+            filename = f"{request.title}.pptx"
+            
+        elif request.format == "word":
+            # Generate Word document
+            from docx import Document
+            from docx.shared import Inches, Pt, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            
+            doc = Document()
+            
+            # Add title
+            title = doc.add_heading(request.title, 0)
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # Parse content
+            paragraphs = request.content.split('\n\n')
+            for para in paragraphs:
+                para = para.strip()
+                if para.startswith('# '):
+                    doc.add_heading(para[2:], level=1)
+                elif para.startswith('## '):
+                    doc.add_heading(para[3:], level=2)
+                elif para.startswith('### '):
+                    doc.add_heading(para[4:], level=3)
+                elif para.startswith('- ') or para.startswith('• '):
+                    for item in para.split('\n'):
+                        if item.startswith('- ') or item.startswith('• '):
+                            doc.add_paragraph(item[2:], style='List Bullet')
+                else:
+                    doc.add_paragraph(para)
+            
+            file_path = f"/tmp/mcleuker_files/{file_id}.docx"
+            doc.save(file_path)
+            filename = f"{request.title}.docx"
+            
+        elif request.format == "markdown":
+            # Generate Markdown file
+            content = f"# {request.title}\n\n{request.content}"
+            file_path = f"/tmp/mcleuker_files/{file_id}.md"
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            filename = f"{request.title}.md"
+            
+        elif request.format == "pdf":
+            # Generate PDF file
+            from fpdf import FPDF
+            
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(0, 10, request.title, ln=True, align="C")
+            pdf.ln(10)
+            pdf.set_font("Arial", "", 12)
+            
+            # Handle multi-line content
+            for line in request.content.split('\n'):
+                pdf.multi_cell(0, 8, line)
+            
+            file_path = f"/tmp/mcleuker_files/{file_id}.pdf"
+            pdf.output(file_path)
+            filename = f"{request.title}.pdf"
+            
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Unsupported format: {request.format}"
+                }
+            )
+        
+        # Return download URL
+        return {
+            "success": True,
+            "file_id": f"{file_id}.{request.format if request.format != 'powerpoint' else 'pptx'}",
+            "filename": filename,
+            "download_url": f"/api/files/{file_id}.{request.format if request.format != 'powerpoint' else 'pptx'}",
+            "format": request.format
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e)
+            }
+        )
+
+
+# =============================================================================
+# Export Chat to Document
+# =============================================================================
+
+class ExportChatRequest(BaseModel):
+    messages: List[dict]
+    title: str
+    format: str  # excel, word, markdown, pdf
+
+
+@app.post("/api/export/chat")
+async def export_chat(request: ExportChatRequest):
+    """
+    Export chat conversation to a document.
+    """
+    try:
+        os.makedirs("/tmp/mcleuker_files", exist_ok=True)
+        file_id = str(uuid.uuid4())[:12]
+        
+        # Build content from messages
+        content_lines = []
+        for msg in request.messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            timestamp = msg.get("timestamp", "")
+            
+            if role == "user":
+                content_lines.append(f"**User:** {content}")
+            else:
+                content_lines.append(f"**McLeuker AI:** {content}")
+            content_lines.append("")
+        
+        content = "\n".join(content_lines)
+        
+        # Reuse document generation
+        doc_request = DocumentGenerateRequest(
+            content=content,
+            title=request.title,
+            format=request.format
+        )
+        
+        return await generate_document(doc_request)
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e)
+            }
+        )

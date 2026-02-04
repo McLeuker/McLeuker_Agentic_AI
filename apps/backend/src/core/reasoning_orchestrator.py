@@ -494,6 +494,18 @@ class ReasoningOrchestrator:
             }
             
             # ================================================================
+            # GENERATE FOLLOW-UP QUESTIONS
+            # ================================================================
+            follow_up_questions = await self._generate_follow_up_questions(query, full_content, sub_tasks)
+            
+            yield {
+                "type": "follow_up",
+                "data": {
+                    "questions": follow_up_questions
+                }
+            }
+            
+            # ================================================================
             # COMPLETE
             # ================================================================
             credits_used = 2 if mode == "quick" else 5
@@ -504,6 +516,7 @@ class ReasoningOrchestrator:
                     "content": full_content,
                     "reasoning_layers": [l.to_dict() for l in reasoning_layers],
                     "sources": all_sources,
+                    "follow_up_questions": follow_up_questions,
                     "credits_used": credits_used,
                     "session_id": session_id
                 }
@@ -782,13 +795,33 @@ Provide a synthesis focusing on what's CURRENT and what's EMERGING (not historic
         system_prompt = f"""You are McLeuker AI, an expert fashion and industry analyst. 
 Provide a {depth} response based on CURRENT information.
 
-CRITICAL RULES:
+CRITICAL FORMATTING RULES:
+1. Use STRUCTURED formatting with clear sections and headers (use ## for main sections)
+2. Use bullet points (•) for lists of items, trends, or key points
+3. Use relevant emojis sparingly to highlight key concepts (🔥 for hot trends, 📈 for growth, 🌱 for sustainability, 💡 for insights, ⚡ for innovation, 🎯 for key points)
+4. Keep paragraphs SHORT (2-3 sentences max)
+5. Use **bold** for important terms and concepts
+6. Include numbered lists when showing steps or rankings
+
+CONTENT RULES:
 1. Focus on what's happening NOW in {self.current_year} and what's EMERGING
 2. Do NOT reference old data (2023 or earlier) unless providing historical context
 3. Use phrases like "currently", "as of {self.current_year}", "emerging now", "looking ahead"
 4. Be specific with current examples and recent developments
-5. Write naturally and conversationally
-6. Do NOT use citation markers like [1] or [2]
+5. Do NOT use citation markers like [1] or [2]
+
+STRUCTURE YOUR RESPONSE AS:
+## 🎯 Current State (What's Happening Now)
+[Brief overview with bullet points]
+
+## 🔥 Key Trends & Developments
+[Bullet points with specific examples]
+
+## 📈 Future Outlook
+[What's emerging and predictions]
+
+## 💡 Key Takeaways
+[3-5 bullet point summary]
 
 Today's date: {self.current_date}"""
 
@@ -866,6 +899,45 @@ Please provide a helpful, CURRENT-focused response. Start with what's happening 
                 return data["choices"][0]["message"]["content"]
             else:
                 return "Processing..."
+    
+    async def _generate_follow_up_questions(self, query: str, response: str, sub_tasks: List[str]) -> List[str]:
+        """Generate 3-5 follow-up questions based on the query and response"""
+        prompt = f"""Based on this conversation, generate 3-5 follow-up questions the user might want to ask next.
+
+Original query: "{query}"
+
+Response summary: {response[:500]}...
+
+Sub-tasks explored: {', '.join(sub_tasks[:3])}
+
+Generate follow-up questions that:
+1. Dive deeper into specific aspects mentioned
+2. Explore related topics
+3. Ask for practical applications or examples
+4. Request comparisons or analysis
+5. Explore future implications
+
+Return ONLY a JSON array of 3-5 question strings, no other text:
+Example: ["How can I apply this to my business?", "What are the risks involved?", "Can you compare X with Y?"]"""
+        
+        result = await self._call_llm(prompt, max_tokens=300)
+        
+        try:
+            json_match = re.search(r'\[[\s\S]*\]', result)
+            if json_match:
+                questions = json.loads(json_match.group())
+                return questions[:5]  # Limit to 5 questions
+        except:
+            pass
+        
+        # Fallback questions
+        return [
+            f"Can you dive deeper into any specific aspect of {query.split()[-2] if len(query.split()) > 2 else 'this topic'}?",
+            "What are the practical applications of this information?",
+            "How does this compare to other approaches?",
+            "What are the potential risks or challenges?",
+            "What should I focus on next?"
+        ]
 
 
 # Global instance
