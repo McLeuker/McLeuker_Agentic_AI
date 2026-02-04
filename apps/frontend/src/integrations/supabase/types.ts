@@ -104,6 +104,111 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_transactions: {
+        Row: {
+          id: string
+          user_id: string
+          amount: number
+          type: string
+          description: string | null
+          balance_after: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          amount: number
+          type: string
+          description?: string | null
+          balance_after: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          amount?: number
+          type?: string
+          description?: string | null
+          balance_after?: number
+          created_at?: string
+        }
+        Relationships: []
+      }
+      support_requests: {
+        Row: {
+          id: string
+          user_id: string
+          type: string
+          subject: string
+          message: string
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          type: string
+          subject: string
+          message: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          type?: string
+          subject?: string
+          message?: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      users: {
+        Row: {
+          id: string
+          user_id: string
+          name: string | null
+          email: string
+          profile_image: string | null
+          subscription_plan: string
+          credit_balance: number
+          created_at: string
+          updated_at: string
+          last_login_at: string | null
+          auth_provider: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name?: string | null
+          email: string
+          profile_image?: string | null
+          subscription_plan?: string
+          credit_balance?: number
+          created_at?: string
+          updated_at?: string
+          last_login_at?: string | null
+          auth_provider?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string | null
+          email?: string
+          profile_image?: string | null
+          subscription_plan?: string
+          credit_balance?: number
+          created_at?: string
+          updated_at?: string
+          last_login_at?: string | null
+          auth_provider?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
