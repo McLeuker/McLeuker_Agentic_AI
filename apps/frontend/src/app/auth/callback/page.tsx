@@ -8,18 +8,27 @@ function AuthCallbackContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState('Processing authentication...');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+    let timeoutId: NodeJS.Timeout;
+
     const handleAuthCallback = async () => {
       try {
         // Check for error in URL params
-        const error = searchParams.get('error');
+        const urlError = searchParams.get('error');
         const errorDescription = searchParams.get('error_description');
         
-        if (error) {
-          console.error('OAuth error:', error, errorDescription);
-          setStatus(`Authentication failed: ${errorDescription || error}`);
-          setTimeout(() => router.push('/login?error=oauth_failed'), 2000);
+        if (urlError) {
+          console.error('OAuth error:', urlError, errorDescription);
+          if (mounted) {
+            setError(errorDescription || urlError);
+            setStatus('Authentication failed');
+          }
+          timeoutId = setTimeout(() => {
+            if (mounted) router.replace('/login?error=oauth_failed');
+          }, 2000);
           return;
         }
 
@@ -27,57 +36,121 @@ function AuthCallbackContent() {
         const code = searchParams.get('code');
         
         if (code) {
-          setStatus('Exchanging authorization code...');
+          if (mounted) setStatus('Completing authentication...');
+          
           // Exchange the code for a session
           const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           
           if (exchangeError) {
             console.error('Code exchange error:', exchangeError);
-            setStatus('Failed to complete authentication');
-            setTimeout(() => router.push('/login?error=exchange_failed'), 2000);
+            if (mounted) {
+              setError(exchangeError.message);
+              setStatus('Failed to complete authentication');
+            }
+            timeoutId = setTimeout(() => {
+              if (mounted) router.replace('/login?error=exchange_failed');
+            }, 2000);
             return;
           }
 
           if (data.session) {
-            setStatus('Authentication successful! Redirecting...');
-            router.push('/dashboard');
+            if (mounted) setStatus('Authentication successful! Redirecting...');
+            
+            // Get the return URL from localStorage
+            const returnTo = typeof window !== 'undefined' 
+              ? localStorage.getItem('auth-return-to') || '/dashboard'
+              : '/dashboard';
+            
+            // Clear the return URL
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('auth-return-to');
+            }
+            
+            // Small delay to ensure session is properly set
+            timeoutId = setTimeout(() => {
+              if (mounted) router.replace(returnTo);
+            }, 500);
             return;
           }
         }
 
-        // Fallback: Check if we already have a session (for implicit flow)
-        setStatus('Checking session...');
+        // Fallback: Check if we already have a session
+        if (mounted) setStatus('Verifying session...');
+        
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           console.error('Session error:', sessionError);
-          setStatus('Failed to verify session');
-          setTimeout(() => router.push('/login?error=session_failed'), 2000);
+          if (mounted) {
+            setError(sessionError.message);
+            setStatus('Failed to verify session');
+          }
+          timeoutId = setTimeout(() => {
+            if (mounted) router.replace('/login?error=session_failed');
+          }, 2000);
           return;
         }
 
         if (sessionData.session) {
-          setStatus('Session found! Redirecting...');
-          router.push('/dashboard');
+          if (mounted) setStatus('Session found! Redirecting...');
+          
+          const returnTo = typeof window !== 'undefined' 
+            ? localStorage.getItem('auth-return-to') || '/dashboard'
+            : '/dashboard';
+          
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('auth-return-to');
+          }
+          
+          timeoutId = setTimeout(() => {
+            if (mounted) router.replace(returnTo);
+          }, 500);
         } else {
-          setStatus('No session found. Redirecting to login...');
-          setTimeout(() => router.push('/login'), 1500);
+          if (mounted) setStatus('No session found. Redirecting to login...');
+          timeoutId = setTimeout(() => {
+            if (mounted) router.replace('/login');
+          }, 1500);
         }
       } catch (err) {
         console.error('Unexpected auth callback error:', err);
-        setStatus('An unexpected error occurred');
-        setTimeout(() => router.push('/login?error=unexpected'), 2000);
+        if (mounted) {
+          setError('An unexpected error occurred');
+          setStatus('Authentication error');
+        }
+        timeoutId = setTimeout(() => {
+          if (mounted) router.replace('/login?error=unexpected');
+        }, 2000);
       }
     };
 
     handleAuthCallback();
+
+    return () => {
+      mounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [router, searchParams]);
 
   return (
     <div className="min-h-screen bg-[#070707] flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <p className="text-white/60">{status}</p>
+      <div className="text-center max-w-md px-4">
+        {!error ? (
+          <>
+            <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-white/60">{status}</p>
+          </>
+        ) : (
+          <>
+            <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </div>
+            <p className="text-white/80 font-medium mb-2">{status}</p>
+            <p className="text-white/40 text-sm">{error}</p>
+            <p className="text-white/30 text-xs mt-4">Redirecting to login...</p>
+          </>
+        )}
       </div>
     </div>
   );

@@ -1,8 +1,9 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { useRouter, usePathname } from "next/navigation";
 
 interface AuthContextType {
   user: User | null;
@@ -16,34 +17,95 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Public routes that don't require authentication
+const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/pricing', '/about'];
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+  const pathname = usePathname();
+  const initRef = useRef(false);
 
+  // Initialize auth state
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
+
+    let mounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        // First, try to get existing session
+        const { data: { session: existingSession }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error("Error getting session:", error);
+          if (mounted) {
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (mounted) {
+          setSession(existingSession);
+          setUser(existingSession?.user ?? null);
+          setLoading(false);
+
+          // If user is logged in and on login page, redirect to dashboard
+          if (existingSession?.user && (pathname === '/login' || pathname === '/signup')) {
+            router.replace('/dashboard');
+          }
+        }
+      } catch (err) {
+        console.error("Auth initialization error:", err);
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        console.log("Auth state changed:", event);
-        setSession(session);
-        setUser(session?.user ?? null);
+      async (event, currentSession) => {
+        console.log("Auth state changed:", event, currentSession?.user?.email);
+        
+        if (!mounted) return;
+
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
         setLoading(false);
+
+        // Handle different auth events
+        if (event === 'SIGNED_IN') {
+          // User signed in - redirect to dashboard if on public route
+          if (pathname === '/login' || pathname === '/signup' || pathname === '/') {
+            router.replace('/dashboard');
+          }
+        } else if (event === 'SIGNED_OUT') {
+          // User signed out - redirect to home
+          router.replace('/');
+        } else if (event === 'TOKEN_REFRESHED') {
+          console.log('Token refreshed successfully');
+        }
       }
     );
 
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error("Error getting session:", error);
-      }
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    initializeAuth();
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [pathname, router]);
+
+  // Redirect unauthenticated users from protected routes
+  useEffect(() => {
+    if (!loading && !user && !PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith('/auth/'))) {
+      router.replace('/login');
+    }
+  }, [loading, user, pathname, router]);
 
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     try {
@@ -51,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: email.trim().toLowerCase(),
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`,
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
           data: { full_name: fullName.trim() },
         },
       });
@@ -89,10 +151,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async () => {
     try {
+      // Store the current URL to redirect back after login
+      if (typeof window !== 'undefined') {
+        const returnTo = pathname !== '/login' && pathname !== '/signup' ? pathname : '/dashboard';
+        localStorage.setItem('auth-return-to', returnTo);
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
       });
       
@@ -106,10 +178,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Unexpected Google OAuth error:", err);
       return { error: err as Error };
     }
-  }, []);
+  }, [pathname]);
 
   const signOut = useCallback(async () => {
     try {
+      // Clear local storage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('mcleuker-auth-token');
+        localStorage.removeItem('auth-return-to');
+      }
+      
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error("SignOut error:", error);

@@ -10,8 +10,6 @@ import {
   MessageSquare, 
   Sparkles,
   ExternalLink,
-  Lightbulb,
-  ArrowRight,
   Zap,
   Brain,
   Loader2,
@@ -21,162 +19,209 @@ import {
   X,
   PanelLeftClose,
   PanelLeft,
-  MoreHorizontal,
   CheckCircle2,
-  Circle
+  Circle,
+  Globe,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Check
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSector, SECTORS, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
+import { useSector, SECTORS } from "@/contexts/SectorContext";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { UserMenu } from "@/components/dashboard/UserMenu";
-import { ReasoningPanel, StreamEvent } from "@/components/reasoning/ReasoningPanel";
-import { StructuredOutput, ResponseData } from "@/components/reasoning/StructuredOutput";
 
 // =============================================================================
-// Types
+// Types - Reasoning First (No Preset Templates)
 // =============================================================================
 
-interface KeyInsight {
-  id?: string;
-  icon?: string;
-  title?: string;
-  text?: string;
-  description?: string;
-  importance: string;
+interface ReasoningStep {
+  id: string;
+  type: 'thinking' | 'searching' | 'analyzing' | 'writing';
+  title: string;
+  content: string;
+  status: 'active' | 'complete';
+  timestamp: Date;
 }
 
-interface LocalMessage {
+interface Source {
+  title: string;
+  url: string;
+  snippet?: string;
+}
+
+interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  reasoning: ReasoningStep[];
+  sources: Source[];
   timestamp: Date;
-  sources?: Array<{ title: string; url: string; }>;
-  keyInsights?: KeyInsight[];
-  followUpQuestions?: string[];
-  isStreaming?: boolean;
-  responseData?: ResponseData;
-  reasoningEvents?: StreamEvent[];
+  isStreaming: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
 
 // =============================================================================
-// Domain Tabs Component
+// Reasoning Step Component - Shows AI thinking in real-time
 // =============================================================================
 
-function DomainTabs() {
-  const { currentSector, setSector } = useSector();
-  
+function ReasoningStepItem({ step, isLatest }: { step: ReasoningStep; isLatest: boolean }) {
+  const getIcon = () => {
+    switch (step.type) {
+      case 'thinking': return <Brain className="h-4 w-4" />;
+      case 'searching': return <Globe className="h-4 w-4" />;
+      case 'analyzing': return <FileText className="h-4 w-4" />;
+      case 'writing': return <Sparkles className="h-4 w-4" />;
+      default: return <Circle className="h-4 w-4" />;
+    }
+  };
+
+  const getColor = () => {
+    if (step.status === 'complete') return 'text-green-400';
+    switch (step.type) {
+      case 'thinking': return 'text-purple-400';
+      case 'searching': return 'text-blue-400';
+      case 'analyzing': return 'text-amber-400';
+      case 'writing': return 'text-emerald-400';
+      default: return 'text-white/60';
+    }
+  };
+
   return (
-    <nav className="hidden lg:flex items-center gap-0.5">
-      {SECTORS.map((sector) => (
-        <button
-          key={sector.id}
-          onClick={() => setSector(sector.id)}
-          className={cn(
-            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-            "focus:outline-none focus:ring-2 focus:ring-white/20 focus:ring-offset-2 focus:ring-offset-[#0A0A0A]",
-            currentSector === sector.id
-              ? "bg-white/10 text-white"
-              : "text-white/50 hover:text-white/80 hover:bg-white/5"
-          )}
-        >
-          {sector.label}
-        </button>
-      ))}
-    </nav>
-  );
-}
-
-// =============================================================================
-// Mobile Domain Selector
-// =============================================================================
-
-function MobileDomainSelector() {
-  const { currentSector, setSector } = useSector();
-  
-  return (
-    <div className="lg:hidden border-t border-white/[0.08] px-4 py-2 overflow-x-auto bg-[#0A0A0A]">
-      <div className="flex items-center gap-1 min-w-max">
-        {SECTORS.map((sector) => (
-          <button
-            key={sector.id}
-            onClick={() => setSector(sector.id)}
-            className={cn(
-              "px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
-              "focus:outline-none focus:ring-2 focus:ring-white/20",
-              currentSector === sector.id
-                ? "bg-white/10 text-white"
-                : "text-white/50 hover:text-white/80"
-            )}
-          >
-            {sector.label}
-          </button>
-        ))}
+    <div className={cn(
+      "flex items-start gap-3 py-2 px-3 rounded-lg transition-all",
+      isLatest && step.status === 'active' ? "bg-white/5" : ""
+    )}>
+      <div className={cn("mt-0.5", getColor())}>
+        {step.status === 'complete' ? (
+          <CheckCircle2 className="h-4 w-4" />
+        ) : (
+          <div className="animate-pulse">{getIcon()}</div>
+        )}
       </div>
+      <div className="flex-1 min-w-0">
+        <div className={cn(
+          "text-sm font-medium",
+          step.status === 'complete' ? "text-white/60" : "text-white/90"
+        )}>
+          {step.title}
+        </div>
+        {step.content && (
+          <div className="text-xs text-white/40 mt-0.5 line-clamp-2">
+            {step.content}
+          </div>
+        )}
+      </div>
+      {step.status === 'active' && (
+        <Loader2 className="h-3 w-3 animate-spin text-white/40 mt-1" />
+      )}
     </div>
   );
 }
 
 // =============================================================================
-// Research Mode Toggle Component
+// Message Content Component - Renders the final response
 // =============================================================================
 
-function ResearchModeToggle({ 
-  mode, 
-  onModeChange,
-  disabled = false
-}: { 
-  mode: 'quick' | 'deep'; 
-  onModeChange: (mode: 'quick' | 'deep') => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="inline-flex items-center rounded-full bg-white/10 p-1">
-      <button
-        type="button"
-        onClick={() => onModeChange('quick')}
-        disabled={disabled}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors",
-          mode === 'quick'
-            ? "bg-white text-black shadow-sm"
-            : "text-white/60 hover:text-white",
-          disabled && "opacity-50 cursor-not-allowed"
-        )}
-      >
-        <Zap className="h-3.5 w-3.5" />
-        Quick
-        <span className={cn(
-          "flex items-center gap-0.5",
-          mode === 'quick' ? "text-black/50" : "text-white/40"
-        )}>
-          <Coins className="h-3 w-3" />2
-        </span>
-      </button>
+function MessageContent({ content, sources }: { content: string; sources: Source[] }) {
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
-      <button
-        type="button"
-        onClick={() => onModeChange('deep')}
-        disabled={disabled}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors",
-          mode === 'deep'
-            ? "bg-white text-black shadow-sm"
-            : "text-white/60 hover:text-white",
-          disabled && "opacity-50 cursor-not-allowed"
-        )}
-      >
-        <Brain className="h-3.5 w-3.5" />
-        Deep
-        <span className={cn(
-          "flex items-center gap-0.5",
-          mode === 'deep' ? "text-black/50" : "text-white/40"
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Simple markdown-like rendering
+  const renderContent = (text: string) => {
+    return text.split('\n').map((line, i) => {
+      if (!line.trim()) return <br key={i} />;
+      
+      // Headers
+      if (line.startsWith('### ')) {
+        return <h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{line.slice(4)}</h3>;
+      }
+      if (line.startsWith('## ')) {
+        return <h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{line.slice(3)}</h2>;
+      }
+      if (line.startsWith('# ')) {
+        return <h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{line.slice(2)}</h1>;
+      }
+      
+      // Bold text
+      const boldRegex = /\*\*(.*?)\*\*/g;
+      const parts = line.split(boldRegex);
+      
+      return (
+        <p key={i} className="text-white/80 leading-relaxed mb-2">
+          {parts.map((part, j) => 
+            j % 2 === 1 ? <strong key={j} className="text-white font-medium">{part}</strong> : part
+          )}
+        </p>
+      );
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Response Content */}
+      <div className="relative">
+        <div className={cn(
+          "prose prose-invert prose-sm max-w-none",
+          !expanded && "max-h-[300px] overflow-hidden"
         )}>
-          <Coins className="h-3 w-3" />5
-        </span>
-      </button>
+          {renderContent(content)}
+        </div>
+        
+        {content.length > 1000 && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 mt-2"
+          >
+            {expanded ? (
+              <>Show less <ChevronUp className="h-3 w-3" /></>
+            ) : (
+              <>Show more <ChevronDown className="h-3 w-3" /></>
+            )}
+          </button>
+        )}
+        
+        {/* Copy Button */}
+        <button
+          onClick={handleCopy}
+          className="absolute top-0 right-0 p-2 text-white/40 hover:text-white/70 transition-colors"
+        >
+          {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+        </button>
+      </div>
+      
+      {/* Sources */}
+      {sources.length > 0 && (
+        <div className="pt-4 border-t border-white/10">
+          <div className="flex items-center gap-2 mb-3">
+            <ExternalLink className="h-4 w-4 text-blue-400" />
+            <span className="text-sm font-medium text-white/70">Sources</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {sources.map((source, i) => (
+              <a
+                key={i}
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-colors"
+              >
+                {source.title.length > 40 ? source.title.slice(0, 40) + '...' : source.title}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -210,11 +255,7 @@ function ChatSidebar({
 
   if (!isOpen) {
     return (
-      <aside className={cn(
-        "hidden lg:flex w-14 flex-col fixed left-0 top-[72px] bottom-0 z-40",
-        "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
-        "border-r border-white/[0.08]"
-      )}>
+      <aside className="hidden lg:flex w-14 flex-col fixed left-0 top-[60px] bottom-0 z-40 bg-[#0D0D0D] border-r border-white/[0.08]">
         <div className="p-2 pt-4">
           <button
             onClick={onToggle}
@@ -228,13 +269,9 @@ function ChatSidebar({
   }
 
   return (
-    <aside className={cn(
-      "hidden lg:flex w-72 flex-col fixed left-0 top-[72px] bottom-0 z-40",
-      "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
-      "border-r border-white/[0.08]"
-    )}>
-      <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0">
-        <span className="font-medium text-[13px] text-white/80">Chat History</span>
+    <aside className="hidden lg:flex w-64 flex-col fixed left-0 top-[60px] bottom-0 z-40 bg-[#0D0D0D] border-r border-white/[0.08]">
+      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
+        <span className="font-medium text-sm text-white/80">Chats</span>
         <button
           onClick={onToggle}
           className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
@@ -244,15 +281,10 @@ function ChatSidebar({
       </div>
 
       {onNewConversation && (
-        <div className="px-4 pb-3 shrink-0">
+        <div className="px-4 pb-3">
           <button
             onClick={onNewConversation}
-            className={cn(
-              "w-full justify-center gap-2 flex items-center",
-              "bg-white text-black hover:bg-white/90",
-              "h-10 rounded-full text-[13px] font-medium",
-              "transition-colors"
-            )}
+            className="w-full flex items-center justify-center gap-2 bg-white text-black hover:bg-white/90 h-9 rounded-lg text-sm font-medium transition-colors"
           >
             <Plus className="h-4 w-4" />
             New Chat
@@ -260,25 +292,19 @@ function ChatSidebar({
         </div>
       )}
 
-      <div className="px-4 pb-3 shrink-0">
+      <div className="px-4 pb-3">
         <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
           <input
-            placeholder="Search chats..."
+            placeholder="Search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className={cn(
-              "w-full pl-10 pr-10 h-10 text-[13px]",
-              "bg-white/[0.05] border border-white/[0.08] rounded-full",
-              "text-white placeholder:text-white/35",
-              "focus:border-white/[0.15] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
-              "transition-all"
-            )}
+            className="w-full pl-9 pr-8 h-9 text-sm bg-white/[0.05] border border-white/[0.08] rounded-lg text-white placeholder:text-white/35 focus:border-white/[0.15] focus:outline-none transition-all"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -286,21 +312,12 @@ function ChatSidebar({
         </div>
       </div>
 
-      <div className="px-4 pb-2 shrink-0">
-        <p className="text-[10px] font-medium text-white/40 uppercase tracking-wider">
-          {filteredConversations.length} {filteredConversations.length === 1 ? 'chat' : 'chats'}
-        </p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+      <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
         {filteredConversations.length === 0 ? (
           <div className="px-2 py-8 text-center">
             <MessageSquare className="h-8 w-8 text-white/25 mx-auto mb-3" />
-            <p className="text-[13px] text-white/50">
+            <p className="text-sm text-white/50">
               {searchQuery ? "No matching chats" : "No chats yet"}
-            </p>
-            <p className="text-[11px] text-white/35 mt-1">
-              {searchQuery ? "Try a different search" : "Start a new chat to begin"}
             </p>
           </div>
         ) : (
@@ -308,25 +325,17 @@ function ChatSidebar({
             <div
               key={conv.id}
               className={cn(
-                "group relative w-full text-left px-4 py-3 rounded-xl min-h-fit",
-                "transition-all cursor-pointer",
+                "group relative w-full text-left px-3 py-2.5 rounded-lg cursor-pointer transition-all",
                 currentConversation?.id === conv.id
-                  ? "bg-white/[0.08] border border-white/[0.12]"
-                  : "hover:bg-white/[0.04] border border-transparent"
+                  ? "bg-white/[0.08]"
+                  : "hover:bg-white/[0.04]"
               )}
               onClick={() => onSelectConversation(conv)}
             >
-              <div className="flex items-start gap-3">
-                <MessageSquare className="h-4 w-4 text-white/40 mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-white/80 truncate">
-                    {conv.title}
-                  </p>
-                  <p className="text-[11px] text-white/40 mt-0.5">
-                    {new Date(conv.updatedAt).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
+              <p className="text-sm text-white/80 truncate pr-6">{conv.title}</p>
+              <p className="text-xs text-white/40 mt-0.5">
+                {new Date(conv.updatedAt).toLocaleDateString()}
+              </p>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -345,46 +354,29 @@ function ChatSidebar({
 }
 
 // =============================================================================
-// Domain Starter Panel
+// Domain Tabs Component
 // =============================================================================
 
-function DomainStarterPanel({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
-  const { currentSector, getStarters } = useSector();
-  const sectorConfig = SECTORS.find(s => s.id === currentSector) || SECTORS[0];
+function DomainTabs() {
+  const { currentSector, setSector } = useSector();
   
-  const starterPrompts = getStarters();
-
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-white mb-3">
-          {currentSector === 'all' ? 'McLeuker AI' : sectorConfig.label}
-        </h1>
-        <p className="text-white/50 max-w-md">
-          {sectorConfig.tagline || 'Your AI-powered fashion intelligence platform'}
-        </p>
-      </div>
-      
-      <div className="grid gap-3 w-full max-w-2xl">
-        {starterPrompts.map((prompt, index) => (
-          <button
-            key={index}
-            onClick={() => onSelectPrompt(prompt)}
-            className={cn(
-              "text-left p-4 rounded-xl",
-              "bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-white/[0.15]",
-              "text-white/70 hover:text-white/90",
-              "transition-all duration-200 group"
-            )}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm">{prompt}</span>
-              <ArrowRight className="h-4 w-4 text-white/30 group-hover:text-white/60 group-hover:translate-x-1 transition-all" />
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
+    <nav className="hidden lg:flex items-center gap-0.5">
+      {SECTORS.map((sector) => (
+        <button
+          key={sector.id}
+          onClick={() => setSector(sector.id)}
+          className={cn(
+            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+            currentSector === sector.id
+              ? "bg-white/10 text-white"
+              : "text-white/50 hover:text-white/80 hover:bg-white/5"
+          )}
+        >
+          {sector.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -401,7 +393,6 @@ function DashboardContent() {
   const {
     conversations,
     currentConversation,
-    loading: conversationsLoading,
     selectConversation,
     startNewChat,
     deleteConversation,
@@ -409,13 +400,11 @@ function DashboardContent() {
 
   // State
   const [input, setInput] = useState('');
-  const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creditBalance, setCreditBalance] = useState(50);
-  const [showReasoningPanel, setShowReasoningPanel] = useState(false);
-  const [currentStreamEvents, setCurrentStreamEvents] = useState<StreamEvent[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -423,7 +412,7 @@ function DashboardContent() {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [localMessages]);
+  }, [messages]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -434,246 +423,181 @@ function DashboardContent() {
   }, [input]);
 
   // ==========================================================================
-  // Send Message with Simulated Progress (Manus AI Style)
+  // Send Message with Real-Time Reasoning (SSE Streaming)
   // ==========================================================================
   
   const handleSendMessage = async (overrideQuery?: string) => {
-    const fullQuery = overrideQuery || input.trim();
-    if (!fullQuery || isStreaming) return;
+    const query = overrideQuery || input.trim();
+    if (!query || isStreaming) return;
 
     setInput('');
     setIsStreaming(true);
-    setShowReasoningPanel(true);
-    setCurrentStreamEvents([]);
 
     // Add user message
-    const userMessageId = Date.now().toString();
-    const userMessage: LocalMessage = {
-      id: userMessageId,
+    const userMessage: Message = {
+      id: `user-${Date.now()}`,
       role: 'user',
-      content: fullQuery,
+      content: query,
+      reasoning: [],
+      sources: [],
       timestamp: new Date(),
+      isStreaming: false,
     };
-    setLocalMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage]);
 
     // Add assistant message placeholder
-    const assistantId = (Date.now() + 1).toString();
-    const assistantMessage: LocalMessage = {
+    const assistantId = `assistant-${Date.now()}`;
+    const assistantMessage: Message = {
       id: assistantId,
       role: 'assistant',
       content: '',
+      reasoning: [],
+      sources: [],
       timestamp: new Date(),
       isStreaming: true,
-      reasoningEvents: [],
     };
-    setLocalMessages(prev => [...prev, assistantMessage]);
-
-    // Simulate task progress events
-    const simulatedTasks = [
-      { id: '1', title: 'Understanding your question', status: 'pending' },
-      { id: '2', title: 'Analyzing context', status: 'pending' },
-      { id: '3', title: 'Gathering information', status: 'pending' },
-      { id: '4', title: 'Synthesizing insights', status: 'pending' },
-      { id: '5', title: 'Generating response', status: 'pending' },
-    ];
-
-    const collectedEvents: StreamEvent[] = [];
+    setMessages(prev => [...prev, assistantMessage]);
 
     try {
-      // Simulate task progress while API is processing
-      const progressPromise = (async () => {
-        for (let i = 0; i < simulatedTasks.length; i++) {
-          const task = simulatedTasks[i];
-          
-          // Mark task as in progress
-          const inProgressEvent: StreamEvent = {
-            type: 'task_update',
-            data: {
-              task_id: task.id,
-              title: task.title,
-              status: 'in_progress',
-              progress: (i / simulatedTasks.length) * 100
-            },
-            timestamp: new Date().toISOString()
-          };
-          collectedEvents.push(inProgressEvent);
-          setCurrentStreamEvents([...collectedEvents]);
-          setLocalMessages(prev => prev.map(msg =>
-            msg.id === assistantId
-              ? { ...msg, reasoningEvents: [...collectedEvents] }
-              : msg
-          ));
-          
-          await new Promise(resolve => setTimeout(resolve, 600));
-          
-          // Mark task as completed
-          const completedEvent: StreamEvent = {
-            type: 'task_update',
-            data: {
-              task_id: task.id,
-              title: task.title,
-              status: 'completed',
-              progress: ((i + 1) / simulatedTasks.length) * 100
-            },
-            timestamp: new Date().toISOString()
-          };
-          collectedEvents.push(completedEvent);
-          setCurrentStreamEvents([...collectedEvents]);
-          setLocalMessages(prev => prev.map(msg =>
-            msg.id === assistantId
-              ? { ...msg, reasoningEvents: [...collectedEvents] }
-              : msg
-          ));
-        }
-      })();
-
-      // Make API call in parallel
-      const apiPromise = fetch(`${API_URL}/api/chat`, {
+      // Use SSE streaming endpoint
+      const response = await fetch(`${API_URL}/api/chat/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: fullQuery,
+          message: query,
           mode: searchMode,
-          domain_filter: currentSector !== 'all' ? currentSector : null,
-          session_id: user?.id || null,
+          session_id: user?.id,
         }),
       });
 
-      // Wait for both to complete
-      const [_, response] = await Promise.all([progressPromise, apiPromise]);
-
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error: ${response.status}`);
       }
 
-      const data = await response.json();
-      
-      // Extract response data
-      let mainContent = '';
-      let sources: Array<{ title: string; url: string }> = [];
-      let keyInsights: KeyInsight[] = [];
-      let followUpQuestions: string[] = [];
-      let creditsUsed = 2;
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
-      if (data.success && data.response) {
-        const resp = data.response;
-        
-        // Build main content
-        if (resp.main_content) {
-          mainContent = resp.main_content;
-        } else if (resp.sections && resp.sections.length > 0) {
-          mainContent = resp.sections.map((s: any) => {
-            if (s.title && s.content) {
-              return `## ${s.title}\n${s.content}`;
-            }
-            return s.content || '';
-          }).join('\n\n');
-        }
-        
-        if (resp.summary && !mainContent.includes(resp.summary)) {
-          mainContent = resp.summary + '\n\n' + mainContent;
-        }
-        
-        // Extract sources
-        if (resp.sources && Array.isArray(resp.sources)) {
-          sources = resp.sources.map((s: any) => ({
-            title: s.title || s.publisher || 'Source',
-            url: s.url || '#'
-          }));
-        }
-        
-        // Extract key insights
-        if (resp.key_insights && Array.isArray(resp.key_insights)) {
-          keyInsights = resp.key_insights.map((insight: any) => ({
-            icon: insight.icon || '💡',
-            title: insight.title || 'Insight',
-            description: insight.description || insight.text || '',
-            importance: insight.importance || 'medium'
-          }));
-        }
-        
-        // Extract follow-up questions
-        if (resp.follow_up_questions && Array.isArray(resp.follow_up_questions)) {
-          followUpQuestions = resp.follow_up_questions;
-        }
-        
-        creditsUsed = resp.credits_used || data.credits_used || 2;
-      } else {
-        mainContent = data.message || 'Response received but could not be parsed.';
+      if (!reader) {
+        throw new Error('No response body');
       }
 
-      // Update credit balance
-      setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+      let currentReasoning: ReasoningStep[] = [];
+      let currentSources: Source[] = [];
+      let currentContent = '';
 
-      // Build response data for StructuredOutput
-      const responseData: ResponseData = {
-        summary: data.response?.summary || mainContent.slice(0, 200),
-        main_content: mainContent,
-        key_insights: keyInsights.map(k => ({
-          icon: k.icon,
-          title: k.title || '',
-          description: k.description || k.text || '',
-          importance: (k.importance as 'high' | 'medium' | 'low') || 'medium'
-        })),
-        sources: sources.map((s, i) => ({
-          id: String(i),
-          title: s.title,
-          url: s.url
-        })),
-        follow_up_questions: followUpQuestions,
-        credits_used: creditsUsed
-      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      // Update assistant message with final response
-      setLocalMessages(prev => prev.map(msg =>
-        msg.id === assistantId
-          ? {
-              ...msg,
-              content: mainContent || 'I was unable to generate a response. Please try again.',
-              isStreaming: false,
-              sources,
-              keyInsights,
-              followUpQuestions,
-              responseData,
-              reasoningEvents: collectedEvents,
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              const eventType = event.type;
+              const eventData = event.data || {};
+
+              if (eventType === 'thinking' || eventType === 'searching' || eventType === 'analyzing' || eventType === 'writing') {
+                // Add or update reasoning step
+                const stepId = eventData.step_id || `step-${Date.now()}`;
+                const existingIndex = currentReasoning.findIndex(s => s.id === stepId);
+                
+                const step: ReasoningStep = {
+                  id: stepId,
+                  type: eventType,
+                  title: eventData.title || eventType.charAt(0).toUpperCase() + eventType.slice(1),
+                  content: eventData.content || '',
+                  status: eventData.status || 'active',
+                  timestamp: new Date(),
+                };
+
+                if (existingIndex >= 0) {
+                  currentReasoning[existingIndex] = step;
+                } else {
+                  currentReasoning.push(step);
+                }
+
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, reasoning: [...currentReasoning] }
+                    : m
+                ));
+              } else if (eventType === 'source') {
+                currentSources.push({
+                  title: eventData.title || 'Source',
+                  url: eventData.url || '',
+                  snippet: eventData.snippet || '',
+                });
+
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, sources: [...currentSources] }
+                    : m
+                ));
+              } else if (eventType === 'content') {
+                currentContent = eventData.full_content || currentContent + (eventData.chunk || '');
+
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, content: currentContent }
+                    : m
+                ));
+              } else if (eventType === 'complete') {
+                const finalContent = eventData.content || currentContent;
+                const creditsUsed = eventData.credits_used || (searchMode === 'quick' ? 2 : 5);
+
+                // Mark all reasoning steps as complete
+                currentReasoning = currentReasoning.map(s => ({ ...s, status: 'complete' as const }));
+
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: finalContent,
+                        reasoning: currentReasoning,
+                        sources: eventData.sources || currentSources,
+                        isStreaming: false,
+                      }
+                    : m
+                ));
+
+                setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+              } else if (eventType === 'error') {
+                throw new Error(eventData.message || 'Unknown error');
+              }
+            } catch (parseError) {
+              // Skip invalid JSON
             }
-          : msg
-      ));
-
+          }
+        }
+      }
     } catch (error) {
-      console.error('Error sending message:', error);
-      setLocalMessages(prev => prev.map(msg =>
-        msg.id === assistantId
+      console.error('Error:', error);
+      
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId
           ? {
-              ...msg,
+              ...m,
               content: 'I apologize, but there was an error processing your request. Please try again.',
               isStreaming: false,
             }
-          : msg
+          : m
       ));
     } finally {
       setIsStreaming(false);
     }
   };
 
-  const handleFollowUpClick = (question: string) => {
-    handleSendMessage(question);
-  };
-
   const handleNewChat = () => {
-    setLocalMessages([]);
-    setCurrentStreamEvents([]);
-    setShowReasoningPanel(false);
+    setMessages([]);
     startNewChat();
   };
 
   const handleSelectConversation = (conv: Conversation) => {
     selectConversation(conv);
-    setLocalMessages([]);
-    setCurrentStreamEvents([]);
-    setShowReasoningPanel(false);
+    setMessages([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -683,8 +607,16 @@ function DashboardContent() {
     }
   };
 
+  // Starter questions
+  const starterQuestions = [
+    "What are the latest trends in sustainable fashion?",
+    "How is AI transforming the beauty industry?",
+    "Analyze the luxury market outlook for 2026",
+    "What innovations are shaping textile manufacturing?",
+  ];
+
   return (
-    <div className="min-h-screen bg-[#070707] flex w-full overflow-x-hidden">
+    <div className="min-h-screen bg-[#070707] flex w-full">
       {/* Chat Sidebar */}
       <ChatSidebar
         conversations={conversations}
@@ -699,12 +631,12 @@ function DashboardContent() {
       {/* Main Content */}
       <main className={cn(
         "flex-1 flex flex-col min-h-screen transition-all duration-200",
-        sidebarOpen ? "lg:ml-72" : "lg:ml-14"
+        sidebarOpen ? "lg:ml-64" : "lg:ml-14"
       )}>
-        {/* Top Navigation */}
-        <header className="h-[72px] border-b border-white/[0.08] flex items-center justify-between px-6 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] sticky top-0 z-30">
-          <div className="flex items-center gap-4 shrink-0">
-            <Link href="/" className="font-luxury text-xl lg:text-2xl text-white tracking-[0.02em]">
+        {/* Header */}
+        <header className="h-[60px] border-b border-white/[0.08] flex items-center justify-between px-4 bg-[#0A0A0A] sticky top-0 z-30">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="font-luxury text-xl text-white tracking-wide">
               McLeuker
             </Link>
           </div>
@@ -718,224 +650,162 @@ function DashboardContent() {
           </div>
         </header>
 
-        <MobileDomainSelector />
-
         {/* Messages Area */}
-        <div className="flex-1 flex">
-          {/* Chat Messages */}
-          <div className={cn(
-            "flex-1 overflow-y-auto px-6 py-8 transition-all duration-300",
-            showReasoningPanel && isStreaming ? "lg:pr-[420px]" : ""
-          )}>
-            <div className="max-w-3xl mx-auto space-y-6">
-              {localMessages.length === 0 ? (
-                <DomainStarterPanel onSelectPrompt={handleSendMessage} />
-              ) : (
-                localMessages.map(message => (
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-6">
+            {messages.length === 0 ? (
+              /* Empty State - Starter Questions */
+              <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                <div className="text-center mb-8">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mx-auto mb-4">
+                    <Brain className="h-8 w-8 text-white" />
+                  </div>
+                  <h1 className="text-2xl font-bold text-white mb-2">
+                    {currentSector === 'all' ? 'McLeuker AI' : sectorConfig.label}
+                  </h1>
+                  <p className="text-white/50 max-w-md">
+                    Ask me anything. I'll reason through your question step by step.
+                  </p>
+                </div>
+                
+                <div className="grid gap-3 w-full max-w-xl">
+                  {starterQuestions.map((question, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleSendMessage(question)}
+                      className="text-left p-4 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-white/[0.15] text-white/70 hover:text-white/90 transition-all"
+                    >
+                      {question}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Messages */
+              <div className="space-y-6">
+                {messages.map(message => (
                   <div key={message.id} className={cn(
                     "flex",
                     message.role === 'user' ? "justify-end" : "justify-start"
                   )}>
                     <div className={cn(
-                      "max-w-[85%] rounded-[20px] p-5",
+                      "max-w-[90%] rounded-2xl",
                       message.role === 'user'
-                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white"
-                        : "bg-gradient-to-b from-[#1A1A1A] to-[#141414] border border-white/[0.08]"
+                        ? "bg-gradient-to-r from-purple-600 to-purple-700 px-4 py-3"
+                        : "bg-[#111111] border border-white/[0.08] p-4"
                     )}>
-                      {message.isStreaming ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2">
-                            <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
-                            <span className="text-white/80 text-sm font-medium">AI is thinking...</span>
-                          </div>
-                          
-                          {/* Show current task step */}
-                          {message.reasoningEvents && message.reasoningEvents.length > 0 && (
-                            <div className="space-y-2">
-                              {message.reasoningEvents
-                                .filter(e => e.type === 'task_update' && e.data.status === 'in_progress')
-                                .slice(-1)
-                                .map((event, i) => (
-                                  <div key={i} className="flex items-center gap-2 text-sm text-white/60">
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                    <span>{event.data.title}</span>
-                                  </div>
-                                ))}
-                              
-                              {/* Show completed steps */}
-                              {message.reasoningEvents
-                                .filter(e => e.type === 'task_update' && e.data.status === 'completed')
-                                .map((event, i) => (
-                                  <div key={i} className="flex items-center gap-2 text-sm text-white/40">
-                                    <CheckCircle2 className="w-3 h-3 text-green-400" />
-                                    <span>{event.data.title}</span>
-                                  </div>
-                                ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : message.responseData ? (
-                        <StructuredOutput
-                          response={message.responseData}
-                          onFollowUp={handleFollowUpClick}
-                        />
+                      {message.role === 'user' ? (
+                        <p className="text-white">{message.content}</p>
                       ) : (
-                        <>
-                          <p className={cn(
-                            "leading-relaxed whitespace-pre-wrap",
-                            message.role === 'user' ? "text-white" : "text-white/[0.88]"
-                          )}>
-                            {message.content}
-                          </p>
-
-                          {/* Key Insights */}
-                          {message.keyInsights && message.keyInsights.length > 0 && (
-                            <div className="mt-5 pt-5 border-t border-white/[0.08]">
-                              <div className="flex items-center gap-2 mb-3">
-                                <Lightbulb className="w-4 h-4 text-amber-400" />
-                                <span className="text-sm font-medium text-white/70">Key Insights</span>
+                        <div className="space-y-4">
+                          {/* Reasoning Steps - Show AI thinking in real-time */}
+                          {message.reasoning.length > 0 && (
+                            <div className="space-y-1 pb-4 border-b border-white/[0.08]">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Brain className="h-4 w-4 text-purple-400" />
+                                <span className="text-sm font-medium text-white/70">
+                                  {message.isStreaming ? 'Reasoning...' : 'Reasoning'}
+                                </span>
                               </div>
-                              <ul className="space-y-3">
-                                {message.keyInsights.map((insight, i) => (
-                                  <li key={i} className={cn(
-                                    "flex items-start gap-3 text-sm p-3 rounded-lg",
-                                    insight.importance === 'high'
-                                      ? "bg-amber-500/10 border border-amber-500/20"
-                                      : "bg-white/[0.03]"
-                                  )}>
-                                    <span className="text-lg">{insight.icon || '💡'}</span>
-                                    <div>
-                                      {insight.title && (
-                                        <span className="font-medium text-white/80">{insight.title}: </span>
-                                      )}
-                                      <span className="text-white/60">
-                                        {insight.text || insight.description}
-                                      </span>
-                                    </div>
-                                  </li>
-                                ))}
-                              </ul>
+                              {message.reasoning.map((step, i) => (
+                                <ReasoningStepItem 
+                                  key={step.id} 
+                                  step={step} 
+                                  isLatest={i === message.reasoning.length - 1}
+                                />
+                              ))}
                             </div>
                           )}
-
-                          {/* Sources */}
-                          {message.sources && message.sources.length > 0 && (
-                            <div className="mt-5 pt-5 border-t border-white/[0.08]">
-                              <div className="flex items-center gap-2 mb-3">
-                                <ExternalLink className="w-4 h-4 text-blue-400" />
-                                <span className="text-sm font-medium text-white/70">Sources</span>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {message.sources.map((source, i) => (
-                                  <a
-                                    key={i}
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-colors"
-                                  >
-                                    {source.title}
-                                  </a>
-                                ))}
-                              </div>
+                          
+                          {/* Response Content */}
+                          {message.content ? (
+                            <MessageContent 
+                              content={message.content} 
+                              sources={message.sources} 
+                            />
+                          ) : message.isStreaming ? (
+                            <div className="flex items-center gap-2 text-white/50">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="text-sm">Generating response...</span>
                             </div>
-                          )}
-
-                          {/* Follow-up Questions */}
-                          {message.followUpQuestions && message.followUpQuestions.length > 0 && (
-                            <div className="mt-5 pt-5 border-t border-white/[0.08]">
-                              <p className="text-xs text-white/50 mb-3">Explore further:</p>
-                              <div className="flex flex-wrap gap-2">
-                                {message.followUpQuestions.map((question, i) => (
-                                  <button
-                                    key={i}
-                                    onClick={() => handleFollowUpClick(question)}
-                                    className="text-xs px-3 py-1.5 rounded-full border border-white/[0.12] text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors flex items-center gap-1"
-                                  >
-                                    {question}
-                                    <ArrowRight className="w-3 h-3" />
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
+                          ) : null}
+                        </div>
                       )}
                     </div>
                   </div>
-                ))
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
           </div>
-
-          {/* Reasoning Panel (Fixed Right) */}
-          {showReasoningPanel && isStreaming && (
-            <div className="hidden lg:block fixed right-6 top-[100px] bottom-[180px] w-[400px] z-20">
-              <ReasoningPanel
-                events={currentStreamEvents}
-                isStreaming={isStreaming}
-                onClose={() => setShowReasoningPanel(false)}
-                className="h-full"
-              />
-            </div>
-          )}
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-white/[0.08] p-4 bg-gradient-to-b from-[#0A0A0A] to-[#070707]">
+        <div className="border-t border-white/[0.08] p-4 bg-[#0A0A0A]">
           <div className="max-w-3xl mx-auto space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap w-full">
-              <ResearchModeToggle
-                mode={searchMode}
-                onModeChange={setSearchMode}
-                disabled={isStreaming}
-              />
+            {/* Mode Toggle & Credits */}
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Link
-                  href="/billing"
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-colors"
+                <button
+                  onClick={() => setSearchMode('quick')}
+                  disabled={isStreaming}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    searchMode === 'quick'
+                      ? "bg-white text-black"
+                      : "text-white/60 hover:text-white bg-white/5"
+                  )}
                 >
-                  <Coins className="h-3.5 w-3.5 text-white/50" />
-                  <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
-                </Link>
+                  <Zap className="h-3.5 w-3.5" />
+                  Quick
+                  <span className="text-white/40 ml-1">2</span>
+                </button>
+                <button
+                  onClick={() => setSearchMode('deep')}
+                  disabled={isStreaming}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
+                    searchMode === 'deep'
+                      ? "bg-white text-black"
+                      : "text-white/60 hover:text-white bg-white/5"
+                  )}
+                >
+                  <Brain className="h-3.5 w-3.5" />
+                  Deep
+                  <span className="text-white/40 ml-1">5</span>
+                </button>
+              </div>
+              
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5">
+                <Coins className="h-3.5 w-3.5 text-yellow-400" />
+                <span className="text-xs font-medium text-white/80">{creditBalance}</span>
               </div>
             </div>
 
+            {/* Input */}
             <div className="relative">
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={
-                  searchMode === 'deep'
-                    ? "Describe your research task in detail for comprehensive analysis..."
-                    : sectorConfig.placeholder || "Ask McLeuker AI about fashion intelligence..."
-                }
+                placeholder="Ask me anything..."
                 disabled={isStreaming}
                 className={cn(
-                  "w-full min-h-[60px] max-h-[200px] px-5 py-4 pr-14",
-                  "rounded-[20px]",
-                  "bg-gradient-to-b from-[#1B1B1B] to-[#111111]",
-                  "border border-white/[0.10]",
-                  "text-white/[0.88]",
-                  "placeholder:text-white/40",
-                  "shadow-[0_4px_16px_rgba(0,0,0,0.3)]",
-                  "focus:border-white/[0.18]",
-                  "focus:outline-none focus:ring-[3px] focus:ring-white/[0.06]",
+                  "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
+                  "rounded-xl bg-[#111111] border border-white/[0.10]",
+                  "text-white placeholder:text-white/40",
+                  "focus:border-white/[0.18] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
                   "resize-none transition-all",
                   isStreaming && "opacity-50 cursor-not-allowed"
                 )}
-                rows={2}
+                rows={1}
               />
               <button
                 onClick={() => handleSendMessage()}
                 disabled={!input.trim() || isStreaming}
                 className={cn(
-                  "absolute right-3 bottom-3 h-9 w-9 rounded-full flex items-center justify-center",
-                  "transition-all",
+                  "absolute right-2 bottom-2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
                   input.trim() && !isStreaming
                     ? "bg-white text-black hover:bg-white/90"
                     : "bg-white/[0.08] text-white/40"
@@ -948,13 +818,10 @@ function DashboardContent() {
                 )}
               </button>
             </div>
-
-            <div className="flex items-center justify-between text-[11px] text-white/50 px-1">
-              <span>
-                {searchMode === 'deep' ? '5 credits' : '2 credits'} • Press Enter to send
-              </span>
-              <span className="hidden sm:inline">Shift + Enter for new line</span>
-            </div>
+            
+            <p className="text-xs text-white/30 text-center">
+              Press Enter to send • Shift + Enter for new line
+            </p>
           </div>
         </div>
       </main>
@@ -963,7 +830,7 @@ function DashboardContent() {
 }
 
 // =============================================================================
-// Dashboard Page with Protected Route
+// Export
 // =============================================================================
 
 export default function DashboardPage() {
