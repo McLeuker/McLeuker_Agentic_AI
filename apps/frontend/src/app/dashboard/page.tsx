@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -8,43 +8,30 @@ import {
   Send, 
   Plus, 
   MessageSquare, 
-  ChevronLeft,
-  ChevronRight,
   Sparkles,
   ExternalLink,
   Lightbulb,
   ArrowRight,
-  Brain,
-  Search,
   Zap,
-  Microscope,
-  FileText,
-  CheckCircle,
-  AlertCircle,
+  Brain,
   Loader2,
-  LogOut,
-  User,
   Trash2,
   Coins,
-  RefreshCw
+  Search,
+  X,
+  PanelLeftClose,
+  PanelLeft,
+  MoreHorizontal
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSector, SECTORS, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
-import { useConversations, ChatMessage, Conversation } from "@/hooks/useConversations";
+import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
+import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { UserMenu } from "@/components/dashboard/UserMenu";
 
 // =============================================================================
-// Types for Streaming Events (matches backend)
+// Types
 // =============================================================================
-
-interface StreamEvent {
-  type: 'thinking' | 'planning' | 'searching' | 'analyzing' | 'generating' | 'source' | 'insight' | 'progress' | 'content' | 'complete' | 'error';
-  data: any;
-  step: number;
-  total_steps: number;
-  timestamp: string;
-}
 
 interface KeyInsight {
   id?: string;
@@ -64,216 +51,9 @@ interface LocalMessage {
   keyInsights?: KeyInsight[];
   followUpQuestions?: string[];
   isStreaming?: boolean;
-  reasoning?: StreamEvent[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
-
-// =============================================================================
-// Reasoning Panel Component (Manus AI-style)
-// =============================================================================
-
-function ReasoningPanel({ 
-  events, 
-  isActive, 
-  onClose 
-}: { 
-  events: StreamEvent[]; 
-  isActive: boolean;
-  onClose: () => void;
-}) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (panelRef.current) {
-      panelRef.current.scrollTop = panelRef.current.scrollHeight;
-    }
-  }, [events]);
-
-  const getEventIcon = (type: string) => {
-    switch (type) {
-      case 'thinking': return <Brain className="w-4 h-4" />;
-      case 'planning': return <FileText className="w-4 h-4" />;
-      case 'searching': return <Search className="w-4 h-4" />;
-      case 'analyzing': return <Microscope className="w-4 h-4" />;
-      case 'generating': return <Sparkles className="w-4 h-4" />;
-      case 'source': return <ExternalLink className="w-4 h-4" />;
-      case 'insight': return <Lightbulb className="w-4 h-4" />;
-      case 'progress': return <Loader2 className="w-4 h-4 animate-spin" />;
-      case 'complete': return <CheckCircle className="w-4 h-4" />;
-      case 'error': return <AlertCircle className="w-4 h-4" />;
-      default: return <Sparkles className="w-4 h-4" />;
-    }
-  };
-
-  const getEventColor = (type: string) => {
-    switch (type) {
-      case 'thinking': return 'text-purple-400 bg-purple-500/10';
-      case 'planning': return 'text-blue-400 bg-blue-500/10';
-      case 'searching': return 'text-yellow-400 bg-yellow-500/10';
-      case 'analyzing': return 'text-cyan-400 bg-cyan-500/10';
-      case 'generating': return 'text-green-400 bg-green-500/10';
-      case 'source': return 'text-gray-400 bg-gray-500/10';
-      case 'insight': return 'text-amber-400 bg-amber-500/10';
-      case 'complete': return 'text-emerald-400 bg-emerald-500/10';
-      case 'error': return 'text-red-400 bg-red-500/10';
-      default: return 'text-gray-400 bg-gray-500/10';
-    }
-  };
-
-  return (
-    <div className="h-full flex flex-col bg-gradient-to-b from-[#0D0D0D] to-[#080808] border-l border-white/[0.08]">
-      <div className="h-14 flex items-center justify-between px-4 border-b border-white/[0.08]">
-        <div className="flex items-center gap-2">
-          <div className={cn(
-            "w-2 h-2 rounded-full",
-            isActive ? "bg-green-500 animate-pulse" : "bg-gray-500"
-          )} />
-          <Brain className="w-4 h-4 text-purple-400" />
-          <span className="text-sm font-medium text-white/80">Reasoning</span>
-        </div>
-        <button 
-          onClick={onClose}
-          className="p-1.5 rounded-md hover:bg-white/[0.08] text-white/40 hover:text-white transition-colors"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div ref={panelRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {events.length === 0 ? (
-          <div className="text-center text-white/40 text-sm py-12">
-            <Brain className="w-10 h-10 mx-auto mb-3 text-white/20" />
-            <p className="font-medium">Reasoning Process</p>
-            <p className="text-xs mt-2 text-white/30">
-              AI thinking steps will appear here
-            </p>
-          </div>
-        ) : (
-          events.map((event, index) => (
-            <div 
-              key={index} 
-              className={cn(
-                "flex gap-3 p-3 rounded-lg animate-fadeIn",
-                getEventColor(event.type).split(' ')[1]
-              )}
-            >
-              <div className={cn(
-                "flex-shrink-0 mt-0.5",
-                getEventColor(event.type).split(' ')[0]
-              )}>
-                {getEventIcon(event.type)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    "text-sm font-medium capitalize",
-                    getEventColor(event.type).split(' ')[0]
-                  )}>
-                    {event.type}
-                  </span>
-                  {event.total_steps > 0 && (
-                    <span className="text-xs text-white/30">
-                      {event.step}/{event.total_steps}
-                    </span>
-                  )}
-                </div>
-                <div className="text-sm text-white/60 mt-1">
-                  {event.type === 'thinking' && event.data?.thought}
-                  {event.type === 'planning' && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-xs font-medium",
-                          event.data?.mode === 'deep' 
-                            ? "bg-purple-500/20 text-purple-300" 
-                            : "bg-blue-500/20 text-blue-300"
-                        )}>
-                          {event.data?.mode === 'deep' ? '🔬 Deep' : '⚡ Quick'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {event.type === 'searching' && event.data?.message}
-                  {event.type === 'source' && (
-                    <a 
-                      href={event.data?.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-blue-400 hover:underline truncate block text-xs"
-                    >
-                      📄 {event.data?.title}
-                    </a>
-                  )}
-                  {event.type === 'analyzing' && event.data?.message}
-                  {event.type === 'generating' && event.data?.message}
-                  {event.type === 'complete' && (
-                    <div className="text-emerald-400 text-xs">
-                      ✓ Generated with {event.data?.sources_used || 0} sources
-                    </div>
-                  )}
-                  {event.type === 'error' && (
-                    <div className="text-red-400 text-xs">{event.data?.message}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {isActive && events.length > 0 && (
-        <div className="p-3 border-t border-white/[0.08] bg-white/[0.02]">
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-            <span className="text-xs text-white/60">Processing...</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// =============================================================================
-// Search Mode Selector Component
-// =============================================================================
-
-function SearchModeSelector({ 
-  mode, 
-  onModeChange 
-}: { 
-  mode: 'quick' | 'deep'; 
-  onModeChange: (mode: 'quick' | 'deep') => void;
-}) {
-  return (
-    <div className="flex items-center gap-1 bg-white/[0.05] rounded-lg p-1">
-      <button
-        onClick={() => onModeChange('quick')}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
-          mode === 'quick' 
-            ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" 
-            : "text-white/60 hover:text-white hover:bg-white/[0.08]"
-        )}
-      >
-        <Zap className="w-3.5 h-3.5" />
-        Quick
-      </button>
-      <button
-        onClick={() => onModeChange('deep')}
-        className={cn(
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
-          mode === 'deep' 
-            ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20" 
-            : "text-white/60 hover:text-white hover:bg-white/[0.08]"
-        )}
-      >
-        <Microscope className="w-3.5 h-3.5" />
-        Deep
-      </button>
-    </div>
-  );
-}
 
 // =============================================================================
 // Domain Tabs Component
@@ -330,6 +110,242 @@ function MobileDomainSelector() {
         ))}
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// Research Mode Toggle Component (Lovable Style)
+// =============================================================================
+
+function ResearchModeToggle({ 
+  mode, 
+  onModeChange,
+  disabled = false
+}: { 
+  mode: 'quick' | 'deep'; 
+  onModeChange: (mode: 'quick' | 'deep') => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="inline-flex items-center rounded-full bg-white/10 p-1">
+      <button
+        type="button"
+        onClick={() => onModeChange('quick')}
+        disabled={disabled}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors",
+          mode === 'quick'
+            ? "bg-white text-black shadow-sm"
+            : "text-white/60 hover:text-white",
+          disabled && "opacity-50 cursor-not-allowed"
+        )}
+      >
+        <Zap className="h-3.5 w-3.5" />
+        Quick
+        <span className={cn(
+          "flex items-center gap-0.5",
+          mode === 'quick' ? "text-black/50" : "text-white/40"
+        )}>
+          <Coins className="h-3 w-3" />5
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onModeChange('deep')}
+        disabled={disabled}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-colors",
+          mode === 'deep'
+            ? "bg-white text-black shadow-sm"
+            : "text-white/60 hover:text-white",
+          disabled && "opacity-50 cursor-not-allowed"
+        )}
+      >
+        <Brain className="h-3.5 w-3.5" />
+        Deep
+        <span className={cn(
+          "flex items-center gap-0.5",
+          mode === 'deep' ? "text-black/50" : "text-white/40"
+        )}>
+          <Coins className="h-3 w-3" />50
+        </span>
+      </button>
+    </div>
+  );
+}
+
+// =============================================================================
+// Chat Sidebar Component (Lovable Style)
+// =============================================================================
+
+function ChatSidebar({
+  conversations,
+  currentConversation,
+  isOpen,
+  onToggle,
+  onSelectConversation,
+  onDeleteConversation,
+  onNewConversation,
+}: {
+  conversations: Conversation[];
+  currentConversation: Conversation | null;
+  isOpen: boolean;
+  onToggle: () => void;
+  onSelectConversation: (conversation: Conversation) => void;
+  onDeleteConversation: (conversationId: string) => void;
+  onNewConversation?: () => void;
+}) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredConversations = conversations.filter((conv) =>
+    conv.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Collapsed state
+  if (!isOpen) {
+    return (
+      <aside className={cn(
+        "hidden lg:flex w-14 flex-col fixed left-0 top-[72px] bottom-0 z-40",
+        "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
+        "border-r border-white/[0.08]"
+      )}>
+        <div className="p-2 pt-4">
+          <button
+            onClick={onToggle}
+            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className={cn(
+      "hidden lg:flex w-72 flex-col fixed left-0 top-[72px] bottom-0 z-40",
+      "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
+      "border-r border-white/[0.08]"
+    )}>
+      {/* Header with collapse toggle */}
+      <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0">
+        <span className="font-medium text-[13px] text-white/80">Chat History</span>
+        <button
+          onClick={onToggle}
+          className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* New Chat Button */}
+      {onNewConversation && (
+        <div className="px-4 pb-3 shrink-0">
+          <button
+            onClick={onNewConversation}
+            className={cn(
+              "w-full justify-center gap-2 flex items-center",
+              "bg-white text-black hover:bg-white/90",
+              "h-10 rounded-full text-[13px] font-medium",
+              "transition-colors"
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            New Chat
+          </button>
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="px-4 pb-3 shrink-0">
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
+          <input
+            placeholder="Search chats..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={cn(
+              "w-full pl-10 pr-10 h-10 text-[13px]",
+              "bg-white/[0.05] border border-white/[0.08] rounded-full",
+              "text-white placeholder:text-white/35",
+              "focus:border-white/[0.15] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
+              "transition-all"
+            )}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Chat count */}
+      <div className="px-4 pb-2 shrink-0">
+        <p className="text-[10px] font-medium text-white/40 uppercase tracking-wider">
+          {filteredConversations.length} {filteredConversations.length === 1 ? 'chat' : 'chats'}
+        </p>
+      </div>
+
+      {/* Conversation List */}
+      <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+        {filteredConversations.length === 0 ? (
+          <div className="px-2 py-8 text-center">
+            <MessageSquare className="h-8 w-8 text-white/25 mx-auto mb-3" />
+            <p className="text-[13px] text-white/50">
+              {searchQuery ? "No matching chats" : "No chats yet"}
+            </p>
+            <p className="text-[11px] text-white/35 mt-1">
+              {searchQuery ? "Try a different search" : "Start a new chat to begin"}
+            </p>
+          </div>
+        ) : (
+          filteredConversations.map((conv) => (
+            <div
+              key={conv.id}
+              className={cn(
+                "group relative w-full text-left px-4 py-3 rounded-xl min-h-fit",
+                "hover:bg-white/[0.06] transition-colors cursor-pointer",
+                currentConversation?.id === conv.id && "bg-white/[0.08]"
+              )}
+            >
+              <button
+                onClick={() => onSelectConversation(conv)}
+                className="w-full text-left"
+              >
+                <div className="flex items-center gap-2.5">
+                  <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 pr-6">
+                    <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
+                      {conv.title}
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* Delete button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteConversation(conv.id);
+                }}
+                className={cn(
+                  "absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center",
+                  "opacity-0 group-hover:opacity-100 transition-opacity",
+                  "text-white/50 hover:text-red-400 hover:bg-white/[0.1] rounded-lg"
+                )}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -423,12 +439,10 @@ function DashboardContent() {
   } = useConversations();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [reasoningOpen, setReasoningOpen] = useState(true);
   const [input, setInput] = useState('');
   const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [reasoningEvents, setReasoningEvents] = useState<StreamEvent[]>([]);
   const [creditBalance, setCreditBalance] = useState(50);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -446,13 +460,6 @@ function DashboardContent() {
     }
   }, [input]);
 
-  // Clear messages when switching domains (optional - you may want to keep them)
-  useEffect(() => {
-    // Optionally clear messages when switching domains
-    // setLocalMessages([]);
-    // setReasoningEvents([]);
-  }, [currentSector]);
-
   const handleSendMessage = async (messageText?: string) => {
     const text = messageText || input.trim();
     if (!text || isStreaming) return;
@@ -467,7 +474,6 @@ function DashboardContent() {
     setLocalMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsStreaming(true);
-    setReasoningEvents([]);
 
     // Create assistant placeholder
     const assistantId = `assistant-${Date.now()}`;
@@ -477,7 +483,6 @@ function DashboardContent() {
       content: '',
       timestamp: new Date(),
       isStreaming: true,
-      reasoning: [],
     };
     setLocalMessages(prev => [...prev, assistantMessage]);
 
@@ -523,11 +528,6 @@ function DashboardContent() {
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6));
-                
-                // Add to reasoning events
-                if (data.type !== 'content') {
-                  setReasoningEvents(prev => [...prev, data]);
-                }
 
                 // Handle different event types
                 switch (data.type) {
@@ -576,7 +576,6 @@ function DashboardContent() {
               sources,
               keyInsights,
               followUpQuestions,
-              reasoning: reasoningEvents,
             }
           : msg
       ));
@@ -603,16 +602,12 @@ function DashboardContent() {
 
   const handleNewChat = () => {
     setLocalMessages([]);
-    setReasoningEvents([]);
     startNewChat();
   };
 
   const handleSelectConversation = (conv: Conversation) => {
     selectConversation(conv);
-    // Load messages for this conversation
-    // For now, just clear local messages
     setLocalMessages([]);
-    setReasoningEvents([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -622,104 +617,37 @@ function DashboardContent() {
     }
   };
 
+  // Get credit hint based on mode
+  const getCreditHint = () => {
+    if (searchMode === 'deep') {
+      return "50 credits";
+    }
+    return "4-12 credits";
+  };
+
   return (
     <div className="min-h-screen bg-[#070707] flex w-full overflow-x-hidden">
-      {/* Sidebar */}
-      <aside className={cn(
-        "fixed left-0 top-0 h-screen z-40",
-        "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
-        "border-r border-white/[0.08]",
-        "transition-all duration-200 flex flex-col",
-        sidebarOpen ? "w-64" : "w-14"
-      )}>
-        {/* Logo */}
-        <div className="h-14 flex items-center justify-between px-4 border-b border-white/[0.08]">
-          {sidebarOpen && (
-            <Link href="/" className="font-luxury text-lg text-white tracking-wide">
-              McLeuker
-            </Link>
-          )}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-md hover:bg-white/[0.08] text-white/60 hover:text-white transition-colors"
-          >
-            {sidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
-        </div>
-
-        {/* New Chat Button */}
-        <div className="p-3">
-          <button
-            onClick={handleNewChat}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg",
-              "bg-gradient-to-r from-blue-600/20 to-purple-600/20",
-              "border border-white/[0.08]",
-              "text-white/80 hover:text-white",
-              "hover:from-blue-600/30 hover:to-purple-600/30",
-              "transition-all",
-              !sidebarOpen && "justify-center"
-            )}
-          >
-            <Plus className="w-4 h-4" />
-            {sidebarOpen && <span className="text-sm">New Chat</span>}
-          </button>
-        </div>
-
-        {/* Conversations List */}
-        {sidebarOpen && (
-          <div className="px-3 py-2 overflow-y-auto flex-1">
-            <p className="text-xs text-white/40 uppercase tracking-wider mb-2 px-2">Recent</p>
-            <div className="space-y-1">
-              {conversations.map(conv => (
-                <div key={conv.id} className="group relative">
-                  <button
-                    onClick={() => handleSelectConversation(conv)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left",
-                      "hover:bg-white/[0.08] transition-colors",
-                      currentConversation?.id === conv.id 
-                        ? "bg-white/[0.10] text-white" 
-                        : "text-white/60"
-                    )}
-                  >
-                    <MessageSquare className="w-4 h-4 flex-shrink-0" />
-                    <span className="text-sm truncate flex-1">{conv.title}</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteConversation(conv.id);
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-all"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* User Section */}
-        {user && (
-          <div className="p-3 border-t border-white/[0.08]">
-            <UserMenu collapsed={!sidebarOpen} />
-          </div>
-        )}
-      </aside>
+      {/* Chat Sidebar (Lovable Style) */}
+      <ChatSidebar
+        conversations={conversations}
+        currentConversation={currentConversation}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onSelectConversation={handleSelectConversation}
+        onDeleteConversation={deleteConversation}
+        onNewConversation={handleNewChat}
+      />
 
       {/* Main Content */}
       <main className={cn(
         "flex-1 flex flex-col min-h-screen transition-all duration-200",
-        sidebarOpen ? "ml-64" : "ml-14",
-        reasoningOpen ? "mr-80" : "mr-0"
+        sidebarOpen ? "lg:ml-72" : "lg:ml-14"
       )}>
         {/* Top Navigation with Domain Tabs */}
         <header className="h-[72px] border-b border-white/[0.08] flex items-center justify-between px-6 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] sticky top-0 z-30">
-          {/* Left: Logo (hidden on desktop since sidebar has it) */}
-          <div className="lg:hidden">
-            <Link href="/" className="font-luxury text-lg text-white tracking-wide">
+          {/* Left: Logo */}
+          <div className="flex items-center gap-4 shrink-0">
+            <Link href="/" className="font-luxury text-xl lg:text-2xl text-white tracking-[0.02em]">
               McLeuker
             </Link>
           </div>
@@ -729,31 +657,9 @@ function DashboardContent() {
             <DomainTabs />
           </div>
           
-          {/* Right: Credits & Mode */}
-          <div className="flex items-center gap-4 ml-auto">
-            {/* Credits Display */}
-            <Link
-              href="/billing"
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-colors"
-            >
-              <Coins className="h-3.5 w-3.5 text-white/50" />
-              <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
-            </Link>
-            
-            <SearchModeSelector mode={searchMode} onModeChange={setSearchMode} />
-            
-            <button
-              onClick={() => setReasoningOpen(!reasoningOpen)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all",
-                reasoningOpen 
-                  ? "bg-purple-600/20 text-purple-400 border border-purple-500/30" 
-                  : "bg-white/[0.05] text-white/60 hover:bg-white/[0.08] hover:text-white"
-              )}
-            >
-              <Brain className="w-4 h-4" />
-              <span className="text-sm hidden sm:inline">Reasoning</span>
-            </button>
+          {/* Right: User Menu */}
+          <div className="flex items-center gap-3">
+            <UserMenu collapsed={false} />
           </div>
         </header>
 
@@ -871,68 +777,84 @@ function DashboardContent() {
           </div>
         </div>
 
-        {/* Input Area */}
+        {/* Input Area with Mode Toggle and Credits (Lovable Style) */}
         <div className="border-t border-white/[0.08] p-4 bg-gradient-to-b from-[#0A0A0A] to-[#070707]">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-3xl mx-auto space-y-3">
+            {/* Research Mode Toggle */}
+            <div className="flex items-center justify-between gap-2 flex-wrap w-full">
+              <ResearchModeToggle
+                mode={searchMode}
+                onModeChange={setSearchMode}
+                disabled={isStreaming}
+              />
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/billing"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-colors"
+                >
+                  <Coins className="h-3.5 w-3.5 text-white/50" />
+                  <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Input Area */}
             <div className="relative">
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={sectorConfig.placeholder || `Ask McLeuker AI (${searchMode} mode)...`}
+                placeholder={
+                  searchMode === 'deep'
+                    ? "Describe your research task in detail for comprehensive web search and analysis..."
+                    : sectorConfig.placeholder || "Ask McLeuker AI about fashion sourcing, trends, or market intelligence..."
+                }
                 disabled={isStreaming}
                 className={cn(
-                  "w-full min-h-[56px] max-h-[200px] px-5 py-4 pr-14",
-                  "bg-white/[0.05] border border-white/[0.12] rounded-2xl",
-                  "text-white placeholder:text-white/40",
-                  "focus:outline-none focus:border-white/[0.25] focus:bg-white/[0.08]",
+                  "w-full min-h-[60px] max-h-[200px] px-5 py-4 pr-14",
+                  "rounded-[20px]",
+                  "bg-gradient-to-b from-[#1B1B1B] to-[#111111]",
+                  "border border-white/[0.10]",
+                  "text-white/[0.88]",
+                  "placeholder:text-white/40",
+                  "shadow-[0_4px_16px_rgba(0,0,0,0.3)]",
+                  "focus:border-white/[0.18]",
+                  "focus:outline-none focus:ring-[3px] focus:ring-white/[0.06]",
                   "resize-none transition-all",
                   isStreaming && "opacity-50 cursor-not-allowed"
                 )}
-                rows={1}
+                rows={2}
               />
               <button
                 onClick={() => handleSendMessage()}
                 disabled={!input.trim() || isStreaming}
                 className={cn(
-                  "absolute right-3 bottom-3 p-2.5 rounded-xl",
-                  "bg-gradient-to-r from-blue-600 to-purple-600",
-                  "text-white",
-                  "hover:from-blue-500 hover:to-purple-500",
-                  "disabled:opacity-50 disabled:cursor-not-allowed",
-                  "transition-all"
+                  "absolute right-3 bottom-3 h-9 w-9 rounded-full flex items-center justify-center",
+                  "transition-all",
+                  input.trim() && !isStreaming
+                    ? "bg-white text-black hover:bg-white/90"
+                    : "bg-white/[0.08] text-white/40"
                 )}
               >
                 {isStreaming ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <Send className="w-5 h-5" />
+                  <Send className="w-4 h-4" />
                 )}
               </button>
             </div>
-            <div className="flex items-center justify-between mt-2 px-2">
-              <p className="text-xs text-white/40">
-                {searchMode === 'quick' ? '4-12' : '50'} credits • Press Enter to send
-              </p>
-              <p className="text-xs text-white/40">
-                Shift + Enter for new line
-              </p>
+
+            {/* Credit hint */}
+            <div className="flex items-center justify-between text-[11px] text-white/50 px-1">
+              <span>
+                {getCreditHint()} • Press Enter to send
+              </span>
+              <span className="hidden sm:inline">Shift + Enter for new line</span>
             </div>
           </div>
         </div>
       </main>
-
-      {/* Reasoning Panel */}
-      {reasoningOpen && (
-        <aside className="fixed right-0 top-0 h-screen w-80 z-40">
-          <ReasoningPanel 
-            events={reasoningEvents} 
-            isActive={isStreaming} 
-            onClose={() => setReasoningOpen(false)}
-          />
-        </aside>
-      )}
     </div>
   );
 }
