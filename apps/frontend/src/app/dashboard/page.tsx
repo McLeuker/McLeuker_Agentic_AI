@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -21,13 +21,17 @@ import {
   X,
   PanelLeftClose,
   PanelLeft,
-  MoreHorizontal
+  MoreHorizontal,
+  CheckCircle2,
+  Circle
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
+import { useSector, SECTORS, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { UserMenu } from "@/components/dashboard/UserMenu";
+import { ReasoningPanel, StreamEvent } from "@/components/reasoning/ReasoningPanel";
+import { StructuredOutput, ResponseData } from "@/components/reasoning/StructuredOutput";
 
 // =============================================================================
 // Types
@@ -51,6 +55,8 @@ interface LocalMessage {
   keyInsights?: KeyInsight[];
   followUpQuestions?: string[];
   isStreaming?: boolean;
+  responseData?: ResponseData;
+  reasoningEvents?: StreamEvent[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -114,7 +120,7 @@ function MobileDomainSelector() {
 }
 
 // =============================================================================
-// Research Mode Toggle Component (Lovable Style)
+// Research Mode Toggle Component
 // =============================================================================
 
 function ResearchModeToggle({ 
@@ -146,7 +152,7 @@ function ResearchModeToggle({
           "flex items-center gap-0.5",
           mode === 'quick' ? "text-black/50" : "text-white/40"
         )}>
-          <Coins className="h-3 w-3" />5
+          <Coins className="h-3 w-3" />2
         </span>
       </button>
 
@@ -168,7 +174,7 @@ function ResearchModeToggle({
           "flex items-center gap-0.5",
           mode === 'deep' ? "text-black/50" : "text-white/40"
         )}>
-          <Coins className="h-3 w-3" />50
+          <Coins className="h-3 w-3" />5
         </span>
       </button>
     </div>
@@ -176,7 +182,7 @@ function ResearchModeToggle({
 }
 
 // =============================================================================
-// Chat Sidebar Component (Lovable Style)
+// Chat Sidebar Component
 // =============================================================================
 
 function ChatSidebar({
@@ -202,7 +208,6 @@ function ChatSidebar({
     conv.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Collapsed state
   if (!isOpen) {
     return (
       <aside className={cn(
@@ -228,7 +233,6 @@ function ChatSidebar({
       "bg-gradient-to-b from-[#0D0D0D] to-[#080808]",
       "border-r border-white/[0.08]"
     )}>
-      {/* Header with collapse toggle */}
       <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0">
         <span className="font-medium text-[13px] text-white/80">Chat History</span>
         <button
@@ -239,7 +243,6 @@ function ChatSidebar({
         </button>
       </div>
 
-      {/* New Chat Button */}
       {onNewConversation && (
         <div className="px-4 pb-3 shrink-0">
           <button
@@ -257,7 +260,6 @@ function ChatSidebar({
         </div>
       )}
 
-      {/* Search */}
       <div className="px-4 pb-3 shrink-0">
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
@@ -284,14 +286,12 @@ function ChatSidebar({
         </div>
       </div>
 
-      {/* Chat count */}
       <div className="px-4 pb-2 shrink-0">
         <p className="text-[10px] font-medium text-white/40 uppercase tracking-wider">
           {filteredConversations.length} {filteredConversations.length === 1 ? 'chat' : 'chats'}
         </p>
       </div>
 
-      {/* Conversation List */}
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
         {filteredConversations.length === 0 ? (
           <div className="px-2 py-8 text-center">
@@ -309,35 +309,30 @@ function ChatSidebar({
               key={conv.id}
               className={cn(
                 "group relative w-full text-left px-4 py-3 rounded-xl min-h-fit",
-                "hover:bg-white/[0.06] transition-colors cursor-pointer",
-                currentConversation?.id === conv.id && "bg-white/[0.08]"
+                "transition-all cursor-pointer",
+                currentConversation?.id === conv.id
+                  ? "bg-white/[0.08] border border-white/[0.12]"
+                  : "hover:bg-white/[0.04] border border-transparent"
               )}
+              onClick={() => onSelectConversation(conv)}
             >
-              <button
-                onClick={() => onSelectConversation(conv)}
-                className="w-full text-left"
-              >
-                <div className="flex items-center gap-2.5">
-                  <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
-                  <div className="flex-1 min-w-0 pr-6">
-                    <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
-                      {conv.title}
-                    </p>
-                  </div>
+              <div className="flex items-start gap-3">
+                <MessageSquare className="h-4 w-4 text-white/40 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-white/80 truncate">
+                    {conv.title}
+                  </p>
+                  <p className="text-[11px] text-white/40 mt-0.5">
+                    {new Date(conv.updatedAt).toLocaleDateString()}
+                  </p>
                 </div>
-              </button>
-
-              {/* Delete button */}
+              </div>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeleteConversation(conv.id);
                 }}
-                className={cn(
-                  "absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center",
-                  "opacity-0 group-hover:opacity-100 transition-opacity",
-                  "text-white/50 hover:text-red-400 hover:bg-white/[0.1] rounded-lg"
-                )}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-white/30 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -350,104 +345,82 @@ function ChatSidebar({
 }
 
 // =============================================================================
-// Domain Starter Panel - Empty State
+// Domain Starter Panel
 // =============================================================================
 
-function DomainStarterPanel({ 
-  onSelectPrompt 
-}: { 
-  onSelectPrompt: (prompt: string) => void;
-}) {
-  const { currentSector, getSectorConfig, getStarters } = useSector();
-  const config = getSectorConfig();
-  const starters = getStarters();
+function DomainStarterPanel({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
+  const { currentSector, getStarters } = useSector();
+  const sectorConfig = SECTORS.find(s => s.id === currentSector) || SECTORS[0];
+  
+  const starterPrompts = getStarters();
 
   return (
-    <div className="text-center py-12 px-6 animate-fade-in">
-      <div className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-white/[0.08] flex items-center justify-center mx-auto mb-6">
-        <Sparkles className="w-10 h-10 text-purple-400" />
+    <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-white mb-3">
+          {currentSector === 'all' ? 'McLeuker AI' : sectorConfig.label}
+        </h1>
+        <p className="text-white/50 max-w-md">
+          {sectorConfig.tagline || 'Your AI-powered fashion intelligence platform'}
+        </p>
       </div>
       
-      <h1 className="text-3xl md:text-4xl font-serif text-white mb-3">
-        {config.label}
-      </h1>
-      <p className="text-white/60 text-sm max-w-lg mx-auto mb-8">
-        {config.tagline}
-      </p>
-
-      {/* Starter Questions */}
-      <div className="max-w-xl mx-auto">
-        <p className="text-xs text-white/40 uppercase tracking-wider mb-4">
-          Explore {config.label}
-        </p>
-        <div className="grid gap-2">
-          {starters.map((question, index) => (
-            <button
-              key={index}
-              onClick={() => onSelectPrompt(question)}
-              className={cn(
-                "group flex items-center justify-between gap-4 p-4 rounded-lg",
-                "bg-white/[0.03] border border-white/[0.08]",
-                "hover:border-white/[0.15] hover:bg-white/[0.06]",
-                "transition-all duration-200",
-                "text-left"
-              )}
-            >
-              <span className="text-[15px] text-white/90">
-                {question}
-              </span>
-              <ArrowRight className={cn(
-                "h-4 w-4 text-white/40 shrink-0",
-                "group-hover:text-white group-hover:translate-x-0.5",
-                "transition-all duration-200"
-              )} />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Minimal branding */}
-      <div className="mt-8 pt-6 border-t border-white/[0.08] max-w-xl mx-auto">
-        <p className="text-xs text-white/40 text-center">
-          Powered by McLeuker AI • {config.label} Intelligence Mode
-        </p>
+      <div className="grid gap-3 w-full max-w-2xl">
+        {starterPrompts.map((prompt, index) => (
+          <button
+            key={index}
+            onClick={() => onSelectPrompt(prompt)}
+            className={cn(
+              "text-left p-4 rounded-xl",
+              "bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-white/[0.15]",
+              "text-white/70 hover:text-white/90",
+              "transition-all duration-200 group"
+            )}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm">{prompt}</span>
+              <ArrowRight className="h-4 w-4 text-white/30 group-hover:text-white/60 group-hover:translate-x-1 transition-all" />
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
 // =============================================================================
-// Dashboard Content Component
+// Main Dashboard Content
 // =============================================================================
 
 function DashboardContent() {
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { currentSector, getSectorConfig, getDomainSystemPrompt } = useSector();
-  const sectorConfig = getSectorConfig();
+  const { currentSector } = useSector();
+  const sectorConfig = SECTORS.find(s => s.id === currentSector) || SECTORS[0];
+  
   const {
     conversations,
     currentConversation,
-    messages,
     loading: conversationsLoading,
-    createConversation,
-    saveMessage,
-    updateConversationTitle,
-    deleteConversation,
     selectConversation,
     startNewChat,
+    deleteConversation,
   } = useConversations();
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // State
   const [input, setInput] = useState('');
-  const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creditBalance, setCreditBalance] = useState(50);
+  const [showReasoningPanel, setShowReasoningPanel] = useState(false);
+  const [currentStreamEvents, setCurrentStreamEvents] = useState<StreamEvent[]>([]);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Scroll to bottom when messages change
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [localMessages]);
@@ -460,140 +433,134 @@ function DashboardContent() {
     }
   }, [input]);
 
-  const handleSendMessage = async (messageText?: string) => {
-    const text = messageText || input.trim();
-    if (!text || isStreaming) return;
+  // ==========================================================================
+  // Send Message with SSE Streaming (Manus AI Style)
+  // ==========================================================================
+  
+  const handleSendMessage = async (overrideQuery?: string) => {
+    const fullQuery = overrideQuery || input.trim();
+    if (!fullQuery || isStreaming) return;
 
-    const userMessage: LocalMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: text,
-      timestamp: new Date(),
-    };
-
-    setLocalMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsStreaming(true);
+    setShowReasoningPanel(true);
+    setCurrentStreamEvents([]);
 
-    // Create assistant placeholder
-    const assistantId = `assistant-${Date.now()}`;
+    // Add user message
+    const userMessageId = Date.now().toString();
+    const userMessage: LocalMessage = {
+      id: userMessageId,
+      role: 'user',
+      content: fullQuery,
+      timestamp: new Date(),
+    };
+    setLocalMessages(prev => [...prev, userMessage]);
+
+    // Add assistant message placeholder
+    const assistantId = (Date.now() + 1).toString();
     const assistantMessage: LocalMessage = {
       id: assistantId,
       role: 'assistant',
       content: '',
       timestamp: new Date(),
       isStreaming: true,
+      reasoningEvents: [],
     };
     setLocalMessages(prev => [...prev, assistantMessage]);
 
     try {
-      // Get domain context
-      const domainPrompt = getDomainSystemPrompt();
-      const fullQuery = domainPrompt ? `${text}${domainPrompt}` : text;
-
-      // Use the correct /api/chat endpoint (non-streaming)
-      const response = await fetch(`${API_URL}/api/chat`, {
+      // Use SSE streaming endpoint
+      const response = await fetch(`${API_URL}/api/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           message: fullQuery,
-          mode: searchMode === 'deep' ? 'deep' : 'auto',
+          mode: searchMode,
           domain_filter: currentSector !== 'all' ? currentSector : null,
           session_id: user?.id || null,
         }),
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', errorText);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      
-      // Extract response data from the API response
-      let mainContent = '';
-      let sources: Array<{ title: string; url: string }> = [];
-      let keyInsights: KeyInsight[] = [];
-      let followUpQuestions: string[] = [];
-      let creditsUsed = 0;
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const collectedEvents: StreamEvent[] = [];
 
-      if (data.success && data.response) {
-        const resp = data.response;
-        
-        // Build main content from sections or main_content
-        if (resp.main_content) {
-          mainContent = resp.main_content;
-        } else if (resp.sections && resp.sections.length > 0) {
-          mainContent = resp.sections.map((s: any) => {
-            if (s.title && s.content) {
-              return `## ${s.title}\n${s.content}`;
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const eventData = JSON.parse(line.slice(6));
+                collectedEvents.push(eventData);
+                setCurrentStreamEvents([...collectedEvents]);
+
+                // Update assistant message with events
+                setLocalMessages(prev => prev.map(msg =>
+                  msg.id === assistantId
+                    ? { ...msg, reasoningEvents: [...collectedEvents] }
+                    : msg
+                ));
+
+                // Handle complete event
+                if (eventData.type === 'complete') {
+                  const responseData = eventData.data.response;
+                  const creditsUsed = eventData.data.credits_used || 2;
+
+                  // Update credit balance
+                  setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+
+                  // Update assistant message with final response
+                  setLocalMessages(prev => prev.map(msg =>
+                    msg.id === assistantId
+                      ? {
+                          ...msg,
+                          content: responseData.main_content || responseData.summary || '',
+                          isStreaming: false,
+                          sources: responseData.sources?.map((s: any) => ({
+                            title: s.title || 'Source',
+                            url: s.url || '#'
+                          })) || [],
+                          keyInsights: responseData.key_insights || [],
+                          followUpQuestions: responseData.follow_up_questions || [],
+                          responseData: responseData,
+                          reasoningEvents: collectedEvents,
+                        }
+                      : msg
+                  ));
+                }
+
+                // Handle error event
+                if (eventData.type === 'error') {
+                  throw new Error(eventData.data.message || 'An error occurred');
+                }
+              } catch (parseError) {
+                // Skip invalid JSON
+              }
             }
-            return s.content || '';
-          }).join('\n\n');
+          }
         }
-        
-        // Add summary if available
-        if (resp.summary && !mainContent.includes(resp.summary)) {
-          mainContent = resp.summary + '\n\n' + mainContent;
-        }
-        
-        // Extract sources
-        if (resp.sources && Array.isArray(resp.sources)) {
-          sources = resp.sources.map((s: any) => ({
-            title: s.title || s.publisher || 'Source',
-            url: s.url || '#'
-          }));
-        }
-        
-        // Extract key insights
-        if (resp.key_insights && Array.isArray(resp.key_insights)) {
-          keyInsights = resp.key_insights.map((insight: any) => ({
-            icon: insight.icon || '💡',
-            title: insight.title || 'Insight',
-            description: insight.description || insight.text || '',
-            importance: insight.importance || 'medium'
-          }));
-        }
-        
-        // Extract follow-up questions
-        if (resp.follow_up_questions && Array.isArray(resp.follow_up_questions)) {
-          followUpQuestions = resp.follow_up_questions;
-        }
-        
-        // Get credits used
-        creditsUsed = resp.credits_used || data.credits_used || 2;
-      } else {
-        mainContent = data.message || 'Response received but could not be parsed.';
       }
-
-      // Update credit balance
-      if (creditsUsed > 0) {
-        setCreditBalance(prev => Math.max(0, prev - creditsUsed));
-      }
-
-      // Update the assistant message with the response
-      setLocalMessages(prev => prev.map(msg => 
-        msg.id === assistantId 
-          ? { 
-              ...msg, 
-              content: mainContent || 'I apologize, but I was unable to generate a response. Please try again.',
-              isStreaming: false,
-              sources,
-              keyInsights,
-              followUpQuestions,
-            }
-          : msg
-      ));
 
     } catch (error) {
       console.error('Error sending message:', error);
-      setLocalMessages(prev => prev.map(msg => 
-        msg.id === assistantId 
-          ? { 
-              ...msg, 
+      setLocalMessages(prev => prev.map(msg =>
+        msg.id === assistantId
+          ? {
+              ...msg,
               content: 'I apologize, but there was an error processing your request. Please try again.',
               isStreaming: false,
             }
@@ -610,12 +577,16 @@ function DashboardContent() {
 
   const handleNewChat = () => {
     setLocalMessages([]);
+    setCurrentStreamEvents([]);
+    setShowReasoningPanel(false);
     startNewChat();
   };
 
   const handleSelectConversation = (conv: Conversation) => {
     selectConversation(conv);
     setLocalMessages([]);
+    setCurrentStreamEvents([]);
+    setShowReasoningPanel(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -625,17 +596,9 @@ function DashboardContent() {
     }
   };
 
-  // Get credit hint based on mode
-  const getCreditHint = () => {
-    if (searchMode === 'deep') {
-      return "50 credits";
-    }
-    return "4-12 credits";
-  };
-
   return (
     <div className="min-h-screen bg-[#070707] flex w-full overflow-x-hidden">
-      {/* Chat Sidebar (Lovable Style) */}
+      {/* Chat Sidebar */}
       <ChatSidebar
         conversations={conversations}
         currentConversation={currentConversation}
@@ -651,144 +614,191 @@ function DashboardContent() {
         "flex-1 flex flex-col min-h-screen transition-all duration-200",
         sidebarOpen ? "lg:ml-72" : "lg:ml-14"
       )}>
-        {/* Top Navigation with Domain Tabs */}
+        {/* Top Navigation */}
         <header className="h-[72px] border-b border-white/[0.08] flex items-center justify-between px-6 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] sticky top-0 z-30">
-          {/* Left: Logo */}
           <div className="flex items-center gap-4 shrink-0">
             <Link href="/" className="font-luxury text-xl lg:text-2xl text-white tracking-[0.02em]">
               McLeuker
             </Link>
           </div>
           
-          {/* Center: Domain Tabs */}
           <div className="hidden lg:flex items-center absolute left-1/2 -translate-x-1/2">
             <DomainTabs />
           </div>
           
-          {/* Right: User Menu */}
           <div className="flex items-center gap-3">
             <UserMenu collapsed={false} />
           </div>
         </header>
 
-        {/* Mobile Domain Selector */}
         <MobileDomainSelector />
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto px-6 py-8">
-          <div className="max-w-3xl mx-auto space-y-6">
-            {localMessages.length === 0 ? (
-              <DomainStarterPanel onSelectPrompt={handleSendMessage} />
-            ) : (
-              localMessages.map(message => (
-                <div key={message.id} className={cn(
-                  "flex",
-                  message.role === 'user' ? "justify-end" : "justify-start"
-                )}>
-                  <div className={cn(
-                    "max-w-[85%] rounded-[20px] p-5",
-                    message.role === 'user' 
-                      ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white" 
-                      : "bg-gradient-to-b from-[#1A1A1A] to-[#141414] border border-white/[0.08]"
+        <div className="flex-1 flex">
+          {/* Chat Messages */}
+          <div className={cn(
+            "flex-1 overflow-y-auto px-6 py-8 transition-all duration-300",
+            showReasoningPanel && isStreaming ? "lg:pr-[420px]" : ""
+          )}>
+            <div className="max-w-3xl mx-auto space-y-6">
+              {localMessages.length === 0 ? (
+                <DomainStarterPanel onSelectPrompt={handleSendMessage} />
+              ) : (
+                localMessages.map(message => (
+                  <div key={message.id} className={cn(
+                    "flex",
+                    message.role === 'user' ? "justify-end" : "justify-start"
                   )}>
-                    {message.isStreaming ? (
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-white/60" />
-                        <span className="text-white/60 text-sm">Generating response...</span>
-                      </div>
-                    ) : (
-                      <p className={cn(
-                        "leading-relaxed whitespace-pre-wrap",
-                        message.role === 'user' ? "text-white" : "text-white/[0.88]"
-                      )}>
-                        {message.content}
-                      </p>
-                    )}
-
-                    {/* Key Insights */}
-                    {!message.isStreaming && message.keyInsights && message.keyInsights.length > 0 && (
-                      <div className="mt-5 pt-5 border-t border-white/[0.08]">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Lightbulb className="w-4 h-4 text-amber-400" />
-                          <span className="text-sm font-medium text-white/70">Key Insights</span>
+                    <div className={cn(
+                      "max-w-[85%] rounded-[20px] p-5",
+                      message.role === 'user'
+                        ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white"
+                        : "bg-gradient-to-b from-[#1A1A1A] to-[#141414] border border-white/[0.08]"
+                    )}>
+                      {message.isStreaming ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <Brain className="w-4 h-4 text-purple-400 animate-pulse" />
+                            <span className="text-white/80 text-sm font-medium">AI is thinking...</span>
+                          </div>
+                          
+                          {/* Show current task step */}
+                          {message.reasoningEvents && message.reasoningEvents.length > 0 && (
+                            <div className="space-y-2">
+                              {message.reasoningEvents
+                                .filter(e => e.type === 'task_update' && e.data.status === 'in_progress')
+                                .slice(-1)
+                                .map((event, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-sm text-white/60">
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                    <span>{event.data.title}</span>
+                                  </div>
+                                ))}
+                              
+                              {/* Show completed steps */}
+                              {message.reasoningEvents
+                                .filter(e => e.type === 'task_update' && e.data.status === 'completed')
+                                .map((event, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-sm text-white/40">
+                                    <CheckCircle2 className="w-3 h-3 text-green-400" />
+                                    <span>{event.data.title}</span>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
                         </div>
-                        <ul className="space-y-3">
-                          {message.keyInsights.map((insight, i) => (
-                            <li key={i} className={cn(
-                              "flex items-start gap-3 text-sm p-3 rounded-lg",
-                              insight.importance === 'high' 
-                                ? "bg-amber-500/10 border border-amber-500/20" 
-                                : "bg-white/[0.03]"
-                            )}>
-                              <span className="text-lg">{insight.icon || '💡'}</span>
-                              <div>
-                                {insight.title && (
-                                  <span className="font-medium text-white/80">{insight.title}: </span>
-                                )}
-                                <span className="text-white/60">
-                                  {insight.text || insight.description}
-                                </span>
+                      ) : message.responseData ? (
+                        <StructuredOutput
+                          response={message.responseData}
+                          onFollowUp={handleFollowUpClick}
+                        />
+                      ) : (
+                        <>
+                          <p className={cn(
+                            "leading-relaxed whitespace-pre-wrap",
+                            message.role === 'user' ? "text-white" : "text-white/[0.88]"
+                          )}>
+                            {message.content}
+                          </p>
+
+                          {/* Key Insights */}
+                          {message.keyInsights && message.keyInsights.length > 0 && (
+                            <div className="mt-5 pt-5 border-t border-white/[0.08]">
+                              <div className="flex items-center gap-2 mb-3">
+                                <Lightbulb className="w-4 h-4 text-amber-400" />
+                                <span className="text-sm font-medium text-white/70">Key Insights</span>
                               </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                              <ul className="space-y-3">
+                                {message.keyInsights.map((insight, i) => (
+                                  <li key={i} className={cn(
+                                    "flex items-start gap-3 text-sm p-3 rounded-lg",
+                                    insight.importance === 'high'
+                                      ? "bg-amber-500/10 border border-amber-500/20"
+                                      : "bg-white/[0.03]"
+                                  )}>
+                                    <span className="text-lg">{insight.icon || '💡'}</span>
+                                    <div>
+                                      {insight.title && (
+                                        <span className="font-medium text-white/80">{insight.title}: </span>
+                                      )}
+                                      <span className="text-white/60">
+                                        {insight.text || insight.description}
+                                      </span>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
-                    {/* Sources */}
-                    {!message.isStreaming && message.sources && message.sources.length > 0 && (
-                      <div className="mt-5 pt-5 border-t border-white/[0.08]">
-                        <div className="flex items-center gap-2 mb-3">
-                          <ExternalLink className="w-4 h-4 text-blue-400" />
-                          <span className="text-sm font-medium text-white/70">Sources</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {message.sources.map((source, i) => (
-                            <a
-                              key={i}
-                              href={source.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-colors"
-                            >
-                              {source.title}
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                          {/* Sources */}
+                          {message.sources && message.sources.length > 0 && (
+                            <div className="mt-5 pt-5 border-t border-white/[0.08]">
+                              <div className="flex items-center gap-2 mb-3">
+                                <ExternalLink className="w-4 h-4 text-blue-400" />
+                                <span className="text-sm font-medium text-white/70">Sources</span>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {message.sources.map((source, i) => (
+                                  <a
+                                    key={i}
+                                    href={source.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-colors"
+                                  >
+                                    {source.title}
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
-                    {/* Follow-up Questions */}
-                    {!message.isStreaming && message.followUpQuestions && message.followUpQuestions.length > 0 && (
-                      <div className="mt-5 pt-5 border-t border-white/[0.08]">
-                        <p className="text-xs text-white/50 mb-3">Explore further:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {message.followUpQuestions.map((question, i) => (
-                            <button
-                              key={i}
-                              onClick={() => handleFollowUpClick(question)}
-                              className="text-xs px-3 py-1.5 rounded-full border border-white/[0.12] text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors flex items-center gap-1"
-                            >
-                              {question}
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                          {/* Follow-up Questions */}
+                          {message.followUpQuestions && message.followUpQuestions.length > 0 && (
+                            <div className="mt-5 pt-5 border-t border-white/[0.08]">
+                              <p className="text-xs text-white/50 mb-3">Explore further:</p>
+                              <div className="flex flex-wrap gap-2">
+                                {message.followUpQuestions.map((question, i) => (
+                                  <button
+                                    key={i}
+                                    onClick={() => handleFollowUpClick(question)}
+                                    className="text-xs px-3 py-1.5 rounded-full border border-white/[0.12] text-white/70 hover:bg-white/[0.08] hover:text-white transition-colors flex items-center gap-1"
+                                  >
+                                    {question}
+                                    <ArrowRight className="w-3 h-3" />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
 
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
           </div>
+
+          {/* Reasoning Panel (Fixed Right) */}
+          {showReasoningPanel && isStreaming && (
+            <div className="hidden lg:block fixed right-6 top-[100px] bottom-[180px] w-[400px] z-20">
+              <ReasoningPanel
+                events={currentStreamEvents}
+                isStreaming={isStreaming}
+                onClose={() => setShowReasoningPanel(false)}
+                className="h-full"
+              />
+            </div>
+          )}
         </div>
 
-        {/* Input Area with Mode Toggle and Credits (Lovable Style) */}
+        {/* Input Area */}
         <div className="border-t border-white/[0.08] p-4 bg-gradient-to-b from-[#0A0A0A] to-[#070707]">
           <div className="max-w-3xl mx-auto space-y-3">
-            {/* Research Mode Toggle */}
             <div className="flex items-center justify-between gap-2 flex-wrap w-full">
               <ResearchModeToggle
                 mode={searchMode}
@@ -806,7 +816,6 @@ function DashboardContent() {
               </div>
             </div>
 
-            {/* Input Area */}
             <div className="relative">
               <textarea
                 ref={textareaRef}
@@ -815,8 +824,8 @@ function DashboardContent() {
                 onKeyDown={handleKeyDown}
                 placeholder={
                   searchMode === 'deep'
-                    ? "Describe your research task in detail for comprehensive web search and analysis..."
-                    : sectorConfig.placeholder || "Ask McLeuker AI about fashion sourcing, trends, or market intelligence..."
+                    ? "Describe your research task in detail for comprehensive analysis..."
+                    : sectorConfig.placeholder || "Ask McLeuker AI about fashion intelligence..."
                 }
                 disabled={isStreaming}
                 className={cn(
@@ -853,10 +862,9 @@ function DashboardContent() {
               </button>
             </div>
 
-            {/* Credit hint */}
             <div className="flex items-center justify-between text-[11px] text-white/50 px-1">
               <span>
-                {getCreditHint()} • Press Enter to send
+                {searchMode === 'deep' ? '5 credits' : '2 credits'} • Press Enter to send
               </span>
               <span className="hidden sm:inline">Shift + Enter for new line</span>
             </div>
