@@ -57,10 +57,12 @@ export interface TaskStep {
 export interface TaskUpdateEvent {
   type: 'task_update';
   data: {
-    step_id: number;
+    step_id?: number;
+    task_id?: string;
     status: string;
     title: string;
     description?: string;
+    progress?: number;
   };
   timestamp: string;
 }

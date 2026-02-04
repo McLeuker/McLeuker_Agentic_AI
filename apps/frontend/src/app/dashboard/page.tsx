@@ -434,7 +434,7 @@ function DashboardContent() {
   }, [input]);
 
   // ==========================================================================
-  // Send Message with SSE Streaming (Manus AI Style)
+  // Send Message with Simulated Progress (Manus AI Style)
   // ==========================================================================
   
   const handleSendMessage = async (overrideQuery?: string) => {
@@ -468,9 +468,67 @@ function DashboardContent() {
     };
     setLocalMessages(prev => [...prev, assistantMessage]);
 
+    // Simulate task progress events
+    const simulatedTasks = [
+      { id: '1', title: 'Understanding your question', status: 'pending' },
+      { id: '2', title: 'Analyzing context', status: 'pending' },
+      { id: '3', title: 'Gathering information', status: 'pending' },
+      { id: '4', title: 'Synthesizing insights', status: 'pending' },
+      { id: '5', title: 'Generating response', status: 'pending' },
+    ];
+
+    const collectedEvents: StreamEvent[] = [];
+
     try {
-      // Use SSE streaming endpoint
-      const response = await fetch(`${API_URL}/api/chat/stream`, {
+      // Simulate task progress while API is processing
+      const progressPromise = (async () => {
+        for (let i = 0; i < simulatedTasks.length; i++) {
+          const task = simulatedTasks[i];
+          
+          // Mark task as in progress
+          const inProgressEvent: StreamEvent = {
+            type: 'task_update',
+            data: {
+              task_id: task.id,
+              title: task.title,
+              status: 'in_progress',
+              progress: (i / simulatedTasks.length) * 100
+            },
+            timestamp: new Date().toISOString()
+          };
+          collectedEvents.push(inProgressEvent);
+          setCurrentStreamEvents([...collectedEvents]);
+          setLocalMessages(prev => prev.map(msg =>
+            msg.id === assistantId
+              ? { ...msg, reasoningEvents: [...collectedEvents] }
+              : msg
+          ));
+          
+          await new Promise(resolve => setTimeout(resolve, 600));
+          
+          // Mark task as completed
+          const completedEvent: StreamEvent = {
+            type: 'task_update',
+            data: {
+              task_id: task.id,
+              title: task.title,
+              status: 'completed',
+              progress: ((i + 1) / simulatedTasks.length) * 100
+            },
+            timestamp: new Date().toISOString()
+          };
+          collectedEvents.push(completedEvent);
+          setCurrentStreamEvents([...collectedEvents]);
+          setLocalMessages(prev => prev.map(msg =>
+            msg.id === assistantId
+              ? { ...msg, reasoningEvents: [...collectedEvents] }
+              : msg
+          ));
+        }
+      })();
+
+      // Make API call in parallel
+      const apiPromise = fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -483,77 +541,106 @@ function DashboardContent() {
         }),
       });
 
+      // Wait for both to complete
+      const [_, response] = await Promise.all([progressPromise, apiPromise]);
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      const collectedEvents: StreamEvent[] = [];
+      const data = await response.json();
+      
+      // Extract response data
+      let mainContent = '';
+      let sources: Array<{ title: string; url: string }> = [];
+      let keyInsights: KeyInsight[] = [];
+      let followUpQuestions: string[] = [];
+      let creditsUsed = 2;
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const eventData = JSON.parse(line.slice(6));
-                collectedEvents.push(eventData);
-                setCurrentStreamEvents([...collectedEvents]);
-
-                // Update assistant message with events
-                setLocalMessages(prev => prev.map(msg =>
-                  msg.id === assistantId
-                    ? { ...msg, reasoningEvents: [...collectedEvents] }
-                    : msg
-                ));
-
-                // Handle complete event
-                if (eventData.type === 'complete') {
-                  const responseData = eventData.data.response;
-                  const creditsUsed = eventData.data.credits_used || 2;
-
-                  // Update credit balance
-                  setCreditBalance(prev => Math.max(0, prev - creditsUsed));
-
-                  // Update assistant message with final response
-                  setLocalMessages(prev => prev.map(msg =>
-                    msg.id === assistantId
-                      ? {
-                          ...msg,
-                          content: responseData.main_content || responseData.summary || '',
-                          isStreaming: false,
-                          sources: responseData.sources?.map((s: any) => ({
-                            title: s.title || 'Source',
-                            url: s.url || '#'
-                          })) || [],
-                          keyInsights: responseData.key_insights || [],
-                          followUpQuestions: responseData.follow_up_questions || [],
-                          responseData: responseData,
-                          reasoningEvents: collectedEvents,
-                        }
-                      : msg
-                  ));
-                }
-
-                // Handle error event
-                if (eventData.type === 'error') {
-                  throw new Error(eventData.data.message || 'An error occurred');
-                }
-              } catch (parseError) {
-                // Skip invalid JSON
-              }
+      if (data.success && data.response) {
+        const resp = data.response;
+        
+        // Build main content
+        if (resp.main_content) {
+          mainContent = resp.main_content;
+        } else if (resp.sections && resp.sections.length > 0) {
+          mainContent = resp.sections.map((s: any) => {
+            if (s.title && s.content) {
+              return `## ${s.title}\n${s.content}`;
             }
-          }
+            return s.content || '';
+          }).join('\n\n');
         }
+        
+        if (resp.summary && !mainContent.includes(resp.summary)) {
+          mainContent = resp.summary + '\n\n' + mainContent;
+        }
+        
+        // Extract sources
+        if (resp.sources && Array.isArray(resp.sources)) {
+          sources = resp.sources.map((s: any) => ({
+            title: s.title || s.publisher || 'Source',
+            url: s.url || '#'
+          }));
+        }
+        
+        // Extract key insights
+        if (resp.key_insights && Array.isArray(resp.key_insights)) {
+          keyInsights = resp.key_insights.map((insight: any) => ({
+            icon: insight.icon || '💡',
+            title: insight.title || 'Insight',
+            description: insight.description || insight.text || '',
+            importance: insight.importance || 'medium'
+          }));
+        }
+        
+        // Extract follow-up questions
+        if (resp.follow_up_questions && Array.isArray(resp.follow_up_questions)) {
+          followUpQuestions = resp.follow_up_questions;
+        }
+        
+        creditsUsed = resp.credits_used || data.credits_used || 2;
+      } else {
+        mainContent = data.message || 'Response received but could not be parsed.';
       }
+
+      // Update credit balance
+      setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+
+      // Build response data for StructuredOutput
+      const responseData: ResponseData = {
+        summary: data.response?.summary || mainContent.slice(0, 200),
+        main_content: mainContent,
+        key_insights: keyInsights.map(k => ({
+          icon: k.icon,
+          title: k.title || '',
+          description: k.description || k.text || '',
+          importance: (k.importance as 'high' | 'medium' | 'low') || 'medium'
+        })),
+        sources: sources.map((s, i) => ({
+          id: String(i),
+          title: s.title,
+          url: s.url
+        })),
+        follow_up_questions: followUpQuestions,
+        credits_used: creditsUsed
+      };
+
+      // Update assistant message with final response
+      setLocalMessages(prev => prev.map(msg =>
+        msg.id === assistantId
+          ? {
+              ...msg,
+              content: mainContent || 'I was unable to generate a response. Please try again.',
+              isStreaming: false,
+              sources,
+              keyInsights,
+              followUpQuestions,
+              responseData,
+              reasoningEvents: collectedEvents,
+            }
+          : msg
+      ));
 
     } catch (error) {
       console.error('Error sending message:', error);
