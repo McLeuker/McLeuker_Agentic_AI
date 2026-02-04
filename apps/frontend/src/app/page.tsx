@@ -115,7 +115,7 @@ export default function LandingPage() {
               Describe your research task and let our AI deliver professional-grade intelligence.
             </p>
 
-            {/* Interactive Input */}
+            {/* Interactive Input - McLeuker Green Ombre */}
             <form onSubmit={handleSubmit} className="max-w-2xl mx-auto mb-10 sm:mb-12 px-2">
               <div className="relative">
                 <textarea 
@@ -125,13 +125,10 @@ export default function LandingPage() {
                   className={cn(
                     "w-full h-28 sm:h-32 px-4 sm:px-6 py-4 sm:py-5",
                     "rounded-[20px]",
-                    "bg-gradient-to-b from-[#1B1B1B] to-[#111111]",
-                    "border border-white/[0.10]",
+                    "mcleuker-green-input",
                     "text-white/[0.88] placeholder:text-white/40",
-                    "focus:outline-none focus:border-white/[0.18]",
-                    "focus:ring-[3px] focus:ring-white/[0.06]",
-                    "resize-none text-sm sm:text-base",
-                    "shadow-[0_4px_16px_rgba(0,0,0,0.3)]"
+                    "focus:outline-none",
+                    "resize-none text-sm sm:text-base"
                   )}
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -145,10 +142,11 @@ export default function LandingPage() {
                   disabled={!prompt.trim()} 
                   className={cn(
                     "absolute bottom-3 sm:bottom-4 right-3 sm:right-4",
-                    "px-4 sm:px-6 py-2 rounded-md text-sm",
-                    "bg-white text-black hover:bg-white/90",
-                    "disabled:bg-white/20 disabled:text-white/40",
-                    "flex items-center gap-2 transition-colors"
+                    "px-4 sm:px-6 py-2 rounded-md text-sm font-medium",
+                    "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white",
+                    "hover:from-[#1a8a62] hover:to-[#2d7a35]",
+                    "disabled:bg-white/10 disabled:text-white/40 disabled:from-white/10 disabled:to-white/10",
+                    "flex items-center gap-2 transition-all"
                   )}
                 >
                   <span className="hidden sm:inline">Run Task</span>
@@ -157,7 +155,7 @@ export default function LandingPage() {
               </div>
             </form>
 
-            {/* Suggestion Prompts */}
+            {/* Suggestion Prompts - Bubble gradient variations */}
             <div className="max-w-4xl mx-auto px-2">
               <p className="text-xs sm:text-sm text-white/40 uppercase tracking-[0.15em] mb-4 sm:mb-6">
                 Try one of these examples
@@ -171,15 +169,17 @@ export default function LandingPage() {
                       onClick={() => handlePromptClick(suggestion.prompt)}
                       className={cn(
                         "group relative p-4 sm:p-5 rounded-[18px]",
-                        "bg-gradient-to-b from-[#1A1A1A] to-[#141414]",
-                        "border border-white/[0.10]",
-                        "hover:border-white/[0.18]",
+                        "mcleuker-bubble",
+                        i % 4 === 0 && "mcleuker-bubble-v1",
+                        i % 4 === 1 && "mcleuker-bubble-v2",
+                        i % 4 === 2 && "mcleuker-bubble-v3",
+                        i % 4 === 3 && "mcleuker-bubble-v4",
                         "transition-all duration-200 text-left"
                       )}
                     >
-                      <div className="relative flex items-start gap-3 sm:gap-4">
-                        <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white/[0.08] flex items-center justify-center group-hover:bg-white/[0.12] transition-colors">
-                          <IconComponent className="w-5 h-5 sm:w-6 sm:h-6 text-white/70" />
+                      <div className="relative flex items-start gap-3 sm:gap-4 z-10">
+                        <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white/[0.08] flex items-center justify-center group-hover:bg-[#177b57]/20 transition-colors">
+                          <IconComponent className="w-5 h-5 sm:w-6 sm:h-6 text-white/70 group-hover:text-[#4ade80]" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm sm:text-base font-medium text-white/[0.92] mb-1 sm:mb-1.5">
@@ -189,7 +189,7 @@ export default function LandingPage() {
                             {suggestion.prompt}
                           </p>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-white/30 group-hover:text-white/60 group-hover:translate-x-1 transition-all flex-shrink-0 mt-1" />
+                        <ArrowRight className="w-4 h-4 text-white/30 group-hover:text-[#177b57] group-hover:translate-x-1 transition-all flex-shrink-0 mt-1" />
                       </div>
                     </button>
                   );
@@ -223,9 +223,9 @@ export default function LandingPage() {
         {/* Hero Content */}
         <div className="relative z-10 container mx-auto px-6 lg:px-12 py-20 lg:py-32">
           <div className="max-w-4xl mx-auto text-center">
-            {/* Tagline Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/80 backdrop-blur-sm border border-white/[0.12] mb-8 lg:mb-10">
-              <Sparkles className="w-4 h-4 text-white/60" />
+            {/* Tagline Badge - Updated with green accent */}
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/80 backdrop-blur-sm border border-[#177b57]/30 mb-8 lg:mb-10">
+              <Sparkles className="w-4 h-4 text-[#4ade80]" />
               <span className="text-sm text-white/70 tracking-wide">
                 AI & Sustainability for Fashion
               </span>
@@ -242,14 +242,15 @@ export default function LandingPage() {
               AI-powered research for fashion professionals who demand excellence.
             </p>
 
-            {/* CTAs */}
+            {/* CTAs - Updated with green primary button */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
                 href="/dashboard"
                 className={cn(
                   "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                  "bg-white text-black font-medium",
-                  "hover:bg-white/90 transition-colors"
+                  "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white font-medium",
+                  "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
+                  "shadow-lg shadow-[#177b57]/20"
                 )}
               >
                 Open Dashboard
@@ -260,7 +261,7 @@ export default function LandingPage() {
                 className={cn(
                   "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
                   "border border-white/[0.18] text-white/90",
-                  "hover:bg-white/[0.08] transition-colors"
+                  "hover:bg-[#177b57]/10 hover:border-[#177b57]/30 transition-colors"
                 )}
               >
                 Explore Domains
@@ -284,7 +285,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Solutions Section */}
+      {/* Solutions Section - Updated with bubble gradient variations */}
       <section className="py-24 lg:py-32 bg-[#0B0B0B]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1120px] mx-auto">
@@ -298,43 +299,47 @@ export default function LandingPage() {
               </h2>
             </div>
 
-            {/* Services Grid */}
+            {/* Services Grid - Updated with bubble gradient variations */}
             <div className="grid md:grid-cols-2 gap-8 lg:gap-10">
               {services.map((service, i) => (
                 <div 
                   key={i} 
                   className={cn(
-                    "group p-8 lg:p-10 rounded-[20px]",
-                    "bg-gradient-to-b from-[#1A1A1A] to-[#141414]",
-                    "border border-white/[0.10]",
-                    "hover:border-white/[0.18]",
-                    "transition-all duration-200 cursor-pointer"
+                    "group p-8 lg:p-10 rounded-[20px] cursor-pointer",
+                    "mcleuker-bubble",
+                    i % 4 === 0 && "mcleuker-bubble-v1",
+                    i % 4 === 1 && "mcleuker-bubble-v2",
+                    i % 4 === 2 && "mcleuker-bubble-v3",
+                    i % 4 === 3 && "mcleuker-bubble-v4",
+                    "transition-all duration-200"
                   )}
                 >
-                  <div className="flex items-start justify-between mb-6">
-                    <span className="text-5xl font-editorial text-white/15">
-                      0{i + 1}
-                    </span>
-                    <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-white/70 group-hover:translate-x-1 transition-all" />
+                  <div className="relative z-10">
+                    <div className="flex items-start justify-between mb-6">
+                      <span className="text-5xl font-editorial text-white/15 group-hover:text-[#177b57]/30 transition-colors">
+                        0{i + 1}
+                      </span>
+                      <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-[#177b57] group-hover:translate-x-1 transition-all" />
+                    </div>
+                    <h3 className="text-xl lg:text-2xl font-medium text-white/[0.92] mb-3">
+                      {service.title}
+                    </h3>
+                    <p className="text-white/60 leading-relaxed">
+                      {service.description}
+                    </p>
                   </div>
-                  <h3 className="text-xl lg:text-2xl font-medium text-white/[0.92] mb-3">
-                    {service.title}
-                  </h3>
-                  <p className="text-white/60 leading-relaxed">
-                    {service.description}
-                  </p>
                 </div>
               ))}
             </div>
 
-            {/* CTA */}
+            {/* CTA - Updated with green accent */}
             <div className="text-center mt-16">
               <Link
                 href="/solutions"
                 className={cn(
                   "inline-flex items-center gap-2 px-8 py-3",
                   "bg-[#141414] border border-white/[0.10] rounded-full",
-                  "text-white/80 hover:bg-[#1A1A1A] hover:border-white/[0.18]",
+                  "text-white/80 hover:bg-[#177b57]/10 hover:border-[#177b57]/30",
                   "transition-colors"
                 )}
               >
@@ -381,7 +386,7 @@ export default function LandingPage() {
                     "Real deliverables, not just conversations"
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-3 text-white/[0.85]">
-                      <div className="w-1.5 h-1.5 rounded-full bg-white/60"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#4ade80]"></div>
                       {item}
                     </li>
                   ))}
@@ -390,8 +395,9 @@ export default function LandingPage() {
                   href="/signup"
                   className={cn(
                     "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                    "bg-white text-black font-medium",
-                    "hover:bg-white/90 transition-colors"
+                    "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white font-medium",
+                    "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
+                    "shadow-lg shadow-[#177b57]/20"
                   )}
                 >
                   Start Your Journey
@@ -410,8 +416,8 @@ export default function LandingPage() {
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
               {/* Content - Left on desktop */}
               <div className="lg:py-12 order-2 lg:order-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-white/[0.10] mb-6">
-                  <Leaf className="w-4 h-4 text-white/60" />
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-[#177b57]/30 mb-6">
+                  <Leaf className="w-4 h-4 text-[#4ade80]" />
                   <span className="text-sm text-white/60">
                     Sustainability First
                   </span>
@@ -426,11 +432,11 @@ export default function LandingPage() {
                 </p>
                 <div className="grid grid-cols-2 gap-8 mb-10">
                   <div>
-                    <p className="text-4xl font-editorial text-white/[0.92] mb-2">85%</p>
+                    <p className="text-4xl font-editorial text-[#4ade80] mb-2">85%</p>
                     <p className="text-sm text-white/50">Time saved on sustainability research</p>
                   </div>
                   <div>
-                    <p className="text-4xl font-editorial text-white/[0.92] mb-2">100+</p>
+                    <p className="text-4xl font-editorial text-[#4ade80] mb-2">100+</p>
                     <p className="text-sm text-white/50">Certification databases tracked</p>
                   </div>
                 </div>
@@ -438,8 +444,8 @@ export default function LandingPage() {
                   href="/about"
                   className={cn(
                     "inline-flex items-center gap-2 px-8 py-3",
-                    "bg-[#141414] border border-white/[0.10] rounded-full",
-                    "text-white hover:bg-[#1A1A1A] hover:border-white/[0.18]",
+                    "bg-[#141414] border border-[#177b57]/30 rounded-full",
+                    "text-white hover:bg-[#177b57]/10 hover:border-[#177b57]/50",
                     "transition-colors"
                   )}
                 >
@@ -462,7 +468,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials Section */}
+      {/* Testimonials Section - Updated with bubble styling */}
       <section className="py-24 lg:py-32 bg-[#0A0A0A]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1120px] mx-auto">
@@ -476,28 +482,32 @@ export default function LandingPage() {
               </h2>
             </div>
 
-            {/* Testimonials Grid */}
+            {/* Testimonials Grid - Updated with bubble gradient variations */}
             <div className="grid md:grid-cols-3 gap-6">
               {testimonials.map((testimonial, i) => (
                 <div 
                   key={i} 
                   className={cn(
                     "p-8 rounded-[20px]",
-                    "bg-gradient-to-b from-[#232323] to-[#191919]",
-                    "border border-white/[0.12]",
+                    "mcleuker-bubble",
+                    i % 3 === 0 && "mcleuker-bubble-v1",
+                    i % 3 === 1 && "mcleuker-bubble-v2",
+                    i % 3 === 2 && "mcleuker-bubble-v3",
                     "shadow-[0_14px_40px_rgba(0,0,0,0.55)]"
                   )}
                 >
-                  <blockquote className="text-white/[0.85] text-lg leading-relaxed mb-8">
-                    &ldquo;{testimonial.quote}&rdquo;
-                  </blockquote>
-                  <div>
-                    <p className="text-sm font-medium text-white/[0.92]">
-                      {testimonial.author}
-                    </p>
-                    <p className="text-sm text-white/50">
-                      {testimonial.company}
-                    </p>
+                  <div className="relative z-10">
+                    <blockquote className="text-white/[0.85] text-lg leading-relaxed mb-8">
+                      &ldquo;{testimonial.quote}&rdquo;
+                    </blockquote>
+                    <div>
+                      <p className="text-sm font-medium text-white/[0.92]">
+                        {testimonial.author}
+                      </p>
+                      <p className="text-sm text-white/50">
+                        {testimonial.company}
+                      </p>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -506,7 +516,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA Section */}
+      {/* Final CTA Section - Updated with green accents */}
       <section className="py-32 lg:py-40 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-3xl mx-auto text-center">
@@ -521,8 +531,9 @@ export default function LandingPage() {
                 href="/signup"
                 className={cn(
                   "inline-flex items-center gap-2 px-10 py-4 rounded-full",
-                  "bg-white text-black font-medium",
-                  "hover:bg-white/90 transition-colors"
+                  "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white font-medium",
+                  "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
+                  "shadow-lg shadow-[#177b57]/20"
                 )}
               >
                 Start Free Trial
@@ -533,7 +544,7 @@ export default function LandingPage() {
                 className={cn(
                   "inline-flex items-center gap-2 px-10 py-4 rounded-full",
                   "bg-[#141414] border border-white/[0.10] text-white",
-                  "hover:bg-[#1A1A1A] transition-colors"
+                  "hover:bg-[#177b57]/10 hover:border-[#177b57]/30 transition-colors"
                 )}
               >
                 View Pricing

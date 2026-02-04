@@ -80,7 +80,7 @@ interface Message {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
 
 // =============================================================================
-// Reasoning Layer Component - Expandable multi-layer reasoning
+// Reasoning Layer Component - Updated with McLeuker green colors
 // =============================================================================
 
 function ReasoningLayerItem({ 
@@ -104,26 +104,27 @@ function ReasoningLayerItem({
     }
   };
 
+  // Updated colors - McLeuker green palette instead of purple
   const getColor = () => {
     if (layer.status === 'complete') return 'text-green-400';
     switch (layer.type) {
-      case 'understanding': return 'text-purple-400';
-      case 'planning': return 'text-blue-400';
-      case 'research': return 'text-cyan-400';
-      case 'analysis': return 'text-amber-400';
-      case 'synthesis': return 'text-pink-400';
+      case 'understanding': return 'text-[#177b57]';
+      case 'planning': return 'text-[#266a2e]';
+      case 'research': return 'text-[#3d665c]';
+      case 'analysis': return 'text-[#4c7748]';
+      case 'synthesis': return 'text-[#457556]';
       case 'writing': return 'text-emerald-400';
       default: return 'text-white/60';
     }
   };
 
   return (
-    <div className="border-l-2 border-white/10 pl-3 py-1">
+    <div className="border-l-2 border-[#177b57]/30 pl-3 py-1">
       <button
         onClick={onToggleExpand}
         className={cn(
           "flex items-center gap-2 w-full text-left py-1.5 px-2 rounded-lg transition-all",
-          isLatest && layer.status === 'active' ? "bg-white/5" : "hover:bg-white/5"
+          isLatest && layer.status === 'active' ? "bg-[#177b57]/10" : "hover:bg-[#177b57]/5"
         )}
       >
         <div className={cn("flex-shrink-0", getColor())}>
@@ -151,7 +152,7 @@ function ReasoningLayerItem({
           </div>
         )}
         {layer.status === 'active' && (
-          <Loader2 className="h-3 w-3 animate-spin text-white/40 flex-shrink-0" />
+          <Loader2 className="h-3 w-3 animate-spin text-[#177b57] flex-shrink-0" />
         )}
       </button>
       
@@ -162,7 +163,7 @@ function ReasoningLayerItem({
             <div key={i} className="flex items-start gap-2 py-1">
               <div className={cn(
                 "mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0",
-                subStep.status === 'complete' ? "bg-green-400" : "bg-white/30"
+                subStep.status === 'complete' ? "bg-green-400" : "bg-[#177b57]/50"
               )} />
               <p className="text-xs text-white/50 leading-relaxed">
                 {subStep.step}
@@ -174,7 +175,7 @@ function ReasoningLayerItem({
       
       {/* Layer content summary */}
       {layer.content && layer.expanded && (
-        <div className="ml-6 mt-2 p-2 rounded bg-white/5 border border-white/10">
+        <div className="ml-6 mt-2 p-2 rounded bg-[#177b57]/5 border border-[#177b57]/20">
           <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
             {layer.content}
           </p>
@@ -185,7 +186,7 @@ function ReasoningLayerItem({
 }
 
 // =============================================================================
-// Message Content Component - Renders the final response
+// Message Content Component - Updated with McLeuker green
 // =============================================================================
 
 function MessageContent({ 
@@ -315,7 +316,7 @@ function MessageContent({
         {content.length > 1000 && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 mt-2"
+            className="flex items-center gap-1 text-xs text-[#177b57] hover:text-[#266a2e] mt-2"
           >
             {expanded ? (
               <>Show less <ChevronUp className="h-3 w-3" /></>
@@ -345,7 +346,7 @@ function MessageContent({
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-xs text-white/70 hover:text-white transition-colors"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-[#177b57]/10 border border-white/[0.08] hover:border-[#177b57]/30 text-xs text-white/70 hover:text-white transition-colors"
               >
                 <ExternalLink className="h-3 w-3" />
                 <span className="max-w-[150px] truncate">{source.title}</span>
@@ -364,7 +365,7 @@ function MessageContent({
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.12] text-sm text-white/70 hover:text-white/90 transition-all"
+                className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-[#177b57]/10 border border-white/[0.06] hover:border-[#177b57]/30 text-sm text-white/70 hover:text-white/90 transition-all"
               >
                 {question}
               </button>
@@ -377,7 +378,7 @@ function MessageContent({
 }
 
 // =============================================================================
-// Chat Sidebar - Exact Lovable Design with Graphite Glass
+// Chat Sidebar - Premium bubble styling with green hover
 // =============================================================================
 
 interface ChatSidebarProps {
@@ -425,14 +426,14 @@ function ChatSidebar({
   if (!isOpen) {
     return (
       <aside className={cn(
-        "hidden lg:flex w-14 flex-col fixed left-0 top-0 bottom-0 z-40",
+        "hidden lg:flex w-14 flex-col fixed left-0 top-[60px] bottom-0 z-30",
         "bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A]",
         "border-r border-white/[0.08]"
       )}>
         <div className="p-2 pt-4">
           <button
             onClick={onToggle}
-            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
+            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-[#177b57]/10 rounded-lg transition-colors"
           >
             <PanelLeft className="h-4 w-4" />
           </button>
@@ -444,7 +445,7 @@ function ChatSidebar({
   return (
     <>
       <aside className={cn(
-        "hidden lg:flex w-64 flex-col fixed left-0 top-0 bottom-0 z-40",
+        "hidden lg:flex w-64 flex-col fixed left-0 top-[60px] bottom-0 z-30",
         "bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A]",
         "border-r border-white/[0.08]"
       )}>
@@ -453,20 +454,20 @@ function ChatSidebar({
           <span className="font-medium text-[13px] text-white/80">Chat History</span>
           <button
             onClick={onToggle}
-            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
+            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-[#177b57]/10 rounded-lg transition-colors"
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
         </div>
 
-        {/* New Chat Button */}
+        {/* New Chat Button - McLeuker green */}
         <div className="px-4 pb-3 shrink-0">
           <button
             onClick={onNewConversation}
             className={cn(
               "w-full justify-center gap-2 flex items-center",
-              "bg-white text-black hover:bg-white/90",
-              "h-10 rounded-full text-[13px] font-medium transition-colors"
+              "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]",
+              "h-10 rounded-full text-[13px] font-medium transition-all"
             )}
           >
             <Plus className="h-4 w-4" />
@@ -486,7 +487,7 @@ function ChatSidebar({
                 "w-full pl-10 pr-10 h-10 text-[13px]",
                 "bg-white/[0.05] border border-white/[0.08] rounded-full",
                 "text-white placeholder:text-white/35",
-                "focus:border-white/[0.15] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
+                "focus:border-[#177b57]/40 focus:outline-none focus:ring-1 focus:ring-[#177b57]/20",
                 "transition-all"
               )}
             />
@@ -508,7 +509,7 @@ function ChatSidebar({
           </p>
         </div>
 
-        {/* Conversation List */}
+        {/* Conversation List - Premium bubble styling */}
         <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
           {filteredConversations.length === 0 ? (
             <div className="px-2 py-8 text-center">
@@ -525,13 +526,13 @@ function ChatSidebar({
               <div
                 key={conv.id}
                 className={cn(
-                  "group relative w-full text-left px-4 py-3 rounded-xl cursor-pointer",
-                  "hover:bg-white/[0.05] transition-colors",
-                  currentConversation?.id === conv.id && "bg-white/[0.08]"
+                  "group relative w-full text-left px-4 py-3 cursor-pointer",
+                  "chat-sidebar-item",
+                  currentConversation?.id === conv.id && "chat-sidebar-item-active"
                 )}
                 onClick={() => onSelectConversation(conv)}
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 relative z-10">
                   <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
                   <div className="flex-1 min-w-0 pr-6">
                     <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
@@ -547,7 +548,7 @@ function ChatSidebar({
                 <button
                   onClick={(e) => handleDeleteClick(e, conv.id)}
                   className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center",
+                    "absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center z-10",
                     "opacity-0 group-hover:opacity-100 transition-opacity",
                     "text-white/50 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
                   )}
@@ -590,7 +591,7 @@ function ChatSidebar({
 }
 
 // =============================================================================
-// Domain Tabs Component
+// Domain Tabs Component - Static, centered with green glow underline
 // =============================================================================
 
 function DomainTabs() {
@@ -601,16 +602,14 @@ function DomainTabs() {
   };
   
   return (
-    <nav className="hidden lg:flex items-center gap-0.5 overflow-x-auto max-w-[600px]">
+    <nav className="flex items-center gap-0.5 flex-wrap justify-center">
       {SECTORS.map((sector) => (
         <button
           key={sector.id}
           onClick={() => handleDomainClick(sector.id)}
           className={cn(
-            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
-            currentSector === sector.id
-              ? "bg-white/10 text-white"
-              : "text-white/50 hover:text-white/80 hover:bg-white/5"
+            "domain-tab",
+            currentSector === sector.id && "domain-tab-active"
           )}
         >
           {sector.label}
@@ -621,7 +620,7 @@ function DomainTabs() {
 }
 
 // =============================================================================
-// Profile Dropdown - Exact Lovable Design with All Buttons
+// Profile Dropdown - Updated with McLeuker green accents
 // =============================================================================
 
 function ProfileDropdown() {
@@ -686,12 +685,12 @@ function ProfileDropdown() {
 
   return (
     <div className="flex items-center gap-3">
-      {/* Credits Display */}
+      {/* Credits Display - Updated with green accent */}
       <Link
         href="/billing"
-        className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-colors"
+        className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-[#177b57]/10 border border-white/[0.08] hover:border-[#177b57]/30 transition-colors"
       >
-        <Coins className="h-3.5 w-3.5 text-yellow-400" />
+        <Coins className="h-3.5 w-3.5 text-[#4ade80]" />
         <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
       </Link>
 
@@ -701,15 +700,15 @@ function ProfileDropdown() {
           onClick={() => setIsOpen(!isOpen)}
           className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center overflow-hidden',
-            'border border-white/[0.12] hover:border-white/30 hover:bg-white/10',
+            'border border-white/[0.12] hover:border-[#177b57]/50 hover:bg-[#177b57]/10',
             'transition-all duration-200',
-            isOpen && 'ring-2 ring-white/20'
+            isOpen && 'ring-2 ring-[#177b57]/30'
           )}
         >
           {avatarUrl ? (
             <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full bg-white/10 flex items-center justify-center">
+            <div className="w-full h-full bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
               <span className="text-xs font-medium text-white">{initials}</span>
             </div>
           )}
@@ -732,7 +731,7 @@ function ProfileDropdown() {
               </p>
               <p className="text-xs text-white/50 capitalize mt-0.5">{plan} plan</p>
               <div className="text-xs text-white/50 mt-1">
-                <span className="font-medium text-white">{creditBalance}</span> credits available
+                <span className="font-medium text-[#4ade80]">{creditBalance}</span> credits available
               </div>
             </div>
             
@@ -741,7 +740,7 @@ function ProfileDropdown() {
               <Link
                 href="/settings"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
               >
                 <User className="h-4 w-4" />
                 Profile
@@ -749,7 +748,7 @@ function ProfileDropdown() {
               <Link
                 href="/billing"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
               >
                 <CreditCard className="h-4 w-4" />
                 Billing & Credits
@@ -757,7 +756,7 @@ function ProfileDropdown() {
               <Link
                 href="/preferences"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
               >
                 <Settings className="h-4 w-4" />
                 Workspace Preferences
@@ -768,7 +767,7 @@ function ProfileDropdown() {
               <Link
                 href="/contact"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
               >
                 <HelpCircle className="h-4 w-4" />
                 Support / Help
@@ -778,7 +777,7 @@ function ProfileDropdown() {
             <div className="border-t border-white/10 py-1">
               <button
                 onClick={handleSignOut}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
               >
                 <LogOut className="h-4 w-4" />
                 Sign out
@@ -823,19 +822,20 @@ function FileUploadButton({ onFileSelect }: { onFileSelect: (file: File) => void
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          "h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-white/[0.10]",
-          isOpen && "bg-white/[0.10] text-white"
+          "h-10 w-10 rounded-xl flex items-center justify-center transition-all",
+          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-[#177b57]/10 hover:border-[#177b57]/30",
+          "border border-white/[0.08]",
+          isOpen && "bg-[#177b57]/10 text-white border-[#177b57]/30"
         )}
       >
-        <Plus className="w-4 h-4" />
+        <Plus className="w-5 h-5" />
       </button>
 
       {isOpen && (
         <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1A1A1A] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#177b57]/10 transition-colors"
           >
             <Paperclip className="w-4 h-4" />
             Upload File
@@ -845,7 +845,7 @@ function FileUploadButton({ onFileSelect }: { onFileSelect: (file: File) => void
               alert('Image generation coming soon!');
               setIsOpen(false);
             }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#177b57]/10 transition-colors"
           >
             <ImageIcon className="w-4 h-4" />
             Generate Image
@@ -1224,7 +1224,30 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-[#070707] flex w-full">
-      {/* Chat Sidebar */}
+      {/* Header - Fixed at top, full width */}
+      <header className="h-[60px] border-b border-white/[0.08] flex items-center justify-between px-4 bg-[#0A0A0A] fixed top-0 left-0 right-0 z-40">
+        {/* Left: McLeuker Logo */}
+        <div className="flex items-center gap-4 w-48">
+          <Link href="/" className="font-editorial text-xl text-white tracking-wide">
+            McLeuker
+          </Link>
+        </div>
+        
+        {/* Center: Domain Tabs - Centered relative to chat area */}
+        <div className={cn(
+          "hidden lg:flex items-center justify-center flex-1",
+          sidebarOpen ? "ml-64" : "ml-14"
+        )}>
+          <DomainTabs />
+        </div>
+        
+        {/* Right: Credits & Profile */}
+        <div className="w-48 flex justify-end">
+          <ProfileDropdown />
+        </div>
+      </header>
+
+      {/* Chat Sidebar - Below header */}
       <ChatSidebar
         conversations={conversations}
         currentConversation={currentConversation}
@@ -1237,56 +1260,144 @@ function DashboardContent() {
 
       {/* Main Content */}
       <main className={cn(
-        "flex-1 flex flex-col min-h-screen transition-all duration-200",
+        "flex-1 flex flex-col min-h-screen transition-all duration-200 pt-[60px]",
         sidebarOpen ? "lg:ml-64" : "lg:ml-14"
       )}>
-        {/* Header */}
-        <header className="h-[60px] border-b border-white/[0.08] flex items-center justify-between px-4 bg-[#0A0A0A] sticky top-0 z-30">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="font-luxury text-xl text-white tracking-wide">
-              McLeuker
-            </Link>
-          </div>
-          
-          <div className="hidden lg:flex items-center absolute left-1/2 -translate-x-1/2">
-            <DomainTabs />
-          </div>
-          
-          <ProfileDropdown />
-        </header>
-
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
-              /* Empty State - Starter Questions */
+              /* STATE A: Empty State - "Where is my mind?" */
               <div className="flex flex-col items-center justify-center min-h-[60vh]">
                 <div className="text-center mb-8">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mx-auto mb-4">
+                  {/* Brain Icon with McLeuker green ombre */}
+                  <div className="w-16 h-16 rounded-2xl mcleuker-brain-gradient flex items-center justify-center mx-auto mb-4 shadow-lg shadow-[#177b57]/20">
                     <Brain className="h-8 w-8 text-white" />
                   </div>
+                  {/* New Title */}
                   <h1 className="text-2xl font-bold text-white mb-2">
-                    {currentSector === 'all' ? 'McLeuker AI' : sectorConfig.label}
+                    Where is my mind?
                   </h1>
+                  {/* New Subtitle */}
                   <p className="text-white/50 max-w-md">
-                    Ask me anything. I'll reason through your question with multiple layers of analysis.
+                    Give me chaos — I'll return a map.
                   </p>
                 </div>
                 
-                <div className="grid gap-3 w-full max-w-xl">
+                {/* Suggestion Cards with bubble gradient variation */}
+                <div className="grid gap-3 w-full max-w-xl mb-8">
                   {starterQuestions.map((question, i) => (
                     <button
                       key={i}
                       onClick={() => handleSendMessage(question)}
-                      className="text-left p-4 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-white/[0.15] text-white/70 hover:text-white/90 transition-all"
+                      className={cn(
+                        "text-left p-4 rounded-xl transition-all",
+                        "mcleuker-bubble",
+                        i % 4 === 0 && "mcleuker-bubble-v1",
+                        i % 4 === 1 && "mcleuker-bubble-v2",
+                        i % 4 === 2 && "mcleuker-bubble-v3",
+                        i % 4 === 3 && "mcleuker-bubble-v4",
+                        "text-white/70 hover:text-white/90"
+                      )}
                     >
-                      {question}
+                      <span className="relative z-10">{question}</span>
                     </button>
                   ))}
                 </div>
+
+                {/* Input Area for State A - Green ombre, centered */}
+                <div className="w-full max-w-xl space-y-3">
+                  {/* Quick/Deep Toggle - Centered */}
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      onClick={() => setSearchMode('quick')}
+                      disabled={isStreaming}
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all",
+                        searchMode === 'quick'
+                          ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
+                          : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
+                      )}
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      Quick
+                      <span className="text-white/50 ml-1">2</span>
+                    </button>
+                    <button
+                      onClick={() => setSearchMode('deep')}
+                      disabled={isStreaming}
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all",
+                        searchMode === 'deep'
+                          ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
+                          : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
+                      )}
+                    >
+                      <Brain className="h-3.5 w-3.5" />
+                      Deep
+                      <span className="text-white/50 ml-1">5</span>
+                    </button>
+                  </div>
+
+                  {/* Input with Plus button left, Send inside right */}
+                  <div className="relative flex items-center gap-3">
+                    {/* Plus Button - Left of input */}
+                    <FileUploadButton onFileSelect={handleFileSelect} />
+                    
+                    {/* Input Bubble - Green ombre for State A */}
+                    <div className="flex-1 relative">
+                      <textarea
+                        ref={textareaRef}
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Ask me anything..."
+                        disabled={isStreaming}
+                        className={cn(
+                          "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
+                          "rounded-xl mcleuker-green-input",
+                          "text-white placeholder:text-white/40",
+                          "focus:outline-none",
+                          "resize-none transition-all",
+                          isStreaming && "opacity-50 cursor-not-allowed"
+                        )}
+                        rows={1}
+                      />
+                      {/* Send Button - Inside right */}
+                      <button
+                        onClick={() => handleSendMessage()}
+                        disabled={!input.trim() || isStreaming}
+                        className={cn(
+                          "absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
+                          input.trim() && !isStreaming
+                            ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                            : "bg-white/[0.08] text-white/40"
+                        )}
+                      >
+                        {isStreaming ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Send className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Credits Badge - Centered */}
+                  <div className="flex items-center justify-center">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/[0.08]">
+                      <Coins className="h-3.5 w-3.5 text-[#4ade80]" />
+                      <span className="text-xs font-medium text-white/80">{creditBalance}</span>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-white/30 text-center">
+                    Press Enter to send • Shift + Enter for new line
+                  </p>
+                </div>
               </div>
             ) : (
-              /* Messages */
+              /* STATE B: Active Chat - Messages */
               <div className="space-y-6">
                 {messages.map(message => (
                   <div key={message.id} className={cn(
@@ -1294,10 +1405,10 @@ function DashboardContent() {
                     message.role === 'user' ? "justify-end" : "justify-start"
                   )}>
                     <div className={cn(
-                      "max-w-[90%] rounded-2xl",
+                      "max-w-[85%]",
                       message.role === 'user'
-                        ? "bg-gradient-to-r from-purple-600 to-purple-700 px-4 py-3"
-                        : "bg-[#111111] border border-white/[0.08] p-4"
+                        ? "mcleuker-user-bubble px-4 py-3 rounded-2xl mr-2"
+                        : "bg-[#111111] border border-white/[0.08] p-4 rounded-xl ml-2"
                     )}>
                       {message.role === 'user' ? (
                         <p className="text-white">{message.content}</p>
@@ -1307,7 +1418,7 @@ function DashboardContent() {
                           {message.reasoning_layers.length > 0 && (
                             <div className="space-y-1 pb-4 border-b border-white/[0.08]">
                               <div className="flex items-center gap-2 mb-3">
-                                <Brain className="h-4 w-4 text-purple-400" />
+                                <Brain className="h-4 w-4 text-[#177b57]" />
                                 <span className="text-sm font-medium text-white/70">
                                   {message.isStreaming ? 'Reasoning...' : `Reasoning (${message.reasoning_layers.length} layers)`}
                                 </span>
@@ -1333,7 +1444,7 @@ function DashboardContent() {
                             />
                           ) : message.isStreaming ? (
                             <div className="flex items-center gap-2 text-white/50">
-                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <Loader2 className="h-4 w-4 animate-spin text-[#177b57]" />
                               <span className="text-sm">Generating response...</span>
                             </div>
                           ) : null}
@@ -1348,94 +1459,96 @@ function DashboardContent() {
           </div>
         </div>
 
-        {/* Input Area */}
-        <div className="border-t border-white/[0.08] p-4 bg-[#0A0A0A]">
-          <div className="max-w-3xl mx-auto space-y-3">
-            {/* Mode Toggle & Credits */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setSearchMode('quick')}
-                  disabled={isStreaming}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                    searchMode === 'quick'
-                      ? "bg-white text-black"
-                      : "text-white/60 hover:text-white bg-white/5"
-                  )}
-                >
-                  <Zap className="h-3.5 w-3.5" />
-                  Quick
-                  <span className="text-white/40 ml-1">2</span>
-                </button>
-                <button
-                  onClick={() => setSearchMode('deep')}
-                  disabled={isStreaming}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                    searchMode === 'deep'
-                      ? "bg-white text-black"
-                      : "text-white/60 hover:text-white bg-white/5"
-                  )}
-                >
-                  <Brain className="h-3.5 w-3.5" />
-                  Deep
-                  <span className="text-white/40 ml-1">5</span>
-                </button>
+        {/* STATE B: Input Area - Black input after first message */}
+        {messages.length > 0 && (
+          <div className="border-t border-white/[0.08] p-4 bg-[#0A0A0A]">
+            <div className="max-w-3xl mx-auto space-y-3">
+              {/* Mode Toggle & Credits - Centered */}
+              <div className="flex items-center justify-center gap-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSearchMode('quick')}
+                    disabled={isStreaming}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      searchMode === 'quick'
+                        ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
+                        : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
+                    )}
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    Quick
+                    <span className="text-white/50 ml-1">2</span>
+                  </button>
+                  <button
+                    onClick={() => setSearchMode('deep')}
+                    disabled={isStreaming}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      searchMode === 'deep'
+                        ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
+                        : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
+                    )}
+                  >
+                    <Brain className="h-3.5 w-3.5" />
+                    Deep
+                    <span className="text-white/50 ml-1">5</span>
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/[0.08]">
+                  <Coins className="h-3.5 w-3.5 text-[#4ade80]" />
+                  <span className="text-xs font-medium text-white/80">{creditBalance}</span>
+                </div>
               </div>
-              
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5">
-                <Coins className="h-3.5 w-3.5 text-yellow-400" />
-                <span className="text-xs font-medium text-white/80">{creditBalance}</span>
-              </div>
-            </div>
 
-            {/* Input with File Upload */}
-            <div className="relative flex items-end gap-2">
-              <FileUploadButton onFileSelect={handleFileSelect} />
-              
-              <div className="flex-1 relative">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask me anything..."
-                  disabled={isStreaming}
-                  className={cn(
-                    "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
-                    "rounded-xl bg-[#111111] border border-white/[0.10]",
-                    "text-white placeholder:text-white/40",
-                    "focus:border-white/[0.18] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
-                    "resize-none transition-all",
-                    isStreaming && "opacity-50 cursor-not-allowed"
-                  )}
-                  rows={1}
-                />
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={!input.trim() || isStreaming}
-                  className={cn(
-                    "absolute right-2 bottom-2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-                    input.trim() && !isStreaming
-                      ? "bg-white text-black hover:bg-white/90"
-                      : "bg-white/[0.08] text-white/40"
-                  )}
-                >
-                  {isStreaming ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                </button>
+              {/* Input with File Upload - Black input for State B */}
+              <div className="relative flex items-center gap-3">
+                <FileUploadButton onFileSelect={handleFileSelect} />
+                
+                <div className="flex-1 relative">
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Ask me anything..."
+                    disabled={isStreaming}
+                    className={cn(
+                      "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
+                      "rounded-xl bg-[#111111] border border-white/[0.10]",
+                      "text-white placeholder:text-white/40",
+                      "focus:border-[#177b57]/40 focus:outline-none focus:ring-1 focus:ring-[#177b57]/20",
+                      "resize-none transition-all",
+                      isStreaming && "opacity-50 cursor-not-allowed"
+                    )}
+                    rows={1}
+                  />
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={!input.trim() || isStreaming}
+                    className={cn(
+                      "absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
+                      input.trim() && !isStreaming
+                        ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                        : "bg-white/[0.08] text-white/40"
+                    )}
+                  >
+                    {isStreaming ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
               </div>
+              
+              <p className="text-xs text-white/30 text-center">
+                Press Enter to send • Shift + Enter for new line
+              </p>
             </div>
-            
-            <p className="text-xs text-white/30 text-center">
-              Press Enter to send • Shift + Enter for new line
-            </p>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );
