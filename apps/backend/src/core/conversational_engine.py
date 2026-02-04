@@ -205,7 +205,7 @@ class HumanLikeResponseGenerator:
     
     def __init__(self):
         self.analyzer = QueryAnalyzer()
-        self.grok_model = "grok-3"  # Using grok-3 for stability
+        self.grok_model = "grok-4-fast-non-reasoning"  # Fast non-reasoning model for quick responses
         self.kimi_model = "kimi-k2.5-preview"
     
     async def generate_response(

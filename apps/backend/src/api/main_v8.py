@@ -553,7 +553,7 @@ async def _generate_quick_fallback(message: str, context: Dict, rag_context: str
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-3",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": message}
@@ -612,7 +612,7 @@ async def _generate_deep_fallback(message: str, context: Dict, rag_context: str 
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-3",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": message}
@@ -696,15 +696,16 @@ def _generate_deep_follow_up(query: str, response: str, sources: List) -> List[s
 
 @app.post("/api/image/generate")
 async def generate_image(request: ImageGenerateRequest):
-    """Generate images using DALL-E 3 or Nano Banana"""
+    """Generate images using xAI Grok Imagine or OpenAI DALL-E 3"""
     import httpx
     
     try:
-        # Try Nano Banana API key first, then fall back to OpenAI
-        api_key = os.getenv("NANO_BANANA_API_KEY") or os.getenv("NANOBANANA_API_KEY") or os.getenv("OPENAI_API_KEY")
+        # Try xAI API key first (for grok-imagine-image), then OpenAI
+        xai_api_key = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
+        openai_api_key = os.getenv("OPENAI_API_KEY")
         
-        if not api_key:
-            raise HTTPException(status_code=500, detail="Image generation API not configured. Please add NANO_BANANA_API_KEY or OPENAI_API_KEY to environment variables.")
+        if not xai_api_key and not openai_api_key:
+            raise HTTPException(status_code=500, detail="Image generation API not configured. Please add XAI_API_KEY or OPENAI_API_KEY to environment variables.")
         
         # Enhance prompt for fashion domain
         style_enhancements = {
@@ -719,46 +720,79 @@ async def generate_image(request: ImageGenerateRequest):
         style_suffix = style_enhancements.get(request.style, style_enhancements["fashion"])
         enhanced_prompt = f"{request.prompt}. {style_suffix}. High quality, detailed, 8K resolution."
         
-        # Use OpenAI DALL-E 3 for image generation
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/images/generations",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "dall-e-3",
-                    "prompt": enhanced_prompt,
-                    "n": 1,
-                    "size": "1024x1024",
-                    "quality": "hd",
-                    "style": "vivid"
-                }
-            )
+            # Try xAI grok-imagine-image first
+            if xai_api_key:
+                try:
+                    response = await client.post(
+                        "https://api.x.ai/v1/images/generations",
+                        headers={
+                            "Authorization": f"Bearer {xai_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "grok-imagine-image",
+                            "prompt": enhanced_prompt,
+                            "n": 1
+                        }
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if "data" in data and len(data["data"]) > 0:
+                            image_url = data["data"][0].get("url")
+                            return {
+                                "success": True,
+                                "image_url": image_url,
+                                "prompt": request.prompt,
+                                "enhanced_prompt": enhanced_prompt,
+                                "style": request.style,
+                                "provider": "xAI Grok Imagine"
+                            }
+                except Exception as e:
+                    logger.warning(f"xAI image generation failed, trying OpenAI: {e}")
             
-            if response.status_code != 200:
-                error_data = response.json()
-                logger.error(f"Image generation error: {error_data}")
-                error_msg = error_data.get("error", {}).get("message", "Image generation failed")
-                raise HTTPException(status_code=response.status_code, detail=error_msg)
-            
-            data = response.json()
-            
-            if "data" in data and len(data["data"]) > 0:
-                image_url = data["data"][0].get("url")
-                revised_prompt = data["data"][0].get("revised_prompt", enhanced_prompt)
+            # Fall back to OpenAI DALL-E 3
+            if openai_api_key:
+                response = await client.post(
+                    "https://api.openai.com/v1/images/generations",
+                    headers={
+                        "Authorization": f"Bearer {openai_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "dall-e-3",
+                        "prompt": enhanced_prompt,
+                        "n": 1,
+                        "size": "1024x1024",
+                        "quality": "hd",
+                        "style": "vivid"
+                    }
+                )
                 
-                return {
-                    "success": True,
-                    "image_url": image_url,
-                    "prompt": request.prompt,
-                    "enhanced_prompt": enhanced_prompt,
-                    "revised_prompt": revised_prompt,
-                    "style": request.style
-                }
-            else:
-                raise HTTPException(status_code=500, detail="No image generated")
+                if response.status_code != 200:
+                    error_data = response.json()
+                    logger.error(f"OpenAI image generation error: {error_data}")
+                    error_msg = error_data.get("error", {}).get("message", "Image generation failed")
+                    raise HTTPException(status_code=response.status_code, detail=error_msg)
+                
+                data = response.json()
+                
+                if "data" in data and len(data["data"]) > 0:
+                    image_url = data["data"][0].get("url")
+                    revised_prompt = data["data"][0].get("revised_prompt", enhanced_prompt)
+                    
+                    return {
+                        "success": True,
+                        "image_url": image_url,
+                        "prompt": request.prompt,
+                        "enhanced_prompt": enhanced_prompt,
+                        "revised_prompt": revised_prompt,
+                        "style": request.style,
+                        "provider": "OpenAI DALL-E 3"
+                    }
+            
+            raise HTTPException(status_code=500, detail="No image generated - both xAI and OpenAI failed")
                 
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Image generation timed out")

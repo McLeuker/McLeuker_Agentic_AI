@@ -483,7 +483,7 @@ class V5Orchestrator:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {
                             "role": "system",
@@ -563,7 +563,7 @@ Provide a {"comprehensive, in-depth analysis" if mode == "deep" else "focused, c
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}

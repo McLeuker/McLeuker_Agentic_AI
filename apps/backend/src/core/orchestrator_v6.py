@@ -626,7 +626,7 @@ class V6Orchestrator:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {
                             "role": "system",
@@ -712,7 +712,7 @@ Generate a structured response following the format requirements."""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}

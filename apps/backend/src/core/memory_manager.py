@@ -212,7 +212,7 @@ class MemoryManager:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "grok-3-mini",
+                        "model": "grok-3-mini-fast",
                         "messages": [
                             {
                                 "role": "system",
@@ -253,7 +253,7 @@ Keep it concise and factual."""
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "grok-3-mini",
+                        "model": "grok-3-mini-fast",
                         "messages": [
                             {
                                 "role": "system",
@@ -295,7 +295,7 @@ Keep it concise and factual."""
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "grok-3-mini",
+                        "model": "grok-3-mini-fast",
                         "messages": [
                             {
                                 "role": "system",

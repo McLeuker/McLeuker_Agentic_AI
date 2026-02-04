@@ -142,7 +142,7 @@ class MultiModelOrchestrator:
         # Grok for reasoning
         self.grok_api_key = os.getenv("XAI_API_KEY", "")
         self.grok_base_url = "https://api.x.ai/v1"
-        self.grok_model = "grok-3-latest"
+        self.grok_model = "grok-4-fast-non-reasoning"
         
         # Kimi for execution
         self.kimi_api_key = os.getenv("MOONSHOT_API_KEY", "")
@@ -315,7 +315,7 @@ class MultiModelOrchestrator:
                 "session_id": session_id,
                 "tasks_executed": len(plan.tasks),
                 "model_usage": {
-                    "reasoning": "grok-3-latest",
+                    "reasoning": "grok-4-fast-non-reasoning",
                     "execution": "kimi-k2.5"
                 }
             }

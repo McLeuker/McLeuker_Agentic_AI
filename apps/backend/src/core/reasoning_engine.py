@@ -167,7 +167,7 @@ class ReasoningEngine:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "grok-3-mini",
+                        "model": "grok-3-mini-fast",
                         "messages": [
                             {
                                 "role": "system",
@@ -249,7 +249,7 @@ class ReasoningEngine:
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "grok-3-mini",
+                        "model": "grok-3-mini-fast",
                         "messages": [
                             {
                                 "role": "system",

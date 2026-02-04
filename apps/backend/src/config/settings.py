@@ -24,7 +24,7 @@ class Settings:
     
     # Grok (xAI) - Primary Reasoning Model
     XAI_API_KEY: str = os.getenv("XAI_API_KEY", "")
-    GROK_MODEL: str = os.getenv("GROK_MODEL", "grok-3-latest")
+    GROK_MODEL: str = os.getenv("GROK_MODEL", "grok-4-fast-non-reasoning")
     GROK_API_BASE: str = os.getenv("GROK_API_BASE", "https://api.x.ai/v1")
     GROK_API_KEY: str = os.getenv("GROK_API_KEY", os.getenv("XAI_API_KEY", ""))
     

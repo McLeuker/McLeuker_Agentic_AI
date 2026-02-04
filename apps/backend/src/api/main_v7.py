@@ -88,7 +88,7 @@ async def health_check():
             "grok": {
                 "available": grok_available,
                 "role": "reasoning",
-                "model": "grok-3-latest"
+                "model": "grok-4-fast-non-reasoning"
             },
             "kimi": {
                 "available": kimi_available,
@@ -409,7 +409,7 @@ async def get_models():
         "models": {
             "grok": {
                 "provider": "xAI",
-                "model": "grok-3-latest",
+                "model": "grok-4-fast-non-reasoning",
                 "role": "reasoning",
                 "capabilities": [
                     "Complex reasoning",

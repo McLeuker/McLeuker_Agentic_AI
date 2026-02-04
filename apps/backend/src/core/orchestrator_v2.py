@@ -203,7 +203,7 @@ class V5Orchestrator:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {
                             "role": "system",
@@ -281,7 +281,7 @@ Remember: NO inline citations in your response."""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}

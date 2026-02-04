@@ -698,7 +698,7 @@ Return ONLY the JSON array:"""
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "grok-3-latest",
+                        "model": "grok-4-fast-non-reasoning",
                         "messages": [{"role": "user", "content": prompt}],
                         "temperature": 0.3,
                         "max_tokens": 600
@@ -849,7 +849,7 @@ Please provide a helpful, CURRENT-focused response. Start with what's happening 
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -887,7 +887,7 @@ Please provide a helpful, CURRENT-focused response. Start with what's happening 
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "grok-3-latest",
+                    "model": "grok-4-fast-non-reasoning",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.5,
                     "max_tokens": max_tokens
