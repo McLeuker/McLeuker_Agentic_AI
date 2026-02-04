@@ -83,7 +83,12 @@ export function StructuredOutput({
           </div>
           <div className="flex-1">
             <h3 className="text-sm font-medium text-white/60 mb-1">Summary</h3>
-            <p className="text-white/90 leading-relaxed">{response.summary}</p>
+            <p className="text-white/90 leading-relaxed">
+              {response.summary
+                .replace(/^#\s+/, '')
+                .replace(/\*\*(.+?)\*\*/g, '$1')
+                .trim()}
+            </p>
           </div>
           <button
             onClick={() => handleCopy(response.summary, 'summary')}
