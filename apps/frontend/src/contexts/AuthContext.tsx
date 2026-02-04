@@ -13,12 +13,13 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/pricing', '/about'];
+const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/pricing', '/about', '/contact'];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -27,6 +28,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const initRef = useRef(false);
+
+  // Refresh session manually
+  const refreshSession = useCallback(async () => {
+    try {
+      const { data: { session: refreshedSession }, error } = await supabase.auth.refreshSession();
+      if (!error && refreshedSession) {
+        setSession(refreshedSession);
+        setUser(refreshedSession.user);
+      }
+    } catch (err) {
+      console.error("Session refresh error:", err);
+    }
+  }, []);
 
   // Initialize auth state
   useEffect(() => {
@@ -37,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        // First, try to get existing session
+        // First, try to get existing session from storage
         const { data: { session: existingSession }, error } = await supabase.auth.getSession();
         
         if (error) {
@@ -49,8 +63,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (mounted) {
-          setSession(existingSession);
-          setUser(existingSession?.user ?? null);
+          if (existingSession) {
+            setSession(existingSession);
+            setUser(existingSession.user);
+            
+            // Check if token needs refresh (within 5 minutes of expiry)
+            const expiresAt = existingSession.expires_at;
+            if (expiresAt) {
+              const expiryTime = expiresAt * 1000;
+              const now = Date.now();
+              const fiveMinutes = 5 * 60 * 1000;
+              
+              if (expiryTime - now < fiveMinutes) {
+                // Token is about to expire, refresh it
+                await refreshSession();
+              }
+            }
+          }
           setLoading(false);
 
           // If user is logged in and on login page, redirect to dashboard
@@ -88,17 +117,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           router.replace('/');
         } else if (event === 'TOKEN_REFRESHED') {
           console.log('Token refreshed successfully');
+        } else if (event === 'USER_UPDATED') {
+          console.log('User updated');
         }
       }
     );
 
     initializeAuth();
 
+    // Set up periodic token refresh (every 10 minutes)
+    const refreshInterval = setInterval(() => {
+      if (session) {
+        refreshSession();
+      }
+    }, 10 * 60 * 1000);
+
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      clearInterval(refreshInterval);
     };
-  }, [pathname, router]);
+  }, [pathname, router, refreshSession, session]);
 
   // Redirect unauthenticated users from protected routes
   useEffect(() => {
@@ -163,7 +202,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           redirectTo: `${window.location.origin}/auth/callback`,
           queryParams: {
             access_type: 'offline',
-            prompt: 'consent',
+            // Use 'select_account' instead of 'consent' to allow choosing account
+            // without forcing re-consent every time
+            prompt: 'select_account',
           },
         },
       });
@@ -182,10 +223,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
-      // Clear local storage
+      // Clear all auth-related storage
       if (typeof window !== 'undefined') {
+        localStorage.removeItem('mcleuker-auth-session');
         localStorage.removeItem('mcleuker-auth-token');
         localStorage.removeItem('auth-return-to');
+        localStorage.removeItem('mcleuker-active-chat');
+        localStorage.removeItem('mcleuker-chat-messages');
       }
       
       const { error } = await supabase.auth.signOut();
@@ -198,7 +242,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      session, 
+      loading, 
+      signUp, 
+      signIn, 
+      signInWithGoogle, 
+      signOut,
+      refreshSession 
+    }}>
       {children}
     </AuthContext.Provider>
   );

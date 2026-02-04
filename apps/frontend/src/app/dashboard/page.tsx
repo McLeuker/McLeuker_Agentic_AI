@@ -794,7 +794,13 @@ function ProfileDropdown() {
 // File Upload Button Component
 // =============================================================================
 
-function FileUploadButton({ onFileSelect }: { onFileSelect: (file: File) => void }) {
+function FileUploadButton({ 
+  onFileSelect,
+  onOpenImageGenerator 
+}: { 
+  onFileSelect: (file: File) => void;
+  onOpenImageGenerator: () => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -842,7 +848,7 @@ function FileUploadButton({ onFileSelect }: { onFileSelect: (file: File) => void
           </button>
           <button
             onClick={() => {
-              alert('Image generation coming soon!');
+              onOpenImageGenerator();
               setIsOpen(false);
             }}
             className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#177b57]/10 transition-colors"
@@ -893,6 +899,11 @@ function DashboardContent() {
   const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creditBalance, setCreditBalance] = useState(50);
+  const [showImageGenerator, setShowImageGenerator] = useState(false);
+  const [imageGeneratorPrompt, setImageGeneratorPrompt] = useState('');
+  const [imageGeneratorStyle, setImageGeneratorStyle] = useState('fashion');
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -934,6 +945,47 @@ function DashboardContent() {
   const handleFileSelect = (file: File) => {
     console.log('File selected:', file.name);
     setInput(prev => prev + `\n[Attached: ${file.name}]`);
+  };
+
+  // Handle image generation
+  const handleGenerateImage = async () => {
+    if (!imageGeneratorPrompt.trim() || isGeneratingImage) return;
+    
+    setIsGeneratingImage(true);
+    setGeneratedImage(null);
+    
+    try {
+      const response = await fetch(`${API_URL}/api/image/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: imageGeneratorPrompt,
+          style: imageGeneratorStyle,
+          width: 1024,
+          height: 1024
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Image generation failed');
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.image_url) {
+        setGeneratedImage(data.image_url);
+        // Deduct credits
+        setCreditBalance(prev => Math.max(0, prev - 3));
+      } else {
+        throw new Error('No image generated');
+      }
+    } catch (error) {
+      console.error('Image generation error:', error);
+      alert(error instanceof Error ? error.message : 'Failed to generate image');
+    } finally {
+      setIsGeneratingImage(false);
+    }
   };
 
   // Send message with chat history saving
@@ -1342,7 +1394,7 @@ function DashboardContent() {
                   {/* Input with Plus button left, Send inside right */}
                   <div className="relative flex items-center gap-3">
                     {/* Plus Button - Left of input */}
-                    <FileUploadButton onFileSelect={handleFileSelect} />
+                    <FileUploadButton onFileSelect={handleFileSelect} onOpenImageGenerator={() => setShowImageGenerator(true)} />
                     
                     {/* Input Bubble - Green ombre for State A */}
                     <div className="flex-1 relative">
@@ -1504,7 +1556,7 @@ function DashboardContent() {
 
               {/* Input with File Upload - Black input for State B */}
               <div className="relative flex items-center gap-3">
-                <FileUploadButton onFileSelect={handleFileSelect} />
+                <FileUploadButton onFileSelect={handleFileSelect} onOpenImageGenerator={() => setShowImageGenerator(true)} />
                 
                 <div className="flex-1 relative">
                   <textarea
@@ -1550,6 +1602,117 @@ function DashboardContent() {
           </div>
         )}
       </main>
+
+      {/* Image Generator Modal */}
+      {showImageGenerator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#111111] border border-white/[0.08] rounded-2xl w-full max-w-2xl mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
+                  <ImageIcon className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Generate Image</h2>
+                  <p className="text-sm text-white/50">Powered by Nano Banana AI</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowImageGenerator(false);
+                  setGeneratedImage(null);
+                  setImageGeneratorPrompt('');
+                }}
+                className="h-8 w-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              {/* Style Selector */}
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">Style</label>
+                <div className="flex flex-wrap gap-2">
+                  {['fashion', 'streetwear', 'minimalist', 'luxury', 'sustainable', 'avant-garde'].map(style => (
+                    <button
+                      key={style}
+                      onClick={() => setImageGeneratorStyle(style)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-sm capitalize transition-all",
+                        imageGeneratorStyle === style
+                          ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
+                          : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                      )}
+                    >
+                      {style}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Prompt Input */}
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">Prompt</label>
+                <textarea
+                  value={imageGeneratorPrompt}
+                  onChange={(e) => setImageGeneratorPrompt(e.target.value)}
+                  placeholder="Describe the image you want to generate..."
+                  className="w-full h-24 px-4 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-white placeholder:text-white/40 focus:outline-none focus:border-[#177b57]/50 resize-none"
+                />
+              </div>
+
+              {/* Generated Image Preview */}
+              {generatedImage && (
+                <div className="relative rounded-xl overflow-hidden border border-white/[0.08]">
+                  <img
+                    src={generatedImage}
+                    alt="Generated image"
+                    className="w-full h-auto"
+                  />
+                  <div className="absolute bottom-4 right-4 flex gap-2">
+                    <a
+                      href={generatedImage}
+                      download="mcleuker-generated-image.png"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur-sm text-white text-sm hover:bg-black/70 transition-colors"
+                    >
+                      Download
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Generate Button */}
+              <button
+                onClick={handleGenerateImage}
+                disabled={!imageGeneratorPrompt.trim() || isGeneratingImage}
+                className={cn(
+                  "w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
+                  imageGeneratorPrompt.trim() && !isGeneratingImage
+                    ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                    : "bg-white/5 text-white/40 cursor-not-allowed"
+                )}
+              >
+                {isGeneratingImage ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Generate Image (3 credits)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
