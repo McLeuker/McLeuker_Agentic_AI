@@ -32,51 +32,14 @@ function AuthCallbackContent() {
           return;
         }
 
-        // Check for auth code in URL (for PKCE flow)
-        const code = searchParams.get('code');
-        
-        if (code) {
-          if (mounted) setStatus('Completing authentication...');
-          
-          // Exchange the code for a session
-          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          
-          if (exchangeError) {
-            console.error('Code exchange error:', exchangeError);
-            if (mounted) {
-              setError(exchangeError.message);
-              setStatus('Failed to complete authentication');
-            }
-            timeoutId = setTimeout(() => {
-              if (mounted) router.replace('/login?error=exchange_failed');
-            }, 2000);
-            return;
-          }
-
-          if (data.session) {
-            if (mounted) setStatus('Authentication successful! Redirecting...');
-            
-            // Get the return URL from localStorage
-            const returnTo = typeof window !== 'undefined' 
-              ? localStorage.getItem('auth-return-to') || '/dashboard'
-              : '/dashboard';
-            
-            // Clear the return URL
-            if (typeof window !== 'undefined') {
-              localStorage.removeItem('auth-return-to');
-            }
-            
-            // Small delay to ensure session is properly set
-            timeoutId = setTimeout(() => {
-              if (mounted) router.replace(returnTo);
-            }, 500);
-            return;
-          }
-        }
-
-        // Fallback: Check if we already have a session
+        // For implicit flow, the hash contains the access token
+        // Supabase's detectSessionInUrl should handle this automatically
         if (mounted) setStatus('Verifying session...');
         
+        // Wait a moment for Supabase to process the URL hash
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check for session
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -92,20 +55,62 @@ function AuthCallbackContent() {
         }
 
         if (sessionData.session) {
-          if (mounted) setStatus('Session found! Redirecting...');
+          if (mounted) setStatus('Authentication successful! Redirecting...');
           
+          // Get the return URL from localStorage
           const returnTo = typeof window !== 'undefined' 
             ? localStorage.getItem('auth-return-to') || '/dashboard'
             : '/dashboard';
           
+          // Clear the return URL
           if (typeof window !== 'undefined') {
             localStorage.removeItem('auth-return-to');
           }
           
+          // Redirect to dashboard
           timeoutId = setTimeout(() => {
             if (mounted) router.replace(returnTo);
-          }, 500);
+          }, 300);
         } else {
+          // No session found, try to handle code exchange for PKCE flow
+          const code = searchParams.get('code');
+          
+          if (code) {
+            if (mounted) setStatus('Completing authentication...');
+            
+            const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+            
+            if (exchangeError) {
+              console.error('Code exchange error:', exchangeError);
+              if (mounted) {
+                setError(exchangeError.message);
+                setStatus('Failed to complete authentication');
+              }
+              timeoutId = setTimeout(() => {
+                if (mounted) router.replace('/login?error=exchange_failed');
+              }, 2000);
+              return;
+            }
+
+            if (data.session) {
+              if (mounted) setStatus('Authentication successful! Redirecting...');
+              
+              const returnTo = typeof window !== 'undefined' 
+                ? localStorage.getItem('auth-return-to') || '/dashboard'
+                : '/dashboard';
+              
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('auth-return-to');
+              }
+              
+              timeoutId = setTimeout(() => {
+                if (mounted) router.replace(returnTo);
+              }, 300);
+              return;
+            }
+          }
+          
+          // No session and no code, redirect to login
           if (mounted) setStatus('No session found. Redirecting to login...');
           timeoutId = setTimeout(() => {
             if (mounted) router.replace('/login');
