@@ -26,25 +26,31 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
-  Check
+  Check,
+  Image as ImageIcon,
+  Paperclip,
+  Settings,
+  LogOut
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS } from "@/contexts/SectorContext";
+import { supabase } from "@/integrations/supabase/client";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
-import { UserMenu } from "@/components/dashboard/UserMenu";
 
 // =============================================================================
-// Types - Reasoning First (No Preset Templates)
+// Types - Multi-Layer Agentic Reasoning
 // =============================================================================
 
-interface ReasoningStep {
+interface ReasoningLayer {
   id: string;
-  type: 'thinking' | 'searching' | 'analyzing' | 'writing';
+  layer_num: number;
+  type: 'understanding' | 'planning' | 'research' | 'analysis' | 'synthesis' | 'writing';
   title: string;
   content: string;
+  sub_steps: { step: string; result?: string; status?: string }[];
   status: 'active' | 'complete';
-  timestamp: Date;
+  expanded: boolean;
 }
 
 interface Source {
@@ -57,7 +63,7 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  reasoning: ReasoningStep[];
+  reasoning_layers: ReasoningLayer[];
   sources: Source[];
   timestamp: Date;
   isStreaming: boolean;
@@ -66,58 +72,105 @@ interface Message {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
 
 // =============================================================================
-// Reasoning Step Component - Shows AI thinking in real-time
+// Reasoning Layer Component - Expandable multi-layer reasoning
 // =============================================================================
 
-function ReasoningStepItem({ step, isLatest }: { step: ReasoningStep; isLatest: boolean }) {
+function ReasoningLayerItem({ 
+  layer, 
+  isLatest,
+  onToggleExpand 
+}: { 
+  layer: ReasoningLayer; 
+  isLatest: boolean;
+  onToggleExpand: () => void;
+}) {
   const getIcon = () => {
-    switch (step.type) {
-      case 'thinking': return <Brain className="h-4 w-4" />;
-      case 'searching': return <Globe className="h-4 w-4" />;
-      case 'analyzing': return <FileText className="h-4 w-4" />;
-      case 'writing': return <Sparkles className="h-4 w-4" />;
+    switch (layer.type) {
+      case 'understanding': return <Brain className="h-4 w-4" />;
+      case 'planning': return <FileText className="h-4 w-4" />;
+      case 'research': return <Globe className="h-4 w-4" />;
+      case 'analysis': return <Search className="h-4 w-4" />;
+      case 'synthesis': return <Sparkles className="h-4 w-4" />;
+      case 'writing': return <MessageSquare className="h-4 w-4" />;
       default: return <Circle className="h-4 w-4" />;
     }
   };
 
   const getColor = () => {
-    if (step.status === 'complete') return 'text-green-400';
-    switch (step.type) {
-      case 'thinking': return 'text-purple-400';
-      case 'searching': return 'text-blue-400';
-      case 'analyzing': return 'text-amber-400';
+    if (layer.status === 'complete') return 'text-green-400';
+    switch (layer.type) {
+      case 'understanding': return 'text-purple-400';
+      case 'planning': return 'text-blue-400';
+      case 'research': return 'text-cyan-400';
+      case 'analysis': return 'text-amber-400';
+      case 'synthesis': return 'text-pink-400';
       case 'writing': return 'text-emerald-400';
       default: return 'text-white/60';
     }
   };
 
   return (
-    <div className={cn(
-      "flex items-start gap-3 py-2 px-3 rounded-lg transition-all",
-      isLatest && step.status === 'active' ? "bg-white/5" : ""
-    )}>
-      <div className={cn("mt-0.5", getColor())}>
-        {step.status === 'complete' ? (
-          <CheckCircle2 className="h-4 w-4" />
-        ) : (
-          <div className="animate-pulse">{getIcon()}</div>
+    <div className="border-l-2 border-white/10 pl-3 py-1">
+      <button
+        onClick={onToggleExpand}
+        className={cn(
+          "flex items-center gap-2 w-full text-left py-1.5 px-2 rounded-lg transition-all",
+          isLatest && layer.status === 'active' ? "bg-white/5" : "hover:bg-white/5"
         )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className={cn(
-          "text-sm font-medium",
-          step.status === 'complete' ? "text-white/60" : "text-white/90"
-        )}>
-          {step.title}
+      >
+        <div className={cn("flex-shrink-0", getColor())}>
+          {layer.status === 'complete' ? (
+            <CheckCircle2 className="h-4 w-4" />
+          ) : (
+            <div className="animate-pulse">{getIcon()}</div>
+          )}
         </div>
-        {step.content && (
-          <div className="text-xs text-white/40 mt-0.5 line-clamp-2">
-            {step.content}
+        <div className="flex-1 min-w-0">
+          <div className={cn(
+            "text-sm font-medium",
+            layer.status === 'complete' ? "text-white/70" : "text-white/90"
+          )}>
+            Layer {layer.layer_num}: {layer.title}
+          </div>
+        </div>
+        {layer.sub_steps.length > 0 && (
+          <div className="flex-shrink-0">
+            {layer.expanded ? (
+              <ChevronUp className="h-3.5 w-3.5 text-white/40" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 text-white/40" />
+            )}
           </div>
         )}
-      </div>
-      {step.status === 'active' && (
-        <Loader2 className="h-3 w-3 animate-spin text-white/40 mt-1" />
+        {layer.status === 'active' && (
+          <Loader2 className="h-3 w-3 animate-spin text-white/40 flex-shrink-0" />
+        )}
+      </button>
+      
+      {/* Sub-steps - Expandable */}
+      {layer.expanded && layer.sub_steps.length > 0 && (
+        <div className="ml-6 mt-1 space-y-1">
+          {layer.sub_steps.map((subStep, i) => (
+            <div key={i} className="flex items-start gap-2 py-1">
+              <div className={cn(
+                "mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0",
+                subStep.status === 'complete' ? "bg-green-400" : "bg-white/30"
+              )} />
+              <p className="text-xs text-white/50 leading-relaxed">
+                {subStep.step}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Layer content summary */}
+      {layer.content && layer.expanded && (
+        <div className="ml-6 mt-2 p-2 rounded bg-white/5 border border-white/10">
+          <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
+            {layer.content}
+          </p>
+        </div>
       )}
     </div>
   );
@@ -200,12 +253,12 @@ function MessageContent({ content, sources }: { content: string; sources: Source
         </button>
       </div>
       
-      {/* Sources */}
+      {/* Sources - Dynamic count */}
       {sources.length > 0 && (
         <div className="pt-4 border-t border-white/10">
           <div className="flex items-center gap-2 mb-3">
             <ExternalLink className="h-4 w-4 text-blue-400" />
-            <span className="text-sm font-medium text-white/70">Sources</span>
+            <span className="text-sm font-medium text-white/70">Sources ({sources.length})</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {sources.map((source, i) => (
@@ -227,7 +280,7 @@ function MessageContent({ content, sources }: { content: string; sources: Source
 }
 
 // =============================================================================
-// Chat Sidebar Component
+// Chat Sidebar Component - With proper chat history
 // =============================================================================
 
 function ChatSidebar({
@@ -304,7 +357,7 @@ function ChatSidebar({
           {searchQuery && (
             <button
               onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -312,20 +365,25 @@ function ChatSidebar({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-4 space-y-1">
+      {/* Chat Count */}
+      <div className="px-4 pb-2">
+        <span className="text-xs text-white/40">{filteredConversations.length} chats</span>
+      </div>
+
+      {/* Conversations List */}
+      <div className="flex-1 overflow-y-auto px-2">
         {filteredConversations.length === 0 ? (
-          <div className="px-2 py-8 text-center">
-            <MessageSquare className="h-8 w-8 text-white/25 mx-auto mb-3" />
-            <p className="text-sm text-white/50">
-              {searchQuery ? "No matching chats" : "No chats yet"}
-            </p>
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <MessageSquare className="h-8 w-8 text-white/20 mb-2" />
+            <p className="text-sm text-white/40">No chats yet</p>
+            <p className="text-xs text-white/30 mt-1">Start a conversation</p>
           </div>
         ) : (
           filteredConversations.map((conv) => (
             <div
               key={conv.id}
               className={cn(
-                "group relative w-full text-left px-3 py-2.5 rounded-lg cursor-pointer transition-all",
+                "group relative px-3 py-2.5 rounded-lg cursor-pointer mb-1 transition-colors",
                 currentConversation?.id === conv.id
                   ? "bg-white/[0.08]"
                   : "hover:bg-white/[0.04]"
@@ -354,20 +412,25 @@ function ChatSidebar({
 }
 
 // =============================================================================
-// Domain Tabs Component
+// Domain Tabs Component - Now navigates to domain pages
 // =============================================================================
 
 function DomainTabs() {
   const { currentSector, setSector } = useSector();
   
+  const handleDomainClick = (sectorId: string) => {
+    // Stay on dashboard, just change the sector context
+    setSector(sectorId as any);
+  };
+  
   return (
-    <nav className="hidden lg:flex items-center gap-0.5">
+    <nav className="hidden lg:flex items-center gap-0.5 overflow-x-auto max-w-[600px]">
       {SECTORS.map((sector) => (
         <button
           key={sector.id}
-          onClick={() => setSector(sector.id)}
+          onClick={() => handleDomainClick(sector.id)}
           className={cn(
-            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+            "px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
             currentSector === sector.id
               ? "bg-white/10 text-white"
               : "text-white/50 hover:text-white/80 hover:bg-white/5"
@@ -381,12 +444,171 @@ function DomainTabs() {
 }
 
 // =============================================================================
+// Profile Button Component - Image only, no name/email
+// =============================================================================
+
+function ProfileButton() {
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
+
+  const getInitials = (name: string | undefined, email: string | undefined) => {
+    if (name) {
+      return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+    }
+    if (email) {
+      return email.slice(0, 2).toUpperCase();
+    }
+    return 'U';
+  };
+
+  const initials = getInitials(user?.user_metadata?.full_name, user?.email);
+  const avatarUrl = user?.user_metadata?.avatar_url;
+
+  if (!user) return null;
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          'w-9 h-9 rounded-full flex items-center justify-center overflow-hidden',
+          'border border-white/[0.12] hover:border-white/30',
+          'transition-all duration-200',
+          isOpen && 'ring-2 ring-purple-500/30'
+        )}
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-purple-600/30 to-pink-600/30 flex items-center justify-center">
+            <span className="text-sm font-medium text-white">{initials}</span>
+          </div>
+        )}
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full right-0 mt-2 w-48 bg-[#1A1A1A] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
+          <Link
+            href="/settings"
+            onClick={() => setIsOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            Settings
+          </Link>
+          <div className="border-t border-white/[0.08]">
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// File Upload Button Component
+// =============================================================================
+
+function FileUploadButton({ onFileSelect }: { onFileSelect: (file: File) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onFileSelect(file);
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "h-8 w-8 rounded-lg flex items-center justify-center transition-all",
+          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-white/[0.10]",
+          isOpen && "bg-white/[0.10] text-white"
+        )}
+      >
+        <Plus className="w-4 h-4" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1A1A1A] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
+          >
+            <Paperclip className="w-4 h-4" />
+            Upload File
+          </button>
+          <button
+            onClick={() => {
+              // TODO: Implement Nano Banana image generation
+              alert('Image generation coming soon!');
+              setIsOpen(false);
+            }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
+          >
+            <ImageIcon className="w-4 h-4" />
+            Generate Image
+          </button>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleFileChange}
+        className="hidden"
+        accept="image/*,.pdf,.doc,.docx,.txt"
+      />
+    </div>
+  );
+}
+
+// =============================================================================
 // Main Dashboard Content
 // =============================================================================
 
 function DashboardContent() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { currentSector } = useSector();
   const sectorConfig = SECTORS.find(s => s.id === currentSector) || SECTORS[0];
   
@@ -396,6 +618,10 @@ function DashboardContent() {
     selectConversation,
     startNewChat,
     deleteConversation,
+    createConversation,
+    saveMessage,
+    updateConversationTitle,
+    loadConversations,
   } = useConversations();
 
   // State
@@ -422,28 +648,61 @@ function DashboardContent() {
     }
   }, [input]);
 
-  // ==========================================================================
-  // Send Message with Real-Time Reasoning (SSE Streaming)
-  // ==========================================================================
-  
-  const handleSendMessage = async (overrideQuery?: string) => {
-    const query = overrideQuery || input.trim();
-    if (!query || isStreaming) return;
+  // Toggle layer expansion
+  const toggleLayerExpand = (messageId: string, layerId: string) => {
+    setMessages(prev => prev.map(m => {
+      if (m.id === messageId) {
+        return {
+          ...m,
+          reasoning_layers: m.reasoning_layers.map(l => 
+            l.id === layerId ? { ...l, expanded: !l.expanded } : l
+          )
+        };
+      }
+      return m;
+    }));
+  };
+
+  // Handle file upload
+  const handleFileSelect = (file: File) => {
+    // TODO: Implement file upload and analysis
+    console.log('File selected:', file.name);
+    setInput(prev => prev + `\n[Attached: ${file.name}]`);
+  };
+
+  // Send message with chat history saving
+  const handleSendMessage = async (overrideMessage?: string) => {
+    const messageText = overrideMessage || input.trim();
+    if (!messageText || isStreaming) return;
 
     setInput('');
     setIsStreaming(true);
+
+    // Create or get conversation
+    let conversationId = currentConversation?.id;
+    if (!conversationId) {
+      const newConv = await createConversation(messageText.slice(0, 50));
+      if (newConv) {
+        conversationId = newConv.id;
+      }
+    }
 
     // Add user message
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content: query,
-      reasoning: [],
+      content: messageText,
+      reasoning_layers: [],
       sources: [],
       timestamp: new Date(),
       isStreaming: false,
     };
     setMessages(prev => [...prev, userMessage]);
+
+    // Save user message to database
+    if (conversationId) {
+      await saveMessage(conversationId, 'user', messageText);
+    }
 
     // Add assistant message placeholder
     const assistantId = `assistant-${Date.now()}`;
@@ -451,79 +710,97 @@ function DashboardContent() {
       id: assistantId,
       role: 'assistant',
       content: '',
-      reasoning: [],
+      reasoning_layers: [],
       sources: [],
       timestamp: new Date(),
       isStreaming: true,
     };
     setMessages(prev => [...prev, assistantMessage]);
 
+    // Track reasoning state
+    let currentLayers: ReasoningLayer[] = [];
+    let currentSources: Source[] = [];
+    let currentContent = '';
+
     try {
-      // Use SSE streaming endpoint
       const response = await fetch(`${API_URL}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: query,
+          message: messageText,
           mode: searchMode,
-          session_id: user?.id,
+          sector: currentSector === 'all' ? null : currentSector,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error('API error');
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
-      if (!reader) {
-        throw new Error('No response body');
-      }
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-      let currentReasoning: ReasoningStep[] = [];
-      let currentSources: Source[] = [];
-      let currentContent = '';
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n').filter(line => line.trim());
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            
             try {
-              const event = JSON.parse(line.slice(6));
-              const eventType = event.type;
-              const eventData = event.data || {};
+              const data = JSON.parse(line.slice(6));
+              const eventType = data.type;
+              const eventData = data.data || {};
 
-              if (eventType === 'thinking' || eventType === 'searching' || eventType === 'analyzing' || eventType === 'writing') {
-                // Add or update reasoning step
-                const stepId = eventData.step_id || `step-${Date.now()}`;
-                const existingIndex = currentReasoning.findIndex(s => s.id === stepId);
-                
-                const step: ReasoningStep = {
-                  id: stepId,
-                  type: eventType,
-                  title: eventData.title || eventType.charAt(0).toUpperCase() + eventType.slice(1),
-                  content: eventData.content || '',
-                  status: eventData.status || 'active',
-                  timestamp: new Date(),
+              if (eventType === 'layer_start') {
+                // New reasoning layer started
+                const newLayer: ReasoningLayer = {
+                  id: eventData.layer_id,
+                  layer_num: eventData.layer_num,
+                  type: eventData.type,
+                  title: eventData.title,
+                  content: '',
+                  sub_steps: [],
+                  status: 'active',
+                  expanded: true,
                 };
-
-                if (existingIndex >= 0) {
-                  currentReasoning[existingIndex] = step;
-                } else {
-                  currentReasoning.push(step);
-                }
-
+                currentLayers.push(newLayer);
+                
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
-                    ? { ...m, reasoning: [...currentReasoning] }
+                    ? { ...m, reasoning_layers: [...currentLayers] }
                     : m
                 ));
+              } else if (eventType === 'sub_step') {
+                // Sub-step within a layer
+                const layerIndex = currentLayers.findIndex(l => l.id === eventData.layer_id);
+                if (layerIndex >= 0) {
+                  currentLayers[layerIndex].sub_steps.push({
+                    step: eventData.step,
+                    status: eventData.status,
+                  });
+                  
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, reasoning_layers: [...currentLayers] }
+                      : m
+                  ));
+                }
+              } else if (eventType === 'layer_complete') {
+                // Layer completed
+                const layerIndex = currentLayers.findIndex(l => l.id === eventData.layer_id);
+                if (layerIndex >= 0) {
+                  currentLayers[layerIndex].status = 'complete';
+                  currentLayers[layerIndex].content = eventData.content || '';
+                  
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, reasoning_layers: [...currentLayers] }
+                      : m
+                  ));
+                }
               } else if (eventType === 'source') {
                 currentSources.push({
                   title: eventData.title || 'Source',
@@ -537,7 +814,7 @@ function DashboardContent() {
                     : m
                 ));
               } else if (eventType === 'content') {
-                currentContent = eventData.full_content || currentContent + (eventData.chunk || '');
+                currentContent += eventData.chunk || '';
 
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
@@ -548,15 +825,15 @@ function DashboardContent() {
                 const finalContent = eventData.content || currentContent;
                 const creditsUsed = eventData.credits_used || (searchMode === 'quick' ? 2 : 5);
 
-                // Mark all reasoning steps as complete
-                currentReasoning = currentReasoning.map(s => ({ ...s, status: 'complete' as const }));
+                // Mark all layers as complete
+                currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
 
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
                     ? {
                         ...m,
                         content: finalContent,
-                        reasoning: currentReasoning,
+                        reasoning_layers: currentLayers,
                         sources: eventData.sources || currentSources,
                         isStreaming: false,
                       }
@@ -564,6 +841,19 @@ function DashboardContent() {
                 ));
 
                 setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+
+                // Save assistant message to database
+                if (conversationId) {
+                  await saveMessage(conversationId, 'assistant', finalContent, 'grok-3', creditsUsed);
+                  
+                  // Update conversation title if it's a new conversation
+                  if (messages.length === 0) {
+                    await updateConversationTitle(conversationId, messageText.slice(0, 50));
+                  }
+                }
+
+                // Reload conversations to show updated list
+                await loadConversations();
               } else if (eventType === 'error') {
                 throw new Error(eventData.message || 'Unknown error');
               }
@@ -595,9 +885,27 @@ function DashboardContent() {
     startNewChat();
   };
 
-  const handleSelectConversation = (conv: Conversation) => {
-    selectConversation(conv);
-    setMessages([]);
+  const handleSelectConversation = async (conv: Conversation) => {
+    await selectConversation(conv);
+    // Load messages for this conversation from the hook
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .eq("conversation_id", conv.id)
+      .order("created_at", { ascending: true });
+    
+    if (!error && data) {
+      const loadedMessages: Message[] = data.map((msg: any) => ({
+        id: msg.id,
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        reasoning_layers: [],
+        sources: [],
+        timestamp: new Date(msg.created_at),
+        isStreaming: false,
+      }));
+      setMessages(loadedMessages);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -646,7 +954,7 @@ function DashboardContent() {
           </div>
           
           <div className="flex items-center gap-3">
-            <UserMenu collapsed={false} />
+            <ProfileButton />
           </div>
         </header>
 
@@ -664,7 +972,7 @@ function DashboardContent() {
                     {currentSector === 'all' ? 'McLeuker AI' : sectorConfig.label}
                   </h1>
                   <p className="text-white/50 max-w-md">
-                    Ask me anything. I'll reason through your question step by step.
+                    Ask me anything. I'll reason through your question with multiple layers of analysis.
                   </p>
                 </div>
                 
@@ -698,20 +1006,21 @@ function DashboardContent() {
                         <p className="text-white">{message.content}</p>
                       ) : (
                         <div className="space-y-4">
-                          {/* Reasoning Steps - Show AI thinking in real-time */}
-                          {message.reasoning.length > 0 && (
+                          {/* Multi-Layer Reasoning - Expandable */}
+                          {message.reasoning_layers.length > 0 && (
                             <div className="space-y-1 pb-4 border-b border-white/[0.08]">
-                              <div className="flex items-center gap-2 mb-2">
+                              <div className="flex items-center gap-2 mb-3">
                                 <Brain className="h-4 w-4 text-purple-400" />
                                 <span className="text-sm font-medium text-white/70">
-                                  {message.isStreaming ? 'Reasoning...' : 'Reasoning'}
+                                  {message.isStreaming ? 'Reasoning...' : `Reasoning (${message.reasoning_layers.length} layers)`}
                                 </span>
                               </div>
-                              {message.reasoning.map((step, i) => (
-                                <ReasoningStepItem 
-                                  key={step.id} 
-                                  step={step} 
-                                  isLatest={i === message.reasoning.length - 1}
+                              {message.reasoning_layers.map((layer, i) => (
+                                <ReasoningLayerItem 
+                                  key={layer.id} 
+                                  layer={layer} 
+                                  isLatest={i === message.reasoning_layers.length - 1}
+                                  onToggleExpand={() => toggleLayerExpand(message.id, layer.id)}
                                 />
                               ))}
                             </div>
@@ -782,41 +1091,45 @@ function DashboardContent() {
               </div>
             </div>
 
-            {/* Input */}
-            <div className="relative">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask me anything..."
-                disabled={isStreaming}
-                className={cn(
-                  "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
-                  "rounded-xl bg-[#111111] border border-white/[0.10]",
-                  "text-white placeholder:text-white/40",
-                  "focus:border-white/[0.18] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
-                  "resize-none transition-all",
-                  isStreaming && "opacity-50 cursor-not-allowed"
-                )}
-                rows={1}
-              />
-              <button
-                onClick={() => handleSendMessage()}
-                disabled={!input.trim() || isStreaming}
-                className={cn(
-                  "absolute right-2 bottom-2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-                  input.trim() && !isStreaming
-                    ? "bg-white text-black hover:bg-white/90"
-                    : "bg-white/[0.08] text-white/40"
-                )}
-              >
-                {isStreaming ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-              </button>
+            {/* Input with File Upload */}
+            <div className="relative flex items-end gap-2">
+              <FileUploadButton onFileSelect={handleFileSelect} />
+              
+              <div className="flex-1 relative">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask me anything..."
+                  disabled={isStreaming}
+                  className={cn(
+                    "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
+                    "rounded-xl bg-[#111111] border border-white/[0.10]",
+                    "text-white placeholder:text-white/40",
+                    "focus:border-white/[0.18] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
+                    "resize-none transition-all",
+                    isStreaming && "opacity-50 cursor-not-allowed"
+                  )}
+                  rows={1}
+                />
+                <button
+                  onClick={() => handleSendMessage()}
+                  disabled={!input.trim() || isStreaming}
+                  className={cn(
+                    "absolute right-2 bottom-2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
+                    input.trim() && !isStreaming
+                      ? "bg-white text-black hover:bg-white/90"
+                      : "bg-white/[0.08] text-white/40"
+                  )}
+                >
+                  {isStreaming ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
             </div>
             
             <p className="text-xs text-white/30 text-center">
