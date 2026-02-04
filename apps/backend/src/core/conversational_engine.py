@@ -6,11 +6,12 @@ conversational outputs like Manus AI. Uses Grok-4 for deep reasoning
 and Kimi K2.5 for execution.
 
 Key Features:
-- Natural conversational tone
+- Natural conversational tone (NO forced structure)
 - Reasoning-first approach (show thinking process)
 - Context-aware responses
 - Dynamic structure based on query complexity
-- No rigid templates - each response is unique
+- NO rigid templates - each response is unique
+- NO forced emoji headers like 🔥 📈 💡
 """
 
 import os
@@ -198,11 +199,13 @@ class HumanLikeResponseGenerator:
     """
     Generates human-like, conversational responses.
     Avoids rigid templates and produces natural, reasoning-first output.
+    
+    CRITICAL: NO forced structure, NO emoji headers, NO template patterns.
     """
     
     def __init__(self):
         self.analyzer = QueryAnalyzer()
-        self.grok_model = "grok-4"
+        self.grok_model = "grok-3"  # Using grok-3 for stability
         self.kimi_model = "kimi-k2.5-preview"
     
     async def generate_response(
@@ -210,7 +213,8 @@ class HumanLikeResponseGenerator:
         query: str,
         context: Dict = None,
         conversation_history: List[ConversationTurn] = None,
-        rag_context: str = None
+        rag_context: str = None,
+        quick_mode: bool = False
     ) -> AsyncGenerator[Dict, None]:
         """Generate a human-like response with streaming"""
         
@@ -218,40 +222,42 @@ class HumanLikeResponseGenerator:
         plan = self.analyzer.analyze(query, context)
         
         # Build the prompt
-        system_prompt = self._build_system_prompt(plan, rag_context)
+        system_prompt = self._build_system_prompt(plan, rag_context, quick_mode)
         user_prompt = self._build_user_prompt(query, conversation_history, context)
         
         # Stream reasoning and response
         async for chunk in self._stream_grok_response(system_prompt, user_prompt, plan):
             yield chunk
     
-    def _build_system_prompt(self, plan: ResponsePlan, rag_context: str = None) -> str:
-        """Build system prompt for natural conversation"""
+    def _build_system_prompt(self, plan: ResponsePlan, rag_context: str = None, quick_mode: bool = False) -> str:
+        """Build system prompt for natural conversation - NO FORCED STRUCTURE"""
         
         prompt = f"""You are McLeuker AI, an expert fashion intelligence assistant. Your responses should feel like a natural conversation with a knowledgeable friend who happens to be a fashion industry expert.
 
-## Your Communication Style
+## CRITICAL RULES - READ CAREFULLY
 
-**Be Natural and Human:**
+**ABSOLUTELY FORBIDDEN - NEVER DO THESE:**
+- NEVER use emoji section headers like "🔥 Key Trends" or "📈 Future Outlook" or "💡 Key Takeaways"
+- NEVER force a rigid structure with the same sections every time
+- NEVER start with "Certainly!", "Of course!", "Great question!", "Absolutely!"
+- NEVER use corporate buzzwords or marketing speak
+- NEVER repeat the same phrases or transitions
+- NEVER artificially pad responses with unnecessary words
+- NEVER use bullet points for everything - mix prose and lists naturally
+- NEVER end with forced calls-to-action like "Let me know if you have more questions!"
+
+**Your Communication Style:**
 - Write as if you're having a real conversation, not generating a report
 - Use natural transitions and flow between ideas
 - Vary your sentence structure and length
 - Show genuine curiosity and engagement with the topic
 - It's okay to express nuanced opinions when appropriate
 
-**Show Your Thinking:**
+**Show Your Thinking Naturally:**
 - Share your reasoning process naturally, like thinking out loud
 - Connect ideas with phrases like "What's interesting here is...", "This connects to...", "I'm noticing that..."
 - Acknowledge complexity when it exists: "This is nuanced because..."
 - Be honest about uncertainty: "From what I understand...", "The evidence suggests..."
-
-**Avoid These Patterns:**
-- Don't use rigid bullet point lists for everything
-- Don't start every section with the same structure
-- Don't use corporate-speak or overly formal language
-- Don't repeat the same phrases or transitions
-- Never use phrases like "Certainly!", "Of course!", "Great question!"
-- Don't artificially pad responses with unnecessary words
 
 **Response Approach for This Query:**
 - Style: {plan.style.value}
@@ -259,8 +265,12 @@ class HumanLikeResponseGenerator:
 - Tone: {plan.tone}
 - Length: {plan.estimated_length}
 
-**Reasoning Steps to Follow:**
-{chr(10).join(f"- {step}" for step in plan.reasoning_steps)}
+**Structure Your Response Based on Content, Not Templates:**
+- If the question is simple, give a simple answer - don't over-explain
+- If it's complex, take the reader on a journey through your thinking
+- Use headers ONLY when they genuinely help organize complex information
+- Use bullet points ONLY when listing genuinely parallel items
+- End naturally, not with forced summary statements
 """
         
         if rag_context:
@@ -272,14 +282,17 @@ class HumanLikeResponseGenerator:
 Use this knowledge naturally in your response - weave it into your conversation rather than citing it formally.
 """
         
+        if quick_mode:
+            prompt += """
+
+## Quick Mode Active:
+Keep your response focused and concise. Get to the point quickly while maintaining a natural tone.
+"""
+        
         prompt += """
 
-## Final Notes:
-- Each response should feel unique and tailored to this specific question
-- Structure your response based on what makes sense for the content, not a template
-- If the question is simple, give a simple answer - don't over-explain
-- If it's complex, take the reader on a journey through your thinking
-- End naturally, not with forced calls-to-action or summary statements
+## Final Reminder:
+Each response should feel unique and tailored to this specific question. The user should feel like they're talking to a thoughtful expert, not reading a generated report. Let the content dictate the structure, not the other way around.
 """
         
         return prompt
@@ -310,6 +323,8 @@ Use this knowledge naturally in your response - weave it into your conversation 
                     prompt_parts.append(f"User interests: {', '.join(profile['interests'][:5])}")
             if context.get("relevant_memories"):
                 prompt_parts.append(f"Relevant context: {'; '.join(context['relevant_memories'][:3])}")
+            if context.get("sector"):
+                prompt_parts.append(f"Focus area: {context['sector']}")
             prompt_parts.append("")
         
         # Add the query
@@ -323,7 +338,7 @@ Use this knowledge naturally in your response - weave it into your conversation 
         user_prompt: str,
         plan: ResponsePlan
     ) -> AsyncGenerator[Dict, None]:
-        """Stream response from Grok-4"""
+        """Stream response from Grok"""
         
         if not GROK_API_KEY:
             yield {"type": "error", "data": {"message": "Grok API key not configured"}}
@@ -354,31 +369,6 @@ Use this knowledge naturally in your response - weave it into your conversation 
                     "stream": True
                 }
                 
-                # Yield reasoning start
-                yield {
-                    "type": "reasoning_start",
-                    "data": {
-                        "style": plan.style.value,
-                        "complexity": plan.complexity.value,
-                        "steps": plan.reasoning_steps
-                    }
-                }
-                
-                # Yield reasoning steps
-                for i, step in enumerate(plan.reasoning_steps):
-                    yield {
-                        "type": "reasoning_step",
-                        "data": {
-                            "step_num": i + 1,
-                            "total_steps": len(plan.reasoning_steps),
-                            "description": step
-                        }
-                    }
-                    await asyncio.sleep(0.3)  # Brief pause for UX
-                
-                yield {"type": "reasoning_complete", "data": {}}
-                yield {"type": "response_start", "data": {}}
-                
                 async with session.post(
                     f"{GROK_BASE_URL}/chat/completions",
                     headers=headers,
@@ -386,6 +376,7 @@ Use this knowledge naturally in your response - weave it into your conversation 
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
+                        logger.error(f"Grok API error: {error_text}")
                         yield {"type": "error", "data": {"message": f"API error: {error_text}"}}
                         return
                     
@@ -536,7 +527,8 @@ class ConversationalEngine:
         context: Dict = None,
         rag_context: str = None,
         use_tools: bool = False,
-        tools: List[Dict] = None
+        tools: List[Dict] = None,
+        quick_mode: bool = False
     ) -> AsyncGenerator[Dict, None]:
         """Main chat interface"""
         
@@ -556,7 +548,8 @@ class ConversationalEngine:
                 query,
                 context,
                 history,
-                rag_context
+                rag_context,
+                quick_mode=quick_mode
             ):
                 yield chunk
                 

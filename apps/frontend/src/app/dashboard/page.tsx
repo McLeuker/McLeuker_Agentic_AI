@@ -35,10 +35,15 @@ import {
   CreditCard,
   HelpCircle,
   MoreHorizontal,
-  Star
+  Star,
+  Download,
+  File,
+  FileDown,
+  FileSpreadsheet,
+  Presentation
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useSector, SECTORS } from "@/contexts/SectorContext";
+import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -65,6 +70,14 @@ interface Source {
   snippet?: string;
 }
 
+interface AttachedFile {
+  name: string;
+  type: string;
+  size: number;
+  url?: string;
+  base64?: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -75,9 +88,13 @@ interface Message {
   timestamp: Date;
   isStreaming: boolean;
   is_favorite?: boolean;
+  attachedFiles?: AttachedFile[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
+
+// Global AbortController for streaming - allows cancellation when switching chats
+let globalAbortController: AbortController | null = null;
 
 // =============================================================================
 // Reasoning Layer Component - Updated with McLeuker green colors
@@ -202,11 +219,60 @@ function MessageContent({
 }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Export document function
+  const handleExport = async (format: string) => {
+    setExporting(format);
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
+      const response = await fetch(`${API_URL}/api/document/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: content,
+          format: format,
+          title: 'McLeuker AI Report'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      // Get the blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Get filename from Content-Disposition header or use default
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `mcleuker-report.${format}`;
+      if (disposition) {
+        const match = disposition.match(/filename="(.+)"/);
+        if (match) filename = match[1];
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      setShowExportMenu(false);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export document. Please try again.');
+    } finally {
+      setExporting(null);
+    }
   };
 
   // Enhanced markdown rendering with bullet points, numbered lists, and emojis
@@ -326,18 +392,78 @@ function MessageContent({
           </button>
         )}
         
-        {/* Copy Button */}
-        <button
-          onClick={handleCopy}
-          className="absolute top-0 right-0 p-2 text-white/40 hover:text-white/70 transition-colors"
-        >
-          {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
-        </button>
+        {/* Action Buttons */}
+        <div className="absolute top-0 right-0 flex items-center gap-1">
+          {/* Copy Button */}
+          <button
+            onClick={handleCopy}
+            className="p-2 text-white/40 hover:text-white/70 transition-colors"
+            title="Copy to clipboard"
+          >
+            {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
+          </button>
+          
+          {/* Export Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="p-2 text-white/40 hover:text-white/70 transition-colors"
+              title="Export document"
+            >
+              <FileDown className="h-4 w-4" />
+            </button>
+            
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 min-w-[160px] py-1">
+                <button
+                  onClick={() => handleExport('pdf')}
+                  disabled={!!exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+                >
+                  {exporting === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-red-400" />}
+                  Export as PDF
+                </button>
+                <button
+                  onClick={() => handleExport('docx')}
+                  disabled={!!exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+                >
+                  {exporting === 'docx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-blue-400" />}
+                  Export as Word
+                </button>
+                <button
+                  onClick={() => handleExport('xlsx')}
+                  disabled={!!exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+                >
+                  {exporting === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-green-400" />}
+                  Export as Excel
+                </button>
+                <button
+                  onClick={() => handleExport('pptx')}
+                  disabled={!!exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+                >
+                  {exporting === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4 text-orange-400" />}
+                  Export as PowerPoint
+                </button>
+                <button
+                  onClick={() => handleExport('markdown')}
+                  disabled={!!exporting}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+                >
+                  {exporting === 'markdown' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-white/60" />}
+                  Export as Markdown
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-      
+
       {/* Sources */}
       {sources.length > 0 && (
-        <div className="pt-3 border-t border-white/[0.08]">
+        <div className="mt-4 pt-4 border-t border-white/10">
           <p className="text-xs font-medium text-white/50 mb-2">Sources ({sources.length})</p>
           <div className="flex flex-wrap gap-2">
             {sources.map((source, i) => (
@@ -346,26 +472,27 @@ function MessageContent({
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-[#177b57]/10 border border-white/[0.08] hover:border-[#177b57]/30 text-xs text-white/70 hover:text-white transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#177b57]/10 border border-white/10 hover:border-[#177b57]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
               >
-                <ExternalLink className="h-3 w-3" />
-                <span className="max-w-[150px] truncate">{source.title}</span>
+                <Globe className="h-3 w-3" />
+                <span className="truncate max-w-[150px]">{source.title}</span>
+                <ExternalLink className="h-3 w-3 flex-shrink-0" />
               </a>
             ))}
           </div>
         </div>
       )}
-      
+
       {/* Follow-up Questions */}
       {followUpQuestions.length > 0 && (
-        <div className="pt-3 border-t border-white/[0.08]">
+        <div className="mt-4 pt-4 border-t border-white/10">
           <p className="text-xs font-medium text-white/50 mb-2">Continue exploring</p>
-          <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
             {followUpQuestions.map((question, i) => (
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-[#177b57]/10 border border-white/[0.06] hover:border-[#177b57]/30 text-sm text-white/70 hover:text-white/90 transition-all"
+                className="px-3 py-1.5 bg-white/5 hover:bg-[#177b57]/10 border border-white/10 hover:border-[#177b57]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
               >
                 {question}
               </button>
@@ -378,7 +505,7 @@ function MessageContent({
 }
 
 // =============================================================================
-// Chat Sidebar - Premium bubble styling with green hover
+// Chat Sidebar Component - Premium bubble styling
 // =============================================================================
 
 interface ChatSidebarProps {
@@ -386,8 +513,8 @@ interface ChatSidebarProps {
   currentConversation: Conversation | null;
   isOpen: boolean;
   onToggle: () => void;
-  onSelectConversation: (conversation: Conversation) => void;
-  onDeleteConversation: (conversationId: string) => void;
+  onSelectConversation: (conv: Conversation) => void;
+  onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
 }
 
@@ -597,39 +724,41 @@ function ChatSidebar({
 function DomainTabs() {
   const { currentSector, setSector } = useSector();
   
-  const handleDomainClick = (sectorId: string) => {
-    setSector(sectorId as any);
+  const handleDomainClick = (sectorId: Sector) => {
+    setSector(sectorId);
   };
-  
+
   return (
-    <nav className="flex items-center gap-0.5 flex-wrap justify-center">
+    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
       {SECTORS.map((sector) => (
         <button
           key={sector.id}
           onClick={() => handleDomainClick(sector.id)}
           className={cn(
-            "domain-tab",
-            currentSector === sector.id && "domain-tab-active"
+            "px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all whitespace-nowrap",
+            currentSector === sector.id
+              ? "text-white bg-[#177b57]/20 shadow-[0_0_10px_rgba(23,123,87,0.3)]"
+              : "text-white/60 hover:text-white hover:bg-white/[0.05]"
           )}
         >
           {sector.label}
         </button>
       ))}
-    </nav>
+    </div>
   );
 }
 
 // =============================================================================
-// Profile Dropdown - Updated with McLeuker green accents
+// Profile Dropdown Component
 // =============================================================================
 
 function ProfileDropdown() {
-  const router = useRouter();
   const { user, signOut } = useAuth();
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState<{ name: string | null; profile_image: string | null } | null>(null);
   const [creditBalance, setCreditBalance] = useState(50);
   const [plan, setPlan] = useState('free');
-  const [userProfile, setUserProfile] = useState<{ name: string | null; profile_image: string | null } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -642,11 +771,10 @@ function ProfileDropdown() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch user profile and credits
   useEffect(() => {
+    if (!user) return;
+    
     const fetchUserData = async () => {
-      if (!user) return;
-      
       const { data } = await supabase
         .from("users")
         .select("name, profile_image, credit_balance, subscription_plan")
@@ -791,15 +919,19 @@ function ProfileDropdown() {
 }
 
 // =============================================================================
-// File Upload Button Component
+// File Upload Button Component - FIXED: Actually uploads files
 // =============================================================================
 
 function FileUploadButton({ 
   onFileSelect,
-  onOpenImageGenerator 
+  onOpenImageGenerator,
+  attachedFiles,
+  onRemoveFile
 }: { 
   onFileSelect: (file: File) => void;
   onOpenImageGenerator: () => void;
+  attachedFiles: AttachedFile[];
+  onRemoveFile: (index: number) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -820,6 +952,8 @@ function FileUploadButton({
     if (file) {
       onFileSelect(file);
       setIsOpen(false);
+      // Reset input so same file can be selected again
+      e.target.value = '';
     }
   };
 
@@ -831,10 +965,16 @@ function FileUploadButton({
           "h-10 w-10 rounded-xl flex items-center justify-center transition-all",
           "bg-white/[0.05] text-white/50 hover:text-white hover:bg-[#177b57]/10 hover:border-[#177b57]/30",
           "border border-white/[0.08]",
-          isOpen && "bg-[#177b57]/10 text-white border-[#177b57]/30"
+          isOpen && "bg-[#177b57]/10 text-white border-[#177b57]/30",
+          attachedFiles.length > 0 && "bg-[#177b57]/20 border-[#177b57]/40"
         )}
       >
         <Plus className="w-5 h-5" />
+        {attachedFiles.length > 0 && (
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#177b57] text-white text-[10px] rounded-full flex items-center justify-center">
+            {attachedFiles.length}
+          </span>
+        )}
       </button>
 
       {isOpen && (
@@ -864,8 +1004,275 @@ function FileUploadButton({
         type="file"
         onChange={handleFileChange}
         className="hidden"
-        accept="image/*,.pdf,.doc,.docx,.txt"
+        accept="image/*,.pdf,.doc,.docx,.txt,.xlsx,.xls,.pptx,.ppt,.csv"
       />
+    </div>
+  );
+}
+
+// =============================================================================
+// Attached Files Display Component
+// =============================================================================
+
+function AttachedFilesDisplay({ 
+  files, 
+  onRemove 
+}: { 
+  files: AttachedFile[]; 
+  onRemove: (index: number) => void;
+}) {
+  if (files.length === 0) return null;
+
+  const getFileIcon = (type: string) => {
+    if (type.startsWith('image/')) return <ImageIcon className="w-4 h-4" />;
+    if (type.includes('pdf')) return <FileText className="w-4 h-4 text-red-400" />;
+    if (type.includes('word') || type.includes('doc')) return <FileText className="w-4 h-4 text-blue-400" />;
+    if (type.includes('excel') || type.includes('sheet') || type.includes('csv')) return <FileText className="w-4 h-4 text-green-400" />;
+    if (type.includes('presentation') || type.includes('powerpoint')) return <FileText className="w-4 h-4 text-orange-400" />;
+    return <File className="w-4 h-4" />;
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="flex flex-wrap gap-2 mb-2">
+      {files.map((file, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg group"
+        >
+          {getFileIcon(file.type)}
+          <span className="text-xs text-white/70 max-w-[120px] truncate">{file.name}</span>
+          <span className="text-xs text-white/40">{formatFileSize(file.size)}</span>
+          <button
+            onClick={() => onRemove(index)}
+            className="text-white/40 hover:text-red-400 transition-colors"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// =============================================================================
+// Image Generation Modal Component
+// =============================================================================
+
+function ImageGenerationModal({
+  isOpen,
+  onClose,
+  onImageGenerated
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onImageGenerated: (imageUrl: string) => void;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const [style, setStyle] = useState('fashion');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const styles = [
+    { id: 'fashion', label: 'Fashion' },
+    { id: 'streetwear', label: 'Streetwear' },
+    { id: 'minimalist', label: 'Minimalist' },
+    { id: 'luxury', label: 'Luxury' },
+    { id: 'sustainable', label: 'Sustainable' },
+    { id: 'avant-garde', label: 'Avant-Garde' },
+  ];
+
+  const handleGenerate = async () => {
+    if (!prompt.trim() || isGenerating) return;
+    
+    setIsGenerating(true);
+    setError(null);
+    setGeneratedImage(null);
+    
+    try {
+      const response = await fetch(`${API_URL}/api/image/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: prompt,
+          style: style,
+          width: 1024,
+          height: 1024
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.detail || data.error || 'Image generation failed');
+      }
+      
+      if (data.success && data.image_url) {
+        setGeneratedImage(data.image_url);
+      } else {
+        throw new Error('No image generated');
+      }
+    } catch (err) {
+      console.error('Image generation error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate image');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleUseImage = () => {
+    if (generatedImage) {
+      onImageGenerated(generatedImage);
+      onClose();
+      setPrompt('');
+      setGeneratedImage(null);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!generatedImage) return;
+    
+    try {
+      const response = await fetch(generatedImage);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mcleuker-ai-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download error:', err);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-[#1A1A1A] border border-white/[0.08] rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
+              <ImageIcon className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-white">Generate Image</h3>
+              <p className="text-xs text-white/50">Powered by AI</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-white/50 hover:text-white transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 space-y-4">
+          {/* Style Selection */}
+          <div>
+            <label className="text-sm text-white/70 mb-2 block">Style</label>
+            <div className="flex flex-wrap gap-2">
+              {styles.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setStyle(s.id)}
+                  className={cn(
+                    "px-3 py-1.5 text-sm rounded-lg border transition-all",
+                    style === s.id
+                      ? "bg-[#177b57]/20 border-[#177b57] text-white"
+                      : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:border-white/20"
+                  )}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Prompt Input */}
+          <div>
+            <label className="text-sm text-white/70 mb-2 block">Prompt</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe the image you want to generate..."
+              className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:border-[#177b57]/50 focus:outline-none resize-none"
+            />
+          </div>
+
+          {/* Error Display */}
+          {error && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
+
+          {/* Generated Image Preview */}
+          {generatedImage && (
+            <div className="space-y-3">
+              <img
+                src={generatedImage}
+                alt="Generated"
+                className="w-full rounded-lg border border-white/10"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDownload}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white/70 hover:text-white transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Download
+                </button>
+                <button
+                  onClick={handleUseImage}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#177b57] hover:bg-[#1a8a62] text-white rounded-lg transition-colors"
+                >
+                  <Check className="w-4 h-4" />
+                  Use Image
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Generate Button */}
+          {!generatedImage && (
+            <button
+              onClick={handleGenerate}
+              disabled={!prompt.trim() || isGenerating}
+              className={cn(
+                "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all",
+                prompt.trim() && !isGenerating
+                  ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                  : "bg-white/5 text-white/30 cursor-not-allowed"
+              )}
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Generate Image (3 credits)
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -900,13 +1307,16 @@ function DashboardContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creditBalance, setCreditBalance] = useState(50);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
-  const [imageGeneratorPrompt, setImageGeneratorPrompt] = useState('');
-  const [imageGeneratorStyle, setImageGeneratorStyle] = useState('fashion');
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const currentConversationIdRef = useRef<string | null>(null);
+
+  // Track current conversation ID for abort handling
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversation?.id || null;
+  }, [currentConversation]);
 
   // Load conversations on mount
   useEffect(() => {
@@ -941,60 +1351,61 @@ function DashboardContent() {
     }));
   };
 
-  // Handle file upload
-  const handleFileSelect = (file: File) => {
-    console.log('File selected:', file.name);
-    setInput(prev => prev + `\n[Attached: ${file.name}]`);
-  };
-
-  // Handle image generation
-  const handleGenerateImage = async () => {
-    if (!imageGeneratorPrompt.trim() || isGeneratingImage) return;
-    
-    setIsGeneratingImage(true);
-    setGeneratedImage(null);
-    
+  // Handle file upload - FIXED: Actually reads and stores file
+  const handleFileSelect = async (file: File) => {
     try {
-      const response = await fetch(`${API_URL}/api/image/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: imageGeneratorPrompt,
-          style: imageGeneratorStyle,
-          width: 1024,
-          height: 1024
-        })
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Image generation failed');
-      }
-      
-      const data = await response.json();
-      
-      if (data.success && data.image_url) {
-        setGeneratedImage(data.image_url);
-        // Deduct credits
-        setCreditBalance(prev => Math.max(0, prev - 3));
-      } else {
-        throw new Error('No image generated');
-      }
+      // Read file as base64 for sending to backend
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        const newFile: AttachedFile = {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          base64: base64
+        };
+        setAttachedFiles(prev => [...prev, newFile]);
+      };
+      reader.readAsDataURL(file);
     } catch (error) {
-      console.error('Image generation error:', error);
-      alert(error instanceof Error ? error.message : 'Failed to generate image');
-    } finally {
-      setIsGeneratingImage(false);
+      console.error('Error reading file:', error);
+      alert('Failed to attach file. Please try again.');
     }
   };
 
-  // Send message with chat history saving
+  // Remove attached file
+  const handleRemoveFile = (index: number) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle image generated from modal
+  const handleImageGenerated = (imageUrl: string) => {
+    // Add the generated image as an attached file
+    const newFile: AttachedFile = {
+      name: 'generated-image.png',
+      type: 'image/png',
+      size: 0,
+      url: imageUrl
+    };
+    setAttachedFiles(prev => [...prev, newFile]);
+  };
+
+  // Send message with chat history saving - FIXED: Proper abort handling
   const handleSendMessage = async (overrideMessage?: string) => {
     const messageText = overrideMessage || input.trim();
     if (!messageText || isStreaming) return;
 
+    // Cancel any existing stream
+    if (globalAbortController) {
+      globalAbortController.abort();
+    }
+    globalAbortController = new AbortController();
+    const currentAbortController = globalAbortController;
+
     setInput('');
     setIsStreaming(true);
+    const currentFiles = [...attachedFiles];
+    setAttachedFiles([]);
 
     // Create or get conversation
     let conversationId = currentConversation?.id;
@@ -1005,7 +1416,10 @@ function DashboardContent() {
       }
     }
 
-    // Add user message
+    // Store conversation ID for this request
+    const requestConversationId = conversationId;
+
+    // Add user message with attached files
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -1015,6 +1429,7 @@ function DashboardContent() {
       follow_up_questions: [],
       timestamp: new Date(),
       isStreaming: false,
+      attachedFiles: currentFiles.length > 0 ? currentFiles : undefined,
     };
     setMessages(prev => [...prev, userMessage]);
 
@@ -1061,7 +1476,14 @@ function DashboardContent() {
           message: messageText,
           mode: searchMode,
           sector: currentSector === 'all' ? null : currentSector,
+          files: currentFiles.length > 0 ? currentFiles.map(f => ({
+            name: f.name,
+            type: f.type,
+            base64: f.base64,
+            url: f.url
+          })) : undefined,
         }),
+        signal: currentAbortController.signal,
       });
 
       if (!response.ok) throw new Error('API error');
@@ -1071,6 +1493,11 @@ function DashboardContent() {
 
       if (reader) {
         while (true) {
+          // Check if aborted
+          if (currentAbortController.signal.aborted) {
+            break;
+          }
+
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -1179,14 +1606,14 @@ function DashboardContent() {
                 setCreditBalance(prev => Math.max(0, prev - creditsUsed));
 
                 // Save assistant message to database
-                if (conversationId && user) {
+                if (requestConversationId && user) {
                   try {
                     await supabase.from('chat_messages').insert({
-                      conversation_id: conversationId,
+                      conversation_id: requestConversationId,
                       user_id: user.id,
                       role: 'assistant',
                       content: finalContent,
-                      model_used: 'grok-3',
+                      model_used: 'grok-4',
                       credits_used: creditsUsed,
                       sources: eventData.sources || currentSources,
                       follow_up_questions: followUpQuestions,
@@ -1194,7 +1621,7 @@ function DashboardContent() {
                     
                     // Update conversation title if it's a new conversation
                     if (messages.length === 0) {
-                      await updateConversationTitle(conversationId, messageText.slice(0, 50));
+                      await updateConversationTitle(requestConversationId, messageText.slice(0, 50));
                     }
                   } catch (e) {
                     console.error('Error saving assistant message:', e);
@@ -1213,6 +1640,12 @@ function DashboardContent() {
         }
       }
     } catch (error) {
+      // Don't show error if aborted intentionally
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Request aborted');
+        return;
+      }
+      
       console.error('Error:', error);
       
       setMessages(prev => prev.map(m =>
@@ -1226,15 +1659,39 @@ function DashboardContent() {
       ));
     } finally {
       setIsStreaming(false);
+      if (globalAbortController === currentAbortController) {
+        globalAbortController = null;
+      }
     }
   };
 
   const handleNewChat = () => {
+    // Abort any ongoing stream
+    if (globalAbortController) {
+      globalAbortController.abort();
+      globalAbortController = null;
+    }
     setMessages([]);
+    setIsStreaming(false);
     startNewChat();
   };
 
   const handleSelectConversation = async (conv: Conversation) => {
+    // Warn user if streaming is in progress
+    if (isStreaming) {
+      const confirmed = window.confirm(
+        'A response is currently being generated. Switching conversations will stop the generation. Continue?'
+      );
+      if (!confirmed) return;
+      
+      // Abort the stream if user confirms
+      if (globalAbortController) {
+        globalAbortController.abort();
+        globalAbortController = null;
+      }
+      setIsStreaming(false);
+    }
+    
     await selectConversation(conv);
     // Load messages for this conversation
     const { data, error } = await supabase
@@ -1348,158 +1805,83 @@ function DashboardContent() {
                         i % 4 === 0 && "mcleuker-bubble-v1",
                         i % 4 === 1 && "mcleuker-bubble-v2",
                         i % 4 === 2 && "mcleuker-bubble-v3",
-                        i % 4 === 3 && "mcleuker-bubble-v4",
-                        "text-white/70 hover:text-white/90"
+                        i % 4 === 3 && "mcleuker-bubble-v4"
                       )}
                     >
-                      <span className="relative z-10">{question}</span>
+                      <p className="text-sm text-white/80">{question}</p>
                     </button>
                   ))}
                 </div>
-
-                {/* Input Area for State A - Green ombre, centered */}
-                <div className="w-full max-w-xl space-y-3">
-                  {/* Quick/Deep Toggle - Centered */}
-                  <div className="flex items-center justify-center gap-2">
-                    <button
-                      onClick={() => setSearchMode('quick')}
-                      disabled={isStreaming}
-                      className={cn(
-                        "flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all",
-                        searchMode === 'quick'
-                          ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
-                          : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
-                      )}
-                    >
-                      <Zap className="h-3.5 w-3.5" />
-                      Quick
-                      <span className="text-white/50 ml-1">2</span>
-                    </button>
-                    <button
-                      onClick={() => setSearchMode('deep')}
-                      disabled={isStreaming}
-                      className={cn(
-                        "flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-medium transition-all",
-                        searchMode === 'deep'
-                          ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
-                          : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
-                      )}
-                    >
-                      <Brain className="h-3.5 w-3.5" />
-                      Deep
-                      <span className="text-white/50 ml-1">5</span>
-                    </button>
-                  </div>
-
-                  {/* Input with Plus button left, Send inside right */}
-                  <div className="relative flex items-center gap-3">
-                    {/* Plus Button - Left of input */}
-                    <FileUploadButton onFileSelect={handleFileSelect} onOpenImageGenerator={() => setShowImageGenerator(true)} />
-                    
-                    {/* Input Bubble - Green ombre for State A */}
-                    <div className="flex-1 relative">
-                      <textarea
-                        ref={textareaRef}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Ask me anything..."
-                        disabled={isStreaming}
-                        className={cn(
-                          "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
-                          "rounded-xl mcleuker-green-input",
-                          "text-white placeholder:text-white/40",
-                          "focus:outline-none",
-                          "resize-none transition-all",
-                          isStreaming && "opacity-50 cursor-not-allowed"
-                        )}
-                        rows={1}
-                      />
-                      {/* Send Button - Inside right */}
-                      <button
-                        onClick={() => handleSendMessage()}
-                        disabled={!input.trim() || isStreaming}
-                        className={cn(
-                          "absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-                          input.trim() && !isStreaming
-                            ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
-                            : "bg-white/[0.08] text-white/40"
-                        )}
-                      >
-                        {isStreaming ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Send className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {/* Credits Badge - Centered */}
-                  <div className="flex items-center justify-center">
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/[0.08]">
-                      <Coins className="h-3.5 w-3.5 text-[#4ade80]" />
-                      <span className="text-xs font-medium text-white/80">{creditBalance}</span>
-                    </div>
-                  </div>
-                  
-                  <p className="text-xs text-white/30 text-center">
-                    Press Enter to send • Shift + Enter for new line
-                  </p>
-                </div>
               </div>
             ) : (
-              /* STATE B: Active Chat - Messages */
+              /* STATE B: Chat Messages */
               <div className="space-y-6">
-                {messages.map(message => (
-                  <div key={message.id} className={cn(
-                    "flex",
-                    message.role === 'user' ? "justify-end" : "justify-start"
-                  )}>
+                {messages.map((message, index) => (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "flex",
+                      message.role === 'user' ? "justify-end" : "justify-start"
+                    )}
+                  >
                     <div className={cn(
                       "max-w-[85%]",
-                      message.role === 'user'
-                        ? "mcleuker-user-bubble px-4 py-3 rounded-2xl mr-2"
-                        : "bg-[#111111] border border-white/[0.08] p-4 rounded-xl ml-2"
+                      message.role === 'user' 
+                        ? "mcleuker-user-bubble rounded-2xl rounded-tr-md px-4 py-3"
+                        : "bg-[#141414] rounded-xl rounded-tl-md px-4 py-3"
                     )}>
-                      {message.role === 'user' ? (
-                        <p className="text-white">{message.content}</p>
-                      ) : (
-                        <div className="space-y-4">
-                          {/* Multi-Layer Reasoning - Expandable */}
+                      {/* User message with attached files */}
+                      {message.role === 'user' && (
+                        <div>
+                          {message.attachedFiles && message.attachedFiles.length > 0 && (
+                            <div className="mb-2 flex flex-wrap gap-2">
+                              {message.attachedFiles.map((file, i) => (
+                                <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-white/10 rounded text-xs text-white/70">
+                                  <Paperclip className="w-3 h-3" />
+                                  {file.name}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <p className="text-white text-sm leading-relaxed">{message.content}</p>
+                        </div>
+                      )}
+                      
+                      {/* Assistant message */}
+                      {message.role === 'assistant' && (
+                        <div className="space-y-3">
+                          {/* Reasoning Layers */}
                           {message.reasoning_layers.length > 0 && (
-                            <div className="space-y-1 pb-4 border-b border-white/[0.08]">
-                              <div className="flex items-center gap-2 mb-3">
-                                <Brain className="h-4 w-4 text-[#177b57]" />
-                                <span className="text-sm font-medium text-white/70">
-                                  {message.isStreaming ? 'Reasoning...' : `Reasoning (${message.reasoning_layers.length} layers)`}
-                                </span>
-                              </div>
-                              {message.reasoning_layers.map((layer, i) => (
-                                <ReasoningLayerItem 
-                                  key={layer.id} 
-                                  layer={layer} 
-                                  isLatest={i === message.reasoning_layers.length - 1}
+                            <div className="space-y-1 mb-4">
+                              <p className="text-xs text-white/40 mb-2">Reasoning...</p>
+                              {message.reasoning_layers.map((layer, layerIndex) => (
+                                <ReasoningLayerItem
+                                  key={layer.id}
+                                  layer={layer}
+                                  isLatest={layerIndex === message.reasoning_layers.length - 1}
                                   onToggleExpand={() => toggleLayerExpand(message.id, layer.id)}
                                 />
                               ))}
                             </div>
                           )}
                           
-                          {/* Response Content */}
-                          {message.content ? (
-                            <MessageContent 
-                              content={message.content} 
+                          {/* Streaming indicator */}
+                          {message.isStreaming && !message.content && (
+                            <div className="flex items-center gap-2 text-white/50">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <span className="text-sm">Thinking...</span>
+                            </div>
+                          )}
+                          
+                          {/* Content */}
+                          {message.content && (
+                            <MessageContent
+                              content={message.content}
                               sources={message.sources}
                               followUpQuestions={message.follow_up_questions}
-                              onFollowUpClick={(q) => handleSendMessage(q)}
+                              onFollowUpClick={handleSendMessage}
                             />
-                          ) : message.isStreaming ? (
-                            <div className="flex items-center gap-2 text-white/50">
-                              <Loader2 className="h-4 w-4 animate-spin text-[#177b57]" />
-                              <span className="text-sm">Generating response...</span>
-                            </div>
-                          ) : null}
+                          )}
                         </div>
                       )}
                     </div>
@@ -1511,214 +1893,118 @@ function DashboardContent() {
           </div>
         </div>
 
-        {/* STATE B: Input Area - Black input after first message */}
-        {messages.length > 0 && (
-          <div className="border-t border-white/[0.08] p-4 bg-[#0A0A0A]">
-            <div className="max-w-3xl mx-auto space-y-3">
-              {/* Mode Toggle & Credits - Centered */}
-              <div className="flex items-center justify-center gap-4">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSearchMode('quick')}
-                    disabled={isStreaming}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                      searchMode === 'quick'
-                        ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
-                        : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
-                    )}
-                  >
-                    <Zap className="h-3.5 w-3.5" />
-                    Quick
-                    <span className="text-white/50 ml-1">2</span>
-                  </button>
-                  <button
-                    onClick={() => setSearchMode('deep')}
-                    disabled={isStreaming}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                      searchMode === 'deep'
-                        ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
-                        : "text-white/60 hover:text-white bg-white/5 hover:bg-[#177b57]/10"
-                    )}
-                  >
-                    <Brain className="h-3.5 w-3.5" />
-                    Deep
-                    <span className="text-white/50 ml-1">5</span>
-                  </button>
-                </div>
-                
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/[0.08]">
-                  <Coins className="h-3.5 w-3.5 text-[#4ade80]" />
-                  <span className="text-xs font-medium text-white/80">{creditBalance}</span>
-                </div>
+        {/* Input Area - Fixed at bottom */}
+        <div className="sticky bottom-0 bg-gradient-to-t from-[#070707] via-[#070707] to-transparent pt-6 pb-4">
+          <div className="max-w-3xl mx-auto px-4">
+            {/* Attached Files Display */}
+            <AttachedFilesDisplay 
+              files={attachedFiles} 
+              onRemove={handleRemoveFile} 
+            />
+            
+            {/* Quick/Deep Mode Toggle - Centered */}
+            <div className="flex justify-center mb-3">
+              <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
+                <button
+                  onClick={() => setSearchMode('quick')}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                    searchMode === 'quick'
+                      ? "bg-[#177b57]/20 text-white shadow-[0_0_10px_rgba(23,123,87,0.2)]"
+                      : "text-white/50 hover:text-white/70"
+                  )}
+                >
+                  <Zap className="h-3 w-3" />
+                  Quick
+                  <span className="text-white/40">2</span>
+                </button>
+                <button
+                  onClick={() => setSearchMode('deep')}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                    searchMode === 'deep'
+                      ? "bg-[#177b57]/20 text-white shadow-[0_0_10px_rgba(23,123,87,0.2)]"
+                      : "text-white/50 hover:text-white/70"
+                  )}
+                >
+                  <Brain className="h-3 w-3" />
+                  Deep
+                  <span className="text-white/40">5</span>
+                </button>
               </div>
-
-              {/* Input with File Upload - Black input for State B */}
-              <div className="relative flex items-center gap-3">
-                <FileUploadButton onFileSelect={handleFileSelect} onOpenImageGenerator={() => setShowImageGenerator(true)} />
-                
-                <div className="flex-1 relative">
-                  <textarea
-                    ref={textareaRef}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Ask me anything..."
-                    disabled={isStreaming}
-                    className={cn(
-                      "w-full min-h-[52px] max-h-[200px] px-4 py-3 pr-12",
-                      "rounded-xl bg-[#111111] border border-white/[0.10]",
-                      "text-white placeholder:text-white/40",
-                      "focus:border-[#177b57]/40 focus:outline-none focus:ring-1 focus:ring-[#177b57]/20",
-                      "resize-none transition-all",
-                      isStreaming && "opacity-50 cursor-not-allowed"
-                    )}
-                    rows={1}
-                  />
-                  <button
-                    onClick={() => handleSendMessage()}
-                    disabled={!input.trim() || isStreaming}
-                    className={cn(
-                      "absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-                      input.trim() && !isStreaming
-                        ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
-                        : "bg-white/[0.08] text-white/40"
-                    )}
-                  >
-                    {isStreaming ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
+            </div>
+            
+            {/* Input Container */}
+            <div className={cn(
+              "flex items-end gap-2 p-2 rounded-2xl border transition-all",
+              messages.length === 0
+                ? "mcleuker-input-bubble"
+                : "bg-[#141414] border-white/[0.08]"
+            )}>
+              {/* Plus Button */}
+              <FileUploadButton
+                onFileSelect={handleFileSelect}
+                onOpenImageGenerator={() => setShowImageGenerator(true)}
+                attachedFiles={attachedFiles}
+                onRemoveFile={handleRemoveFile}
+              />
               
-              <p className="text-xs text-white/30 text-center">
+              {/* Text Input */}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask me anything..."
+                rows={1}
+                className={cn(
+                  "flex-1 bg-transparent text-white placeholder:text-white/30 resize-none",
+                  "focus:outline-none text-sm leading-relaxed py-2.5 px-2",
+                  "max-h-[200px]"
+                )}
+              />
+              
+              {/* Send Button */}
+              <button
+                onClick={() => handleSendMessage()}
+                disabled={!input.trim() || isStreaming}
+                className={cn(
+                  "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                  input.trim() && !isStreaming
+                    ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                    : "bg-white/[0.05] text-white/30"
+                )}
+              >
+                {isStreaming ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+            
+            {/* Helper Text */}
+            <div className="flex items-center justify-center gap-4 mt-2">
+              <p className="text-[10px] text-white/30">
                 Press Enter to send • Shift + Enter for new line
               </p>
             </div>
           </div>
-        )}
+        </div>
       </main>
 
-      {/* Image Generator Modal */}
-      {showImageGenerator && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#111111] border border-white/[0.08] rounded-2xl w-full max-w-2xl mx-4 overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
-                  <ImageIcon className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Generate Image</h2>
-                  <p className="text-sm text-white/50">Powered by Nano Banana AI</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setShowImageGenerator(false);
-                  setGeneratedImage(null);
-                  setImageGeneratorPrompt('');
-                }}
-                className="h-8 w-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 space-y-4">
-              {/* Style Selector */}
-              <div>
-                <label className="block text-sm font-medium text-white/70 mb-2">Style</label>
-                <div className="flex flex-wrap gap-2">
-                  {['fashion', 'streetwear', 'minimalist', 'luxury', 'sustainable', 'avant-garde'].map(style => (
-                    <button
-                      key={style}
-                      onClick={() => setImageGeneratorStyle(style)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-sm capitalize transition-all",
-                        imageGeneratorStyle === style
-                          ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white"
-                          : "bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
-                      )}
-                    >
-                      {style}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Prompt Input */}
-              <div>
-                <label className="block text-sm font-medium text-white/70 mb-2">Prompt</label>
-                <textarea
-                  value={imageGeneratorPrompt}
-                  onChange={(e) => setImageGeneratorPrompt(e.target.value)}
-                  placeholder="Describe the image you want to generate..."
-                  className="w-full h-24 px-4 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-white placeholder:text-white/40 focus:outline-none focus:border-[#177b57]/50 resize-none"
-                />
-              </div>
-
-              {/* Generated Image Preview */}
-              {generatedImage && (
-                <div className="relative rounded-xl overflow-hidden border border-white/[0.08]">
-                  <img
-                    src={generatedImage}
-                    alt="Generated image"
-                    className="w-full h-auto"
-                  />
-                  <div className="absolute bottom-4 right-4 flex gap-2">
-                    <a
-                      href={generatedImage}
-                      download="mcleuker-generated-image.png"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur-sm text-white text-sm hover:bg-black/70 transition-colors"
-                    >
-                      Download
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {/* Generate Button */}
-              <button
-                onClick={handleGenerateImage}
-                disabled={!imageGeneratorPrompt.trim() || isGeneratingImage}
-                className={cn(
-                  "w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
-                  imageGeneratorPrompt.trim() && !isGeneratingImage
-                    ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
-                    : "bg-white/5 text-white/40 cursor-not-allowed"
-                )}
-              >
-                {isGeneratingImage ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4" />
-                    Generate Image (3 credits)
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Image Generation Modal */}
+      <ImageGenerationModal
+        isOpen={showImageGenerator}
+        onClose={() => setShowImageGenerator(false)}
+        onImageGenerated={handleImageGenerated}
+      />
     </div>
   );
 }
 
 // =============================================================================
-// Export
+// Protected Dashboard Page
 // =============================================================================
 
 export default function DashboardPage() {

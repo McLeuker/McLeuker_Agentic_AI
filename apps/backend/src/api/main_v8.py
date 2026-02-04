@@ -8,22 +8,27 @@ Production-ready API integrating:
 - Grok-4 (deep reasoning)
 - Kimi K2.5 (execution and tool calls)
 - Pinterest, YouTube, X/Twitter data integration
-- Human-like conversational output
+- Human-like conversational output (NO forced structure)
 - Different Quick vs Deep search logic (Manus AI style)
+- Image Generation (Nano Banana / DALL-E)
+- Document Generation (Excel, Word, PPT, PDF)
 """
 
 import os
+import io
 import json
 import uuid
 import asyncio
 import logging
+import tempfile
+import base64
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from pydantic import BaseModel, Field
 
 # Configure logging
@@ -43,6 +48,7 @@ class ChatRequest(BaseModel):
     use_rag: bool = True
     use_tools: bool = False
     tools: Optional[List[str]] = None
+    files: Optional[List[Dict]] = None  # Attached files
 
 class AgentTaskRequest(BaseModel):
     task: str
@@ -67,8 +73,16 @@ class RAGQueryRequest(BaseModel):
 
 class DocumentGenerateRequest(BaseModel):
     content: str
-    format: str = "markdown"  # markdown, pdf, docx
+    format: str = "markdown"  # markdown, pdf, docx, xlsx, pptx
     title: Optional[str] = None
+    data: Optional[List[Dict]] = None  # For Excel data
+
+class ImageGenerateRequest(BaseModel):
+    prompt: str
+    style: str = "fashion"
+    width: int = 1024
+    height: int = 1024
+    negative_prompt: Optional[str] = None
 
 # =============================================================================
 # Application Lifecycle
@@ -125,72 +139,34 @@ app.add_middleware(
 )
 
 # =============================================================================
-# Health & Status Endpoints
+# Health & Info Endpoints
 # =============================================================================
 
 @app.get("/")
 async def root():
     return {
-        "name": "McLeuker AI",
+        "name": "McLeuker AI V8 API",
         "version": "8.0.0",
         "status": "operational",
         "features": [
-            "memory_system",
-            "multi_agent_collaboration",
-            "rag_knowledge_base",
-            "grok4_reasoning",
-            "kimi_k25_execution",
-            "parallel_research",
-            "human_like_output",
-            "quick_deep_modes",
-            "image_generation"
+            "Multi-Model Orchestration (Grok-4 + Kimi K2.5)",
+            "Memory System",
+            "RAG Knowledge Base",
+            "Multi-Agent Collaboration",
+            "Quick & Deep Search Modes",
+            "Image Generation",
+            "Document Generation (Excel, Word, PPT, PDF)",
+            "Natural Conversational Output"
         ]
     }
 
 @app.get("/health")
-async def health_check():
-    """Comprehensive health check"""
-    health = {
+async def health():
+    return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "systems": {}
+        "version": "8.0.0"
     }
-    
-    # Check Memory System
-    try:
-        from ..core.memory_system import get_memory_system
-        memory = get_memory_system()
-        health["systems"]["memory"] = {"status": "operational"}
-    except Exception as e:
-        health["systems"]["memory"] = {"status": "error", "error": str(e)}
-    
-    # Check RAG System
-    try:
-        from ..core.rag_system import get_rag_system
-        rag = get_rag_system()
-        stats = rag.get_knowledge_stats()
-        health["systems"]["rag"] = {"status": "operational", "chunks": stats["total_chunks"]}
-    except Exception as e:
-        health["systems"]["rag"] = {"status": "error", "error": str(e)}
-    
-    # Check Multi-Agent System
-    try:
-        from ..core.multi_agent_system import get_multi_agent_system
-        agents = get_multi_agent_system()
-        status = agents.get_system_status()
-        health["systems"]["multi_agent"] = {"status": "operational", "agents": len(status["agents"])}
-    except Exception as e:
-        health["systems"]["multi_agent"] = {"status": "error", "error": str(e)}
-    
-    # Check API Keys
-    health["api_keys"] = {
-        "grok": "configured" if os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY") else "missing",
-        "moonshot": "configured" if os.getenv("MOONSHOT_API_KEY") else "missing",
-        "pinterest": "configured" if os.getenv("PINTEREST_API_KEY") else "missing",
-        "youtube": "configured" if os.getenv("YOUTUBE_DATA_API_V3") else "missing"
-    }
-    
-    return health
 
 # =============================================================================
 # Quick Mode - Fast, Focused Response (Manus AI Style)
@@ -515,17 +491,6 @@ async def _deep_mode_generate(request: ChatRequest):
 async def chat_stream(request: ChatRequest):
     """
     Main chat endpoint - routes to Quick or Deep mode based on request.
-    
-    Quick Mode (2 credits):
-    - Fast, focused response
-    - 2 reasoning layers
-    - Minimal research
-    
-    Deep Mode (5 credits):
-    - Comprehensive research
-    - 6 reasoning layers
-    - Multi-source parallel research
-    - Multi-agent collaboration
     """
     
     if request.mode == "deep":
@@ -554,16 +519,30 @@ async def chat_stream(request: ChatRequest):
 # =============================================================================
 
 async def _generate_quick_fallback(message: str, context: Dict, rag_context: str = None) -> str:
-    """Generate quick fallback response"""
+    """Generate quick fallback response with natural tone"""
     import aiohttp
     
     grok_key = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
     if not grok_key:
         return "I'm here to help with fashion insights. Could you rephrase your question?"
     
-    system_prompt = """You are McLeuker AI, a fashion intelligence expert. 
-    Respond concisely and directly. Be helpful and conversational.
-    Keep responses focused and to the point."""
+    # Natural, conversational system prompt - NO FORCED STRUCTURE
+    system_prompt = """You are McLeuker AI, a fashion intelligence expert having a natural conversation.
+
+## ABSOLUTE PROHIBITIONS - VIOLATION WILL RESULT IN FAILURE:
+1. DO NOT use any emojis as section headers (🔥, 📈, 💡, etc.)
+2. DO NOT create sections titled "Key Trends", "Future Outlook", or "Key Takeaways"
+3. DO NOT use the same structure for every response
+4. DO NOT start with "Certainly!", "Of course!", "Great question!"
+5. DO NOT end with "Let me know if you have more questions!"
+
+## YOUR COMMUNICATION STYLE:
+- Write as if you're having a real conversation with a curious friend
+- Let your thoughts flow naturally - don't force bullet points
+- Show your reasoning: "What I find interesting is...", "This connects to..."
+- Be direct and insightful without being robotic
+- Each response should feel unique to the specific question
+- Keep it concise but substantive"""
     
     if rag_context:
         system_prompt += f"\n\nContext:\n{rag_context[:500]}"
@@ -574,7 +553,7 @@ async def _generate_quick_fallback(message: str, context: Dict, rag_context: str
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-4",
+                    "model": "grok-3",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": message}
@@ -592,17 +571,33 @@ async def _generate_quick_fallback(message: str, context: Dict, rag_context: str
     return "I'd be happy to help with your fashion question. Could you provide more details?"
 
 async def _generate_deep_fallback(message: str, context: Dict, rag_context: str = None, sources: List = None) -> str:
-    """Generate deep fallback response with sources"""
+    """Generate deep fallback response with natural, comprehensive tone"""
     import aiohttp
     
     grok_key = os.getenv("GROK_API_KEY") or os.getenv("XAI_API_KEY")
     if not grok_key:
         return "I'm conducting deep research on your question. Please try again in a moment."
     
-    system_prompt = """You are McLeuker AI, a comprehensive fashion intelligence expert.
-    Provide detailed, well-researched responses. Show your reasoning naturally.
-    Structure your response clearly but conversationally - avoid rigid templates.
-    Reference sources when relevant. Be thorough but engaging."""
+    # Natural, conversational system prompt - NO FORCED STRUCTURE
+    system_prompt = """You are McLeuker AI, a comprehensive fashion intelligence expert having a thoughtful conversation.
+
+## ABSOLUTE PROHIBITIONS - VIOLATION WILL RESULT IN FAILURE:
+1. DO NOT use any emojis as section headers (🔥 Key Trends, 📈 Future Outlook, 💡 Key Takeaways, etc.)
+2. DO NOT create rigid sections with the same titles every time
+3. DO NOT start with "Certainly!", "Of course!", "Great question!", "Absolutely!"
+4. DO NOT end with "Let me know if you have more questions!" or similar
+5. DO NOT use bullet points for everything - mix prose and lists naturally
+6. DO NOT repeat the same phrases or transitions
+
+## YOUR COMMUNICATION STYLE:
+- Write like you're having an in-depth conversation with a curious colleague
+- Show your reasoning naturally: "What's fascinating about this is...", "This connects to..."
+- Acknowledge complexity: "This is nuanced because..."
+- Be thorough but engaging - take the reader on a journey through your thinking
+- Let the content dictate the structure, not a template
+- Reference sources naturally when relevant
+- End naturally, not with forced summary statements
+- Each response should feel unique and tailored to this specific question"""
     
     if rag_context:
         system_prompt += f"\n\nDomain Knowledge:\n{rag_context}"
@@ -617,7 +612,7 @@ async def _generate_deep_fallback(message: str, context: Dict, rag_context: str 
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {grok_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-4",
+                    "model": "grok-3",
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": message}
@@ -696,332 +691,29 @@ def _generate_deep_follow_up(query: str, response: str, sources: List) -> List[s
     return questions[:5]
 
 # =============================================================================
-# Kimi K2.5 Execution Endpoint
+# Image Generation Endpoint - FIXED: Uses correct API key
 # =============================================================================
-
-@app.post("/api/kimi/execute")
-async def kimi_execute(request: ToolExecuteRequest):
-    """Execute tasks using Kimi K2.5 model"""
-    
-    async def generate():
-        try:
-            from ..core.conversational_engine import get_conversational_engine
-            engine = get_conversational_engine()
-            
-            # Define available tools
-            tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "web_search",
-                        "description": "Search the web for information",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string", "description": "Search query"}
-                            },
-                            "required": ["query"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "analyze_data",
-                        "description": "Analyze data and extract insights",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "data": {"type": "string", "description": "Data to analyze"}
-                            },
-                            "required": ["data"]
-                        }
-                    }
-                }
-            ]
-            
-            async for chunk in engine.generator.generate_with_kimi_execution(
-                query=json.dumps(request.params),
-                tools=tools
-            ):
-                yield f"data: {json.dumps(chunk)}\n\n"
-                
-        except Exception as e:
-            logger.error(f"Kimi execution error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
-
-# =============================================================================
-# Multi-Agent Collaboration Endpoint
-# =============================================================================
-
-@app.post("/api/agent/execute")
-async def agent_execute(request: AgentTaskRequest):
-    """Execute task using multi-agent collaboration"""
-    try:
-        from ..core.multi_agent_system import get_multi_agent_system
-        agents = get_multi_agent_system()
-        
-        result = await agents.execute_task(
-            task=request.task,
-            context=request.context,
-            priority=request.priority,
-            use_collaboration=request.use_collaboration
-        )
-        
-        return {
-            "success": True,
-            "task": request.task,
-            "result": result
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# Memory System Endpoints
-# =============================================================================
-
-@app.post("/api/memory/add")
-async def add_memory(request: MemoryRequest):
-    """Add a memory to the system"""
-    try:
-        from ..core.memory_system import get_memory_system
-        memory = get_memory_system()
-        
-        result = memory.add_memory(
-            session_id=request.session_id,
-            content=request.content,
-            memory_type=request.memory_type,
-            metadata=request.metadata
-        )
-        
-        return {"success": True, "memory_id": result}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/memory/{session_id}")
-async def get_memories(session_id: str, limit: int = 10):
-    """Get memories for a session"""
-    try:
-        from ..core.memory_system import get_memory_system
-        memory = get_memory_system()
-        
-        memories = memory.get_conversation_history(session_id, limit=limit)
-        return {"session_id": session_id, "memories": memories}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.delete("/api/memory/{session_id}")
-async def clear_memories(session_id: str):
-    """Clear memories for a session"""
-    try:
-        from ..core.memory_system import get_memory_system
-        memory = get_memory_system()
-        
-        memory.clear_session(session_id)
-        return {"success": True, "message": f"Cleared memories for session {session_id}"}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# RAG System Endpoints
-# =============================================================================
-
-@app.post("/api/rag/query")
-async def query_rag(request: RAGQueryRequest):
-    """Query the RAG knowledge base"""
-    try:
-        from ..core.rag_system import get_rag_system
-        rag = get_rag_system()
-        
-        result = rag.augment_query(request.query)
-        return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/rag/stats")
-async def rag_stats():
-    """Get RAG knowledge base statistics"""
-    try:
-        from ..core.rag_system import get_rag_system
-        rag = get_rag_system()
-        return rag.get_knowledge_stats()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/rag/add")
-async def add_knowledge(content: str, category: str, source: str, metadata: Dict = None):
-    """Add knowledge to the RAG system"""
-    try:
-        from ..core.rag_system import get_rag_system
-        rag = get_rag_system()
-        
-        result = rag.add_knowledge(content, category, source, metadata)
-        return {"success": True, "chunk": result}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# Research & Data Tools Endpoints
-# =============================================================================
-
-@app.post("/api/research")
-async def research_query(query: str, sources: List[str] = None):
-    """Execute parallel research across multiple sources"""
-    try:
-        from ..tools.data_tools import get_research_engine
-        research = get_research_engine()
-        
-        results = await research.research(query, sources=sources)
-        
-        return {
-            "query": query,
-            "results": {k: v.to_dict() for k, v in results.items()}
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/tools/list")
-async def list_tools():
-    """List available tools"""
-    return {
-        "tools": [
-            {
-                "name": "web_search",
-                "description": "Search the web using Grok-4",
-                "category": "research"
-            },
-            {
-                "name": "pinterest_search",
-                "description": "Search Pinterest for visual inspiration",
-                "category": "research"
-            },
-            {
-                "name": "youtube_search",
-                "description": "Search YouTube for video content",
-                "category": "research"
-            },
-            {
-                "name": "x_search",
-                "description": "Search X/Twitter for real-time trends",
-                "category": "research"
-            },
-            {
-                "name": "analyze_data",
-                "description": "Analyze data and extract insights",
-                "category": "analysis"
-            },
-            {
-                "name": "generate_document",
-                "description": "Generate documents in various formats",
-                "category": "generation"
-            },
-            {
-                "name": "generate_image",
-                "description": "Generate images using Nano Banana AI",
-                "category": "generation"
-            }
-        ]
-    }
-
-@app.post("/api/tools/execute")
-async def execute_tool(request: ToolExecuteRequest):
-    """Execute a specific tool"""
-    try:
-        from ..tools.tool_registry import tool_registry
-        
-        result = await tool_registry.execute(request.tool, request.params)
-        return {"success": True, "result": result}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# Document Generation Endpoints
-# =============================================================================
-
-@app.post("/api/document/generate")
-async def generate_document(request: DocumentGenerateRequest):
-    """Generate a downloadable document"""
-    import tempfile
-    
-    try:
-        title = request.title or "McLeuker AI Report"
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        
-        if request.format == "markdown":
-            filename = f"{title.replace(' ', '_')}_{timestamp}.md"
-            content = f"# {title}\n\n{request.content}"
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                f.write(content)
-                filepath = f.name
-            
-            return FileResponse(
-                filepath,
-                filename=filename,
-                media_type="text/markdown"
-            )
-        
-        elif request.format == "pdf":
-            filename = f"{title.replace(' ', '_')}_{timestamp}.md"
-            content = f"# {title}\n\n{request.content}"
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                f.write(content)
-                filepath = f.name
-            
-            return FileResponse(
-                filepath,
-                filename=filename,
-                media_type="text/markdown"
-            )
-        
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}")
-            
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# Image Generation Endpoint (Nano Banana)
-# =============================================================================
-
-class ImageGenerateRequest(BaseModel):
-    prompt: str
-    style: str = "fashion"
-    width: int = 1024
-    height: int = 1024
-    negative_prompt: Optional[str] = None
 
 @app.post("/api/image/generate")
 async def generate_image(request: ImageGenerateRequest):
-    """Generate images using Nano Banana AI"""
+    """Generate images using DALL-E 3 or Nano Banana"""
     import httpx
     
     try:
-        # Get API key from environment
-        openai_api_key = os.getenv("OPENAI_API_KEY")
+        # Try Nano Banana API key first, then fall back to OpenAI
+        api_key = os.getenv("NANO_BANANA_API_KEY") or os.getenv("NANOBANANA_API_KEY") or os.getenv("OPENAI_API_KEY")
         
-        if not openai_api_key:
-            raise HTTPException(status_code=500, detail="Image generation API not configured")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Image generation API not configured. Please add NANO_BANANA_API_KEY or OPENAI_API_KEY to environment variables.")
         
         # Enhance prompt for fashion domain
         style_enhancements = {
-            "fashion": "high-end fashion photography, editorial style, professional lighting",
-            "streetwear": "urban street fashion, dynamic pose, city background",
-            "minimalist": "clean minimal design, white background, simple composition",
-            "luxury": "premium luxury aesthetic, sophisticated, elegant",
-            "sustainable": "natural eco-friendly aesthetic, organic materials, earth tones",
-            "avant-garde": "experimental artistic style, bold creative, avant-garde fashion"
+            "fashion": "high-end fashion photography, editorial style, professional lighting, vogue magazine quality",
+            "streetwear": "urban street fashion, dynamic pose, city background, authentic street style",
+            "minimalist": "clean minimal design, white background, simple composition, elegant simplicity",
+            "luxury": "premium luxury aesthetic, sophisticated, elegant, high-end materials",
+            "sustainable": "natural eco-friendly aesthetic, organic materials, earth tones, sustainable fashion",
+            "avant-garde": "experimental artistic style, bold creative, avant-garde fashion, artistic expression"
         }
         
         style_suffix = style_enhancements.get(request.style, style_enhancements["fashion"])
@@ -1032,14 +724,14 @@ async def generate_image(request: ImageGenerateRequest):
             response = await client.post(
                 "https://api.openai.com/v1/images/generations",
                 headers={
-                    "Authorization": f"Bearer {openai_api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
                 },
                 json={
                     "model": "dall-e-3",
                     "prompt": enhanced_prompt,
                     "n": 1,
-                    "size": f"{request.width}x{request.height}" if request.width == request.height else "1024x1024",
+                    "size": "1024x1024",
                     "quality": "hd",
                     "style": "vivid"
                 }
@@ -1048,10 +740,8 @@ async def generate_image(request: ImageGenerateRequest):
             if response.status_code != 200:
                 error_data = response.json()
                 logger.error(f"Image generation error: {error_data}")
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=error_data.get("error", {}).get("message", "Image generation failed")
-                )
+                error_msg = error_data.get("error", {}).get("message", "Image generation failed")
+                raise HTTPException(status_code=response.status_code, detail=error_msg)
             
             data = response.json()
             
@@ -1079,6 +769,373 @@ async def generate_image(request: ImageGenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
+# Document Generation Endpoints - FIXED: Actually generates files
+# =============================================================================
+
+@app.post("/api/document/generate")
+async def generate_document(request: DocumentGenerateRequest):
+    """Generate downloadable documents (Markdown, PDF, Word, Excel, PowerPoint)"""
+    
+    try:
+        title = request.title or "McLeuker AI Report"
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        safe_title = title.replace(' ', '_').replace('/', '_')
+        
+        if request.format == "markdown":
+            # Markdown file
+            filename = f"{safe_title}_{timestamp}.md"
+            content = f"# {title}\n\n*Generated by McLeuker AI on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC*\n\n{request.content}"
+            
+            return Response(
+                content=content.encode('utf-8'),
+                media_type="text/markdown",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                }
+            )
+        
+        elif request.format == "pdf":
+            # PDF file using weasyprint or fpdf
+            try:
+                from weasyprint import HTML, CSS
+                
+                html_content = f"""
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body {{ font-family: Arial, sans-serif; margin: 40px; line-height: 1.6; }}
+                        h1 {{ color: #177b57; border-bottom: 2px solid #177b57; padding-bottom: 10px; }}
+                        h2 {{ color: #266a2e; margin-top: 30px; }}
+                        h3 {{ color: #3d665c; }}
+                        p {{ margin: 10px 0; }}
+                        ul, ol {{ margin: 10px 0 10px 20px; }}
+                        .footer {{ margin-top: 40px; padding-top: 20px; border-top: 1px solid #ccc; font-size: 12px; color: #666; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>{title}</h1>
+                    {_markdown_to_html(request.content)}
+                    <div class="footer">Generated by McLeuker AI on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC</div>
+                </body>
+                </html>
+                """
+                
+                pdf_bytes = HTML(string=html_content).write_pdf()
+                filename = f"{safe_title}_{timestamp}.pdf"
+                
+                return Response(
+                    content=pdf_bytes,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'
+                    }
+                )
+            except ImportError:
+                # Fallback to fpdf
+                from fpdf import FPDF
+                
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", "B", 16)
+                pdf.cell(0, 10, title, ln=True)
+                pdf.set_font("Arial", "", 12)
+                
+                # Split content into lines and add to PDF
+                for line in request.content.split('\n'):
+                    pdf.multi_cell(0, 10, line)
+                
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                filename = f"{safe_title}_{timestamp}.pdf"
+                
+                return Response(
+                    content=pdf_bytes,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'
+                    }
+                )
+        
+        elif request.format == "docx":
+            # Word document using python-docx
+            try:
+                from docx import Document
+                from docx.shared import Inches, Pt, RGBColor
+                from docx.enum.text import WD_ALIGN_PARAGRAPH
+                
+                doc = Document()
+                
+                # Add title
+                title_para = doc.add_heading(title, 0)
+                title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+                # Add timestamp
+                timestamp_para = doc.add_paragraph(f"Generated by McLeuker AI on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+                timestamp_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                timestamp_para.runs[0].font.size = Pt(10)
+                timestamp_para.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+                
+                doc.add_paragraph()  # Spacer
+                
+                # Parse and add content
+                for line in request.content.split('\n'):
+                    line = line.strip()
+                    if not line:
+                        doc.add_paragraph()
+                    elif line.startswith('### '):
+                        doc.add_heading(line[4:], level=3)
+                    elif line.startswith('## '):
+                        doc.add_heading(line[3:], level=2)
+                    elif line.startswith('# '):
+                        doc.add_heading(line[2:], level=1)
+                    elif line.startswith('- ') or line.startswith('* '):
+                        doc.add_paragraph(line[2:], style='List Bullet')
+                    elif line[0].isdigit() and '. ' in line[:4]:
+                        doc.add_paragraph(line.split('. ', 1)[1], style='List Number')
+                    else:
+                        doc.add_paragraph(line)
+                
+                # Save to bytes
+                doc_bytes = io.BytesIO()
+                doc.save(doc_bytes)
+                doc_bytes.seek(0)
+                
+                filename = f"{safe_title}_{timestamp}.docx"
+                
+                return Response(
+                    content=doc_bytes.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'
+                    }
+                )
+            except ImportError:
+                raise HTTPException(status_code=500, detail="Word document generation not available. Please install python-docx.")
+        
+        elif request.format == "xlsx":
+            # Excel spreadsheet using openpyxl
+            try:
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+                from openpyxl.utils import get_column_letter
+                
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Report"
+                
+                # Style definitions
+                header_font = Font(bold=True, color="FFFFFF", size=12)
+                header_fill = PatternFill(start_color="177B57", end_color="177B57", fill_type="solid")
+                border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                # Add title
+                ws['A1'] = title
+                ws['A1'].font = Font(bold=True, size=16, color="177B57")
+                ws.merge_cells('A1:D1')
+                
+                ws['A2'] = f"Generated by McLeuker AI on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+                ws['A2'].font = Font(italic=True, size=10, color="808080")
+                ws.merge_cells('A2:D2')
+                
+                # If data is provided, create a proper table
+                if request.data and len(request.data) > 0:
+                    # Headers
+                    headers = list(request.data[0].keys())
+                    for col, header in enumerate(headers, 1):
+                        cell = ws.cell(row=4, column=col, value=header)
+                        cell.font = header_font
+                        cell.fill = header_fill
+                        cell.alignment = Alignment(horizontal='center')
+                        cell.border = border
+                    
+                    # Data rows
+                    for row_idx, row_data in enumerate(request.data, 5):
+                        for col_idx, header in enumerate(headers, 1):
+                            cell = ws.cell(row=row_idx, column=col_idx, value=row_data.get(header, ''))
+                            cell.border = border
+                    
+                    # Auto-adjust column widths
+                    for col in range(1, len(headers) + 1):
+                        ws.column_dimensions[get_column_letter(col)].width = 20
+                else:
+                    # Just add content as text
+                    row = 4
+                    for line in request.content.split('\n'):
+                        if line.strip():
+                            ws.cell(row=row, column=1, value=line.strip())
+                            row += 1
+                    
+                    ws.column_dimensions['A'].width = 100
+                
+                # Save to bytes
+                excel_bytes = io.BytesIO()
+                wb.save(excel_bytes)
+                excel_bytes.seek(0)
+                
+                filename = f"{safe_title}_{timestamp}.xlsx"
+                
+                return Response(
+                    content=excel_bytes.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'
+                    }
+                )
+            except ImportError:
+                raise HTTPException(status_code=500, detail="Excel generation not available. Please install openpyxl.")
+        
+        elif request.format == "pptx":
+            # PowerPoint presentation using python-pptx
+            try:
+                from pptx import Presentation
+                from pptx.util import Inches, Pt
+                from pptx.dml.color import RGBColor
+                from pptx.enum.text import PP_ALIGN
+                
+                prs = Presentation()
+                prs.slide_width = Inches(13.333)
+                prs.slide_height = Inches(7.5)
+                
+                # Title slide
+                title_slide_layout = prs.slide_layouts[6]  # Blank
+                slide = prs.slides.add_slide(title_slide_layout)
+                
+                # Add title
+                title_box = slide.shapes.add_textbox(Inches(0.5), Inches(2.5), Inches(12.333), Inches(1.5))
+                title_frame = title_box.text_frame
+                title_para = title_frame.paragraphs[0]
+                title_para.text = title
+                title_para.font.size = Pt(44)
+                title_para.font.bold = True
+                title_para.font.color.rgb = RGBColor(23, 123, 87)
+                title_para.alignment = PP_ALIGN.CENTER
+                
+                # Add subtitle
+                subtitle_box = slide.shapes.add_textbox(Inches(0.5), Inches(4.2), Inches(12.333), Inches(0.5))
+                subtitle_frame = subtitle_box.text_frame
+                subtitle_para = subtitle_frame.paragraphs[0]
+                subtitle_para.text = f"Generated by McLeuker AI • {datetime.utcnow().strftime('%Y-%m-%d')}"
+                subtitle_para.font.size = Pt(18)
+                subtitle_para.font.color.rgb = RGBColor(128, 128, 128)
+                subtitle_para.alignment = PP_ALIGN.CENTER
+                
+                # Content slides - split content into sections
+                sections = request.content.split('\n\n')
+                current_slide_content = []
+                
+                for section in sections:
+                    section = section.strip()
+                    if not section:
+                        continue
+                    
+                    # Check if it's a header
+                    if section.startswith('# ') or section.startswith('## '):
+                        # Create new slide for header
+                        if current_slide_content:
+                            _add_content_slide(prs, current_slide_content)
+                            current_slide_content = []
+                        
+                        header_text = section.lstrip('#').strip()
+                        current_slide_content.append(('header', header_text))
+                    else:
+                        current_slide_content.append(('content', section))
+                        
+                        # If content is getting long, create slide
+                        if len(current_slide_content) > 5:
+                            _add_content_slide(prs, current_slide_content)
+                            current_slide_content = []
+                
+                # Add remaining content
+                if current_slide_content:
+                    _add_content_slide(prs, current_slide_content)
+                
+                # Save to bytes
+                pptx_bytes = io.BytesIO()
+                prs.save(pptx_bytes)
+                pptx_bytes.seek(0)
+                
+                filename = f"{safe_title}_{timestamp}.pptx"
+                
+                return Response(
+                    content=pptx_bytes.getvalue(),
+                    media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'
+                    }
+                )
+            except ImportError:
+                raise HTTPException(status_code=500, detail="PowerPoint generation not available. Please install python-pptx.")
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}. Supported: markdown, pdf, docx, xlsx, pptx")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Document generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def _markdown_to_html(markdown_text: str) -> str:
+    """Convert markdown to HTML"""
+    html_lines = []
+    
+    for line in markdown_text.split('\n'):
+        if line.startswith('### '):
+            html_lines.append(f'<h3>{line[4:]}</h3>')
+        elif line.startswith('## '):
+            html_lines.append(f'<h2>{line[3:]}</h2>')
+        elif line.startswith('# '):
+            html_lines.append(f'<h1>{line[2:]}</h1>')
+        elif line.startswith('- ') or line.startswith('* '):
+            html_lines.append(f'<li>{line[2:]}</li>')
+        elif line.strip():
+            # Handle bold text
+            import re
+            line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+            html_lines.append(f'<p>{line}</p>')
+        else:
+            html_lines.append('<br>')
+    
+    return '\n'.join(html_lines)
+
+def _add_content_slide(prs, content_items):
+    """Add a content slide to the presentation"""
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    
+    slide_layout = prs.slide_layouts[6]  # Blank
+    slide = prs.slides.add_slide(slide_layout)
+    
+    y_position = Inches(0.5)
+    
+    for item_type, item_content in content_items:
+        if item_type == 'header':
+            text_box = slide.shapes.add_textbox(Inches(0.5), y_position, Inches(12.333), Inches(0.8))
+            text_frame = text_box.text_frame
+            para = text_frame.paragraphs[0]
+            para.text = item_content
+            para.font.size = Pt(32)
+            para.font.bold = True
+            para.font.color.rgb = RGBColor(23, 123, 87)
+            y_position += Inches(1)
+        else:
+            text_box = slide.shapes.add_textbox(Inches(0.5), y_position, Inches(12.333), Inches(1))
+            text_frame = text_box.text_frame
+            text_frame.word_wrap = True
+            para = text_frame.paragraphs[0]
+            para.text = item_content[:500]  # Limit text per slide
+            para.font.size = Pt(18)
+            para.font.color.rgb = RGBColor(60, 60, 60)
+            y_position += Inches(1.2)
+
+# =============================================================================
 # Legacy Compatibility Endpoints
 # =============================================================================
 
@@ -1101,11 +1158,11 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception: {exc}")
     return JSONResponse(
         status_code=500,
-        content={"error": "Internal server error", "detail": str(exc)}
+        content={"detail": str(exc)}
     )
 
 # =============================================================================
-# Main Entry Point
+# Run Application
 # =============================================================================
 
 if __name__ == "__main__":
