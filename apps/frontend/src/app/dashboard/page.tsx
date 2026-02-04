@@ -30,13 +30,19 @@ import {
   Image as ImageIcon,
   Paperclip,
   Settings,
-  LogOut
+  LogOut,
+  User,
+  CreditCard,
+  HelpCircle,
+  MoreHorizontal,
+  Star
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS } from "@/contexts/SectorContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { formatDistanceToNow } from "date-fns";
 
 // =============================================================================
 // Types - Multi-Layer Agentic Reasoning
@@ -68,6 +74,7 @@ interface Message {
   follow_up_questions: string[];
   timestamp: Date;
   isStreaming: boolean;
+  is_favorite?: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -327,13 +334,10 @@ function MessageContent({
         </button>
       </div>
       
-      {/* Sources - Dynamic count */}
+      {/* Sources */}
       {sources.length > 0 && (
-        <div className="pt-4 border-t border-white/10">
-          <div className="flex items-center gap-2 mb-3">
-            <ExternalLink className="h-4 w-4 text-blue-400" />
-            <span className="text-sm font-medium text-white/70">Sources ({sources.length})</span>
-          </div>
+        <div className="pt-3 border-t border-white/[0.08]">
+          <p className="text-xs font-medium text-white/50 mb-2">Sources ({sources.length})</p>
           <div className="flex flex-wrap gap-2">
             {sources.map((source, i) => (
               <a
@@ -341,9 +345,10 @@ function MessageContent({
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 hover:bg-blue-500/20 transition-colors"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-xs text-white/70 hover:text-white transition-colors"
               >
-                {source.title.length > 40 ? source.title.slice(0, 40) + '...' : source.title}
+                <ExternalLink className="h-3 w-3" />
+                <span className="max-w-[150px] truncate">{source.title}</span>
               </a>
             ))}
           </div>
@@ -351,18 +356,15 @@ function MessageContent({
       )}
       
       {/* Follow-up Questions */}
-      {followUpQuestions && followUpQuestions.length > 0 && (
-        <div className="pt-4 border-t border-white/10">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="h-4 w-4 text-purple-400" />
-            <span className="text-sm font-medium text-white/70">Suggested Follow-ups</span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {followUpQuestions.slice(0, 5).map((question, i) => (
+      {followUpQuestions.length > 0 && (
+        <div className="pt-3 border-t border-white/[0.08]">
+          <p className="text-xs font-medium text-white/50 mb-2">Continue exploring</p>
+          <div className="space-y-2">
+            {followUpQuestions.map((question, i) => (
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="text-left text-sm px-4 py-2.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/30 transition-all"
+                className="w-full text-left px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.12] text-sm text-white/70 hover:text-white/90 transition-all"
               >
                 {question}
               </button>
@@ -375,8 +377,18 @@ function MessageContent({
 }
 
 // =============================================================================
-// Chat Sidebar Component - With proper chat history
+// Chat Sidebar - Exact Lovable Design with Graphite Glass
 // =============================================================================
+
+interface ChatSidebarProps {
+  conversations: Conversation[];
+  currentConversation: Conversation | null;
+  isOpen: boolean;
+  onToggle: () => void;
+  onSelectConversation: (conversation: Conversation) => void;
+  onDeleteConversation: (conversationId: string) => void;
+  onNewConversation: () => void;
+}
 
 function ChatSidebar({
   conversations,
@@ -386,24 +398,37 @@ function ChatSidebar({
   onSelectConversation,
   onDeleteConversation,
   onNewConversation,
-}: {
-  conversations: Conversation[];
-  currentConversation: Conversation | null;
-  isOpen: boolean;
-  onToggle: () => void;
-  onSelectConversation: (conversation: Conversation) => void;
-  onDeleteConversation: (conversationId: string) => void;
-  onNewConversation?: () => void;
-}) {
+}: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
 
   const filteredConversations = conversations.filter((conv) =>
     conv.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handleDeleteClick = (e: React.MouseEvent, conversationId: string) => {
+    e.stopPropagation();
+    setConversationToDelete(conversationId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (conversationToDelete) {
+      onDeleteConversation(conversationToDelete);
+    }
+    setDeleteDialogOpen(false);
+    setConversationToDelete(null);
+  };
+
+  // Collapsed state
   if (!isOpen) {
     return (
-      <aside className="hidden lg:flex w-14 flex-col fixed left-0 top-[60px] bottom-0 z-40 bg-[#0D0D0D] border-r border-white/[0.08]">
+      <aside className={cn(
+        "hidden lg:flex w-14 flex-col fixed left-0 top-0 bottom-0 z-40",
+        "bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A]",
+        "border-r border-white/[0.08]"
+      )}>
         <div className="p-2 pt-4">
           <button
             onClick={onToggle}
@@ -417,104 +442,161 @@ function ChatSidebar({
   }
 
   return (
-    <aside className="hidden lg:flex w-64 flex-col fixed left-0 top-[60px] bottom-0 z-40 bg-[#0D0D0D] border-r border-white/[0.08]">
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between">
-        <span className="font-medium text-sm text-white/80">Chats</span>
-        <button
-          onClick={onToggle}
-          className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </button>
-      </div>
+    <>
+      <aside className={cn(
+        "hidden lg:flex w-64 flex-col fixed left-0 top-0 bottom-0 z-40",
+        "bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A]",
+        "border-r border-white/[0.08]"
+      )}>
+        {/* Header with collapse toggle */}
+        <div className="px-4 pt-5 pb-3 flex items-center justify-between shrink-0">
+          <span className="font-medium text-[13px] text-white/80">Chat History</span>
+          <button
+            onClick={onToggle}
+            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        </div>
 
-      {onNewConversation && (
-        <div className="px-4 pb-3">
+        {/* New Chat Button */}
+        <div className="px-4 pb-3 shrink-0">
           <button
             onClick={onNewConversation}
-            className="w-full flex items-center justify-center gap-2 bg-white text-black hover:bg-white/90 h-9 rounded-lg text-sm font-medium transition-colors"
+            className={cn(
+              "w-full justify-center gap-2 flex items-center",
+              "bg-white text-black hover:bg-white/90",
+              "h-10 rounded-full text-[13px] font-medium transition-colors"
+            )}
           >
             <Plus className="h-4 w-4" />
             New Chat
           </button>
         </div>
-      )}
 
-      <div className="px-4 pb-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
-          <input
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 h-9 text-sm bg-white/[0.05] border border-white/[0.08] rounded-lg text-white placeholder:text-white/35 focus:border-white/[0.15] focus:outline-none transition-all"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+        {/* Search */}
+        <div className="px-4 pb-3 shrink-0">
+          <div className="relative">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
+            <input
+              placeholder="Search chats..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={cn(
+                "w-full pl-10 pr-10 h-10 text-[13px]",
+                "bg-white/[0.05] border border-white/[0.08] rounded-full",
+                "text-white placeholder:text-white/35",
+                "focus:border-white/[0.15] focus:outline-none focus:ring-1 focus:ring-white/[0.06]",
+                "transition-all"
+              )}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Chat count */}
+        <div className="px-4 pb-2 shrink-0">
+          <p className="text-[10px] font-medium text-white/40 uppercase tracking-wider">
+            {filteredConversations.length} {filteredConversations.length === 1 ? 'chat' : 'chats'}
+          </p>
+        </div>
+
+        {/* Conversation List */}
+        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+          {filteredConversations.length === 0 ? (
+            <div className="px-2 py-8 text-center">
+              <MessageSquare className="h-8 w-8 text-white/25 mx-auto mb-3" />
+              <p className="text-[13px] text-white/50">
+                {searchQuery ? "No matching chats" : "No chats yet"}
+              </p>
+              <p className="text-[11px] text-white/35 mt-1">
+                {searchQuery ? "Try a different search" : "Start a new chat to begin"}
+              </p>
+            </div>
+          ) : (
+            filteredConversations.map((conv) => (
+              <div
+                key={conv.id}
+                className={cn(
+                  "group relative w-full text-left px-4 py-3 rounded-xl cursor-pointer",
+                  "hover:bg-white/[0.05] transition-colors",
+                  currentConversation?.id === conv.id && "bg-white/[0.08]"
+                )}
+                onClick={() => onSelectConversation(conv)}
+              >
+                <div className="flex items-center gap-2.5">
+                  <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 pr-6">
+                    <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
+                      {conv.title}
+                    </p>
+                    <p className="text-[10px] text-white/45 mt-1.5">
+                      {formatDistanceToNow(conv.updatedAt, { addSuffix: true })}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Delete Button */}
+                <button
+                  onClick={(e) => handleDeleteClick(e, conv.id)}
+                  className={cn(
+                    "absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center",
+                    "opacity-0 group-hover:opacity-100 transition-opacity",
+                    "text-white/50 hover:text-red-400 hover:bg-red-500/10 rounded-lg"
+                  )}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))
           )}
         </div>
-      </div>
+      </aside>
 
-      {/* Chat Count */}
-      <div className="px-4 pb-2">
-        <span className="text-xs text-white/40">{filteredConversations.length} chats</span>
-      </div>
-
-      {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto px-2">
-        {filteredConversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <MessageSquare className="h-8 w-8 text-white/20 mb-2" />
-            <p className="text-sm text-white/40">No chats yet</p>
-            <p className="text-xs text-white/30 mt-1">Start a conversation</p>
-          </div>
-        ) : (
-          filteredConversations.map((conv) => (
-            <div
-              key={conv.id}
-              className={cn(
-                "group relative px-3 py-2.5 rounded-lg cursor-pointer mb-1 transition-colors",
-                currentConversation?.id === conv.id
-                  ? "bg-white/[0.08]"
-                  : "hover:bg-white/[0.04]"
-              )}
-              onClick={() => onSelectConversation(conv)}
-            >
-              <p className="text-sm text-white/80 truncate pr-6">{conv.title}</p>
-              <p className="text-xs text-white/40 mt-0.5">
-                {new Date(conv.updatedAt).toLocaleDateString()}
-              </p>
+      {/* Delete Confirmation Dialog */}
+      {deleteDialogOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-[#1A1A1A] border border-white/[0.08] rounded-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-white mb-2">Delete this chat?</h3>
+            <p className="text-sm text-white/60 mb-6">
+              This will permanently delete this chat and all its messages. This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteConversation(conv.id);
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-white/30 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                onClick={() => setDeleteDialogOpen(false)}
+                className="px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] rounded-lg transition-colors"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
+              >
+                Delete
               </button>
             </div>
-          ))
-        )}
-      </div>
-    </aside>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
 // =============================================================================
-// Domain Tabs Component - Now navigates to domain pages
+// Domain Tabs Component
 // =============================================================================
 
 function DomainTabs() {
   const { currentSector, setSector } = useSector();
   
   const handleDomainClick = (sectorId: string) => {
-    // Stay on dashboard, just change the sector context
     setSector(sectorId as any);
   };
   
@@ -539,13 +621,16 @@ function DomainTabs() {
 }
 
 // =============================================================================
-// Profile Button Component - Image only, no name/email
+// Profile Dropdown - Exact Lovable Design with All Buttons
 // =============================================================================
 
-function ProfileButton() {
+function ProfileDropdown() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [creditBalance, setCreditBalance] = useState(50);
+  const [plan, setPlan] = useState('free');
+  const [userProfile, setUserProfile] = useState<{ name: string | null; profile_image: string | null } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -558,12 +643,33 @@ function ProfileButton() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Fetch user profile and credits
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!user) return;
+      
+      const { data } = await supabase
+        .from("users")
+        .select("name, profile_image, credit_balance, subscription_plan")
+        .eq("id", user.id)
+        .single();
+      
+      if (data) {
+        setUserProfile({ name: data.name, profile_image: data.profile_image });
+        setCreditBalance(data.credit_balance || 50);
+        setPlan(data.subscription_plan || 'free');
+      }
+    };
+    
+    fetchUserData();
+  }, [user]);
+
   const handleSignOut = async () => {
     await signOut();
     router.push('/login');
   };
 
-  const getInitials = (name: string | undefined, email: string | undefined) => {
+  const getInitials = (name: string | null | undefined, email: string | undefined) => {
     if (name) {
       return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
     }
@@ -573,52 +679,114 @@ function ProfileButton() {
     return 'U';
   };
 
-  const initials = getInitials(user?.user_metadata?.full_name, user?.email);
-  const avatarUrl = user?.user_metadata?.avatar_url;
+  const initials = getInitials(userProfile?.name || user?.user_metadata?.full_name, user?.email);
+  const avatarUrl = userProfile?.profile_image || user?.user_metadata?.avatar_url;
 
   if (!user) return null;
 
   return (
-    <div ref={menuRef} className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          'w-9 h-9 rounded-full flex items-center justify-center overflow-hidden',
-          'border border-white/[0.12] hover:border-white/30',
-          'transition-all duration-200',
-          isOpen && 'ring-2 ring-purple-500/30'
-        )}
+    <div className="flex items-center gap-3">
+      {/* Credits Display */}
+      <Link
+        href="/billing"
+        className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-colors"
       >
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-purple-600/30 to-pink-600/30 flex items-center justify-center">
-            <span className="text-sm font-medium text-white">{initials}</span>
+        <Coins className="h-3.5 w-3.5 text-yellow-400" />
+        <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
+      </Link>
+
+      {/* Profile Button */}
+      <div ref={menuRef} className="relative">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className={cn(
+            'w-8 h-8 rounded-full flex items-center justify-center overflow-hidden',
+            'border border-white/[0.12] hover:border-white/30 hover:bg-white/10',
+            'transition-all duration-200',
+            isOpen && 'ring-2 ring-white/20'
+          )}
+        >
+          {avatarUrl ? (
+            <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-white/10 flex items-center justify-center">
+              <span className="text-xs font-medium text-white">{initials}</span>
+            </div>
+          )}
+        </button>
+
+        {isOpen && (
+          <div className="absolute top-full right-0 mt-2 w-56 bg-[#141414] border border-white/10 rounded-lg shadow-xl overflow-hidden z-50">
+            {/* User Info Header */}
+            <div className="px-3 py-2 border-b border-white/10">
+              {(userProfile?.name || user?.user_metadata?.full_name) && (
+                <p className="text-sm font-medium text-white truncate">
+                  {userProfile?.name || user?.user_metadata?.full_name}
+                </p>
+              )}
+              <p className={cn(
+                "text-sm truncate",
+                (userProfile?.name || user?.user_metadata?.full_name) ? "text-white/60" : "font-medium text-white"
+              )}>
+                {user?.email}
+              </p>
+              <p className="text-xs text-white/50 capitalize mt-0.5">{plan} plan</p>
+              <div className="text-xs text-white/50 mt-1">
+                <span className="font-medium text-white">{creditBalance}</span> credits available
+              </div>
+            </div>
+            
+            {/* Menu Items */}
+            <div className="py-1">
+              <Link
+                href="/settings"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <User className="h-4 w-4" />
+                Profile
+              </Link>
+              <Link
+                href="/billing"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <CreditCard className="h-4 w-4" />
+                Billing & Credits
+              </Link>
+              <Link
+                href="/preferences"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                Workspace Preferences
+              </Link>
+            </div>
+            
+            <div className="border-t border-white/10 py-1">
+              <Link
+                href="/contact"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <HelpCircle className="h-4 w-4" />
+                Support / Help
+              </Link>
+            </div>
+            
+            <div className="border-t border-white/10 py-1">
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-white/10 hover:text-red-300 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+            </div>
           </div>
         )}
-      </button>
-
-      {isOpen && (
-        <div className="absolute top-full right-0 mt-2 w-48 bg-[#1A1A1A] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
-          <Link
-            href="/settings"
-            onClick={() => setIsOpen(false)}
-            className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
-          >
-            <Settings className="w-4 h-4" />
-            Settings
-          </Link>
-          <div className="border-t border-white/[0.08]">
-            <button
-              onClick={handleSignOut}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -674,7 +842,6 @@ function FileUploadButton({ onFileSelect }: { onFileSelect: (file: File) => void
           </button>
           <button
             onClick={() => {
-              // TODO: Implement Nano Banana image generation
               alert('Image generation coming soon!');
               setIsOpen(false);
             }}
@@ -730,6 +897,11 @@ function DashboardContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -760,7 +932,6 @@ function DashboardContent() {
 
   // Handle file upload
   const handleFileSelect = (file: File) => {
-    // TODO: Implement file upload and analysis
     console.log('File selected:', file.name);
     setInput(prev => prev + `\n[Attached: ${file.name}]`);
   };
@@ -796,8 +967,18 @@ function DashboardContent() {
     setMessages(prev => [...prev, userMessage]);
 
     // Save user message to database
-    if (conversationId) {
-      await saveMessage(conversationId, 'user', messageText);
+    if (conversationId && user) {
+      try {
+        await supabase.from('chat_messages').insert({
+          conversation_id: conversationId,
+          user_id: user.id,
+          role: 'user',
+          content: messageText,
+          credits_used: 0,
+        });
+      } catch (e) {
+        console.error('Error saving user message:', e);
+      }
     }
 
     // Add assistant message placeholder
@@ -818,6 +999,7 @@ function DashboardContent() {
     let currentLayers: ReasoningLayer[] = [];
     let currentSources: Source[] = [];
     let currentContent = '';
+    let finalFollowUp: string[] = [];
 
     try {
       const response = await fetch(`${API_URL}/api/chat/stream`, {
@@ -852,7 +1034,6 @@ function DashboardContent() {
               const eventData = data.data || {};
 
               if (eventType === 'layer_start') {
-                // New reasoning layer started
                 const newLayer: ReasoningLayer = {
                   id: eventData.layer_id,
                   layer_num: eventData.layer_num,
@@ -871,7 +1052,6 @@ function DashboardContent() {
                     : m
                 ));
               } else if (eventType === 'sub_step') {
-                // Sub-step within a layer
                 const layerIndex = currentLayers.findIndex(l => l.id === eventData.layer_id);
                 if (layerIndex >= 0) {
                   currentLayers[layerIndex].sub_steps.push({
@@ -886,7 +1066,6 @@ function DashboardContent() {
                   ));
                 }
               } else if (eventType === 'layer_complete') {
-                // Layer completed
                 const layerIndex = currentLayers.findIndex(l => l.id === eventData.layer_id);
                 if (layerIndex >= 0) {
                   currentLayers[layerIndex].status = 'complete';
@@ -919,19 +1098,17 @@ function DashboardContent() {
                     : m
                 ));
               } else if (eventType === 'follow_up') {
-                // Handle follow-up questions
-                const questions = eventData.questions || [];
+                finalFollowUp = eventData.questions || [];
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
-                    ? { ...m, follow_up_questions: questions }
+                    ? { ...m, follow_up_questions: finalFollowUp }
                     : m
                 ));
               } else if (eventType === 'complete') {
                 const finalContent = eventData.content || currentContent;
                 const creditsUsed = eventData.credits_used || (searchMode === 'quick' ? 2 : 5);
-                const followUpQuestions = eventData.follow_up_questions || [];
+                const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
-                // Mark all layers as complete
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
 
                 setMessages(prev => prev.map(m =>
@@ -950,12 +1127,25 @@ function DashboardContent() {
                 setCreditBalance(prev => Math.max(0, prev - creditsUsed));
 
                 // Save assistant message to database
-                if (conversationId) {
-                  await saveMessage(conversationId, 'assistant', finalContent, 'grok-3', creditsUsed);
-                  
-                  // Update conversation title if it's a new conversation
-                  if (messages.length === 0) {
-                    await updateConversationTitle(conversationId, messageText.slice(0, 50));
+                if (conversationId && user) {
+                  try {
+                    await supabase.from('chat_messages').insert({
+                      conversation_id: conversationId,
+                      user_id: user.id,
+                      role: 'assistant',
+                      content: finalContent,
+                      model_used: 'grok-3',
+                      credits_used: creditsUsed,
+                      sources: eventData.sources || currentSources,
+                      follow_up_questions: followUpQuestions,
+                    });
+                    
+                    // Update conversation title if it's a new conversation
+                    if (messages.length === 0) {
+                      await updateConversationTitle(conversationId, messageText.slice(0, 50));
+                    }
+                  } catch (e) {
+                    console.error('Error saving assistant message:', e);
                   }
                 }
 
@@ -994,7 +1184,7 @@ function DashboardContent() {
 
   const handleSelectConversation = async (conv: Conversation) => {
     await selectConversation(conv);
-    // Load messages for this conversation from the hook
+    // Load messages for this conversation
     const { data, error } = await supabase
       .from("chat_messages")
       .select("*")
@@ -1007,10 +1197,11 @@ function DashboardContent() {
         role: msg.role as 'user' | 'assistant',
         content: msg.content,
         reasoning_layers: [],
-        sources: [],
-        follow_up_questions: [],
+        sources: msg.sources || [],
+        follow_up_questions: msg.follow_up_questions || [],
         timestamp: new Date(msg.created_at),
         isStreaming: false,
+        is_favorite: msg.is_favorite,
       }));
       setMessages(loadedMessages);
     }
@@ -1061,9 +1252,7 @@ function DashboardContent() {
             <DomainTabs />
           </div>
           
-          <div className="flex items-center gap-3">
-            <ProfileButton />
-          </div>
+          <ProfileDropdown />
         </header>
 
         {/* Messages Area */}
