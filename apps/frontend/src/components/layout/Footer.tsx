@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Linkedin, ArrowRight } from "lucide-react";
+import { Linkedin, Instagram, ArrowRight } from "lucide-react";
 
 const footerLinks = {
   product: [
@@ -64,6 +64,7 @@ export function Footer() {
             <p className="text-sm text-white/50 leading-relaxed mb-6 max-w-[240px]">
               AI-powered fashion intelligence for professionals who demand excellence.
             </p>
+            {/* Social Icons - LinkedIn + Instagram */}
             <div className="flex items-center gap-3">
               <a
                 href="https://linkedin.com/company/mcleuker"
@@ -76,6 +77,19 @@ export function Footer() {
                 )}
               >
                 <Linkedin className="h-4 w-4" />
+              </a>
+              {/* Instagram Icon - NEW */}
+              <a
+                href="https://instagram.com/mcleukerai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "w-9 h-9 rounded-full flex items-center justify-center",
+                  "bg-white/[0.06] hover:bg-white/[0.12] transition-colors",
+                  "text-white/60 hover:text-white"
+                )}
+              >
+                <Instagram className="h-4 w-4" />
               </a>
             </div>
           </div>

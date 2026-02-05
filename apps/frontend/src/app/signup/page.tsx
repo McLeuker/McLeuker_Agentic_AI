@@ -65,8 +65,9 @@ export default function SignupPage() {
     return (
       <div className="min-h-screen bg-[#070707] flex items-center justify-center px-4">
         <div className="text-center">
-          <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Check className="w-8 h-8 text-green-500" />
+          {/* Updated: green-500 → olive accent */}
+          <div className="w-16 h-16 bg-[#2E3524]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Check className="w-8 h-8 text-[#5c6652]" />
           </div>
           <h2 className="text-2xl font-semibold text-white mb-2">Account Created!</h2>
           <p className="text-white/60">Redirecting to dashboard...</p>
@@ -98,12 +99,12 @@ export default function SignupPage() {
             Start your free trial today
           </p>
 
-          {/* Benefits */}
+          {/* Benefits - Updated: purple-400 → olive accent */}
           <div className="mb-6 p-4 rounded-lg bg-white/[0.04] border border-white/[0.06]">
             <ul className="space-y-2">
               {benefits.map((benefit, i) => (
                 <li key={i} className="flex items-center gap-2 text-sm text-white/60">
-                  <Check className="w-4 h-4 text-purple-400" />
+                  <Check className="w-4 h-4 text-[#5c6652]" />
                   {benefit}
                 </li>
               ))}
@@ -156,7 +157,7 @@ export default function SignupPage() {
                   "w-full h-12 px-4 rounded-lg",
                   "bg-white/[0.06] border border-white/[0.10]",
                   "text-white placeholder:text-white/40",
-                  "focus:outline-none focus:border-white/[0.18]"
+                  "focus:outline-none focus:border-[#2E3524]/50"
                 )}
                 placeholder="Your name"
                 required
@@ -173,7 +174,7 @@ export default function SignupPage() {
                   "w-full h-12 px-4 rounded-lg",
                   "bg-white/[0.06] border border-white/[0.10]",
                   "text-white placeholder:text-white/40",
-                  "focus:outline-none focus:border-white/[0.18]"
+                  "focus:outline-none focus:border-[#2E3524]/50"
                 )}
                 placeholder="your@company.com"
                 required
@@ -191,7 +192,7 @@ export default function SignupPage() {
                     "w-full h-12 px-4 pr-12 rounded-lg",
                     "bg-white/[0.06] border border-white/[0.10]",
                     "text-white placeholder:text-white/40",
-                    "focus:outline-none focus:border-white/[0.18]"
+                    "focus:outline-none focus:border-[#2E3524]/50"
                   )}
                   placeholder="••••••••"
                   required
@@ -212,24 +213,26 @@ export default function SignupPage() {
               <input 
                 type="checkbox" 
                 id="terms"
-                className="w-4 h-4 mt-0.5 rounded bg-white/[0.06] border-white/[0.10]" 
+                className="w-4 h-4 mt-0.5 rounded bg-white/[0.06] border-white/[0.10] accent-[#2E3524]" 
                 required
               />
               <label htmlFor="terms" className="text-sm text-white/55">
                 I agree to the{" "}
-                <Link href="/terms" className="text-purple-400 hover:underline">Terms of Service</Link>
+                {/* Updated: purple-400 → olive accent */}
+                <Link href="/terms" className="text-[#5c6652] hover:underline">Terms of Service</Link>
                 {" "}and{" "}
-                <Link href="/privacy" className="text-purple-400 hover:underline">Privacy Policy</Link>
+                <Link href="/privacy" className="text-[#5c6652] hover:underline">Privacy Policy</Link>
               </label>
             </div>
 
+            {/* Updated: purple gradient → olive gradient */}
             <button
               type="submit"
               disabled={isLoading || authLoading}
               className={cn(
                 "w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full",
-                "bg-gradient-to-r from-purple-600 to-purple-700 text-white font-medium",
-                "hover:from-purple-500 hover:to-purple-600 transition-all",
+                "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -241,7 +244,8 @@ export default function SignupPage() {
           <div className="mt-8 pt-6 border-t border-white/[0.08] text-center">
             <p className="text-sm text-white/55">
               Already have an account?{" "}
-              <Link href="/login" className="text-purple-400 hover:text-purple-300 transition-colors">
+              {/* Updated: purple-400 → olive accent */}
+              <Link href="/login" className="text-[#5c6652] hover:text-[#7a8a6e] transition-colors">
                 Sign in
               </Link>
             </p>

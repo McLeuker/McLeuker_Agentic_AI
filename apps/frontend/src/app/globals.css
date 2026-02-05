@@ -3,17 +3,16 @@
 
 @import "tailwindcss";
 
-/* McLeuker AI Design System - Premium Dark Theme with Green Palette */
+/* McLeuker AI Design System - Premium Dark Theme with Pantone Olive Palette */
 
 /* =============================================================================
-   McLeuker Green Palette (Allowed Accents)
-   #3d655c - Primary green
-   #3d665c - Forest green
-   #0a290a - Deep dark green
-   #3d665c - Muted teal green
-   #4c7748 - Sage green
-   #215e21 - Dark emerald
-   #457556 - Medium green
+   Pantone Olive Palette (Allowed Accents)
+   #2E3524 - Primary olive
+   #2A3021 - Forest olive
+   #262B1E - Deep olive
+   #21261A - Dark olive
+   #1D2117 - Deeper olive
+   #191C14 - Darkest olive
    ============================================================================= */
 
 @theme inline {
@@ -40,14 +39,17 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-editorial: 'Cormorant Garamond', Georgia, serif;
   
-  /* McLeuker Green CSS Variables */
-  --mcleuker-green-primary: #3d655c;
-  --mcleuker-green-forest: #3d665c;
-  --mcleuker-green-deep: #0a290a;
-  --mcleuker-green-teal: #3d665c;
-  --mcleuker-green-sage: #4c7748;
-  --mcleuker-green-emerald: #215e21;
-  --mcleuker-green-medium: #457556;
+  /* Pantone Olive CSS Variables */
+  --mcleuker-olive-primary: #2E3524;
+  --mcleuker-olive-forest: #2A3021;
+  --mcleuker-olive-deep: #262B1E;
+  --mcleuker-olive-dark: #21261A;
+  --mcleuker-olive-deeper: #1D2117;
+  --mcleuker-olive-darkest: #191C14;
+  
+  /* Foggy olive accent for text/icons */
+  --mcleuker-olive-accent: #4a5240;
+  --mcleuker-olive-accent-light: #5c6652;
 }
 
 /* Base styles */
@@ -131,39 +133,61 @@ body {
 }
 
 /* =============================================================================
-   McLeuker Green Ombre Styles - User Bubbles
+   Pantone Olive Ombre Styles - User Bubbles
+   Foggy olive surface gradient
    ============================================================================= */
 
-/* User message bubble - McLeuker green ombre */
+/* User message bubble - Pantone olive ombre */
 .mcleuker-user-bubble {
-  background: linear-gradient(135deg, #3d655c 0%, #3d665c 50%, #215e21 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 14px 40px rgba(23, 123, 87, 0.25);
+  background: linear-gradient(135deg, 
+    rgba(46, 53, 36, 0.28),
+    rgba(42, 48, 33, 0.18) 40%,
+    rgba(15, 18, 21, 0.92)
+  );
+  border: 1px solid rgba(46, 53, 36, 0.35);
+  box-shadow: 0 14px 40px rgba(46, 53, 36, 0.15);
 }
 
-/* Green ombre input for State A (empty chat) */
+/* Olive ombre input for State A (empty chat) */
+.mcleuker-olive-input {
+  background: linear-gradient(135deg, 
+    rgba(46, 53, 36, 0.15) 0%, 
+    rgba(42, 48, 33, 0.12) 50%, 
+    rgba(38, 43, 30, 0.10) 100%
+  );
+  border: 1px solid rgba(46, 53, 36, 0.25);
+  box-shadow: 0 4px 20px rgba(46, 53, 36, 0.15);
+}
+
+.mcleuker-olive-input:focus {
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.1), 0 4px 20px rgba(46, 53, 36, 0.2);
+}
+
+/* Legacy class name support - maps to olive */
 .mcleuker-green-input {
   background: linear-gradient(135deg, 
-    rgba(23, 123, 87, 0.15) 0%, 
-    rgba(38, 106, 46, 0.12) 50%, 
-    rgba(33, 94, 33, 0.10) 100%
+    rgba(46, 53, 36, 0.15) 0%, 
+    rgba(42, 48, 33, 0.12) 50%, 
+    rgba(38, 43, 30, 0.10) 100%
   );
-  border: 1px solid rgba(23, 123, 87, 0.25);
-  box-shadow: 0 4px 20px rgba(23, 123, 87, 0.15);
+  border: 1px solid rgba(46, 53, 36, 0.25);
+  box-shadow: 0 4px 20px rgba(46, 53, 36, 0.15);
 }
 
 .mcleuker-green-input:focus {
-  border-color: rgba(23, 123, 87, 0.4);
-  box-shadow: 0 0 0 3px rgba(23, 123, 87, 0.1), 0 4px 20px rgba(23, 123, 87, 0.2);
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.1), 0 4px 20px rgba(46, 53, 36, 0.2);
 }
 
-/* Brain icon green ombre gradient */
+/* Brain icon olive ombre gradient */
 .mcleuker-brain-gradient {
-  background: linear-gradient(135deg, #3d655c 0%, #3d665c 50%, #4c7748 100%);
+  background: linear-gradient(135deg, #2E3524 0%, #2A3021 50%, #262B1E 100%);
 }
 
 /* =============================================================================
    Bubble Gradient Variation System (Site-wide, excluding workspace chat)
+   Updated to Pantone Olive palette
    ============================================================================= */
 
 /* Base bubble with underlying gradient effect */
@@ -181,9 +205,9 @@ body {
   inset: 0;
   background: linear-gradient(
     135deg,
-    rgba(23, 123, 87, 0.08) 0%,
-    rgba(38, 106, 46, 0.05) 50%,
-    rgba(61, 102, 92, 0.03) 100%
+    rgba(46, 53, 36, 0.08) 0%,
+    rgba(42, 48, 33, 0.05) 50%,
+    rgba(38, 43, 30, 0.03) 100%
   );
   opacity: 0;
   transition: opacity 200ms ease;
@@ -194,15 +218,15 @@ body {
 }
 
 .mcleuker-bubble:hover {
-  border-color: rgba(23, 123, 87, 0.25);
+  border-color: rgba(46, 53, 36, 0.25);
 }
 
 /* Bubble variation 1 */
 .mcleuker-bubble-v1::before {
   background: linear-gradient(
     120deg,
-    rgba(23, 123, 87, 0.1) 0%,
-    rgba(69, 117, 86, 0.06) 100%
+    rgba(46, 53, 36, 0.1) 0%,
+    rgba(42, 48, 33, 0.06) 100%
   );
 }
 
@@ -210,8 +234,8 @@ body {
 .mcleuker-bubble-v2::before {
   background: linear-gradient(
     150deg,
-    rgba(38, 106, 46, 0.1) 0%,
-    rgba(61, 102, 92, 0.06) 100%
+    rgba(42, 48, 33, 0.1) 0%,
+    rgba(38, 43, 30, 0.06) 100%
   );
 }
 
@@ -219,8 +243,8 @@ body {
 .mcleuker-bubble-v3::before {
   background: linear-gradient(
     180deg,
-    rgba(76, 119, 72, 0.1) 0%,
-    rgba(33, 94, 33, 0.06) 100%
+    rgba(38, 43, 30, 0.1) 0%,
+    rgba(33, 38, 26, 0.06) 100%
   );
 }
 
@@ -228,13 +252,13 @@ body {
 .mcleuker-bubble-v4::before {
   background: linear-gradient(
     200deg,
-    rgba(33, 94, 33, 0.1) 0%,
-    rgba(23, 123, 87, 0.06) 100%
+    rgba(33, 38, 26, 0.1) 0%,
+    rgba(46, 53, 36, 0.06) 100%
   );
 }
 
 /* =============================================================================
-   Chat Sidebar Styles - Premium bubble items with green hover
+   Chat Sidebar Styles - Premium bubble items with olive hover
    ============================================================================= */
 
 .chat-sidebar-item {
@@ -252,17 +276,17 @@ body {
   inset: 0;
   background: linear-gradient(
     135deg,
-    rgba(23, 123, 87, 0.12) 0%,
-    rgba(38, 106, 46, 0.08) 50%,
-    rgba(61, 102, 92, 0.05) 100%
+    rgba(46, 53, 36, 0.12) 0%,
+    rgba(42, 48, 33, 0.08) 50%,
+    rgba(38, 43, 30, 0.05) 100%
   );
   opacity: 0;
   transition: opacity 180ms ease;
 }
 
 .chat-sidebar-item:hover {
-  border-color: rgba(23, 123, 87, 0.3);
-  box-shadow: 0 4px 16px rgba(23, 123, 87, 0.1);
+  border-color: rgba(46, 53, 36, 0.3);
+  box-shadow: 0 4px 16px rgba(46, 53, 36, 0.1);
 }
 
 .chat-sidebar-item:hover::before {
@@ -270,8 +294,8 @@ body {
 }
 
 .chat-sidebar-item-active {
-  border-color: rgba(23, 123, 87, 0.4);
-  box-shadow: 0 4px 20px rgba(23, 123, 87, 0.15);
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 4px 20px rgba(46, 53, 36, 0.15);
 }
 
 .chat-sidebar-item-active::before {
@@ -279,7 +303,7 @@ body {
 }
 
 /* =============================================================================
-   Domain Tab Styles - Green glow underline for active state
+   Domain Tab Styles - Olive glow underline for active state
    ============================================================================= */
 
 .domain-tab {
@@ -308,20 +332,20 @@ body {
   transform: translateX(-50%);
   width: 70%;
   height: 2px;
-  background: linear-gradient(90deg, #3d655c, #3d665c);
+  background: linear-gradient(90deg, #2E3524, #2A3021);
   border-radius: 1px;
-  box-shadow: 0 0 8px rgba(23, 123, 87, 0.5), 0 0 16px rgba(23, 123, 87, 0.3);
+  box-shadow: 0 0 8px rgba(46, 53, 36, 0.5), 0 0 16px rgba(46, 53, 36, 0.3);
   filter: blur(0.5px);
 }
 
 /* =============================================================================
-   Keyboard Focus States - McLeuker green focus rings
+   Keyboard Focus States - Pantone olive focus rings
    ============================================================================= */
 
 /* Global focus visible styles */
 *:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(23, 123, 87, 0.5), 0 0 0 4px rgba(23, 123, 87, 0.2);
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.60), 0 0 0 6px rgba(46, 53, 36, 0.18);
   border-radius: inherit;
 }
 
@@ -329,7 +353,7 @@ body {
 button:focus-visible,
 a:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(23, 123, 87, 0.6), 0 0 8px rgba(23, 123, 87, 0.3);
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.6), 0 0 8px rgba(46, 53, 36, 0.3);
 }
 
 /* Input focus */
@@ -337,14 +361,14 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: none;
-  border-color: rgba(23, 123, 87, 0.5) !important;
-  box-shadow: 0 0 0 3px rgba(23, 123, 87, 0.15), 0 0 12px rgba(23, 123, 87, 0.1);
+  border-color: rgba(46, 53, 36, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.15), 0 0 12px rgba(46, 53, 36, 0.1);
 }
 
 /* Tab focus */
 [role="tab"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(23, 123, 87, 0.5);
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.5);
   border-radius: 6px;
 }
 
@@ -352,7 +376,7 @@ select:focus-visible {
 [role="button"]:focus-visible,
 [role="listitem"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(23, 123, 87, 0.5), 0 0 12px rgba(23, 123, 87, 0.2);
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.5), 0 0 12px rgba(46, 53, 36, 0.2);
 }
 
 /* =============================================================================
@@ -378,8 +402,8 @@ select:focus-visible {
 }
 
 .premium-input:focus {
-  border-color: rgba(23, 123, 87, 0.4);
-  box-shadow: 0 0 0 3px rgba(23, 123, 87, 0.1);
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.1);
 }
 
 /* =============================================================================
@@ -467,20 +491,20 @@ select:focus-visible {
   border-radius: 0.25rem;
 }
 
-/* Links - Updated to McLeuker green */
+/* Links - Updated to Pantone olive */
 .ai-message-content a {
-  color: #6b9b8a;
+  color: #5c6652;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .ai-message-content a:hover {
-  color: #86efac;
+  color: #7a8a6e;
 }
 
 /* Blockquotes */
 .ai-message-content blockquote {
-  border-left: 2px solid rgba(23, 123, 87, 0.4);
+  border-left: 2px solid rgba(46, 53, 36, 0.4);
   padding-left: 1rem;
   margin: 1rem 0;
   color: rgba(255, 255, 255, 0.70);
@@ -508,10 +532,10 @@ select:focus-visible {
 
 @keyframes glow-pulse {
   0%, 100% { 
-    box-shadow: 0 0 8px rgba(23, 123, 87, 0.4), 0 0 16px rgba(23, 123, 87, 0.2);
+    box-shadow: 0 0 8px rgba(46, 53, 36, 0.4), 0 0 16px rgba(46, 53, 36, 0.2);
   }
   50% { 
-    box-shadow: 0 0 12px rgba(23, 123, 87, 0.6), 0 0 24px rgba(23, 123, 87, 0.3);
+    box-shadow: 0 0 12px rgba(46, 53, 36, 0.6), 0 0 24px rgba(46, 53, 36, 0.3);
   }
 }
 
@@ -532,26 +556,39 @@ select:focus-visible {
 }
 
 /* =============================================================================
-   Green accent utilities
+   Olive accent utilities
    ============================================================================= */
 
+.text-mcleuker-olive {
+  color: #2E3524;
+}
+
+.bg-mcleuker-olive {
+  background-color: #2E3524;
+}
+
+.border-mcleuker-olive {
+  border-color: #2E3524;
+}
+
+/* Legacy green class names - now map to olive */
 .text-mcleuker-green {
-  color: #3d655c;
+  color: #2E3524;
 }
 
 .bg-mcleuker-green {
-  background-color: #3d655c;
+  background-color: #2E3524;
 }
 
 .border-mcleuker-green {
-  border-color: #3d655c;
+  border-color: #2E3524;
 }
 
-/* Green status indicators */
+/* Olive status indicators */
 .status-complete {
-  color: #6b9b8a;
+  color: #5c6652;
 }
 
 .status-active {
-  color: #3d655c;
+  color: #2E3524;
 }

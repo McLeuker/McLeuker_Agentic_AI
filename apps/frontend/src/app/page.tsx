@@ -143,8 +143,8 @@ export default function LandingPage() {
                   className={cn(
                     "absolute bottom-3 sm:bottom-4 right-3 sm:right-4",
                     "px-4 sm:px-6 py-2 rounded-md text-sm font-medium",
-                    "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white",
-                    "hover:from-[#1a8a62] hover:to-[#2d7a35]",
+                    "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white",
+                    "hover:from-[#3a4530] hover:to-[#353d2a]",
                     "disabled:bg-white/10 disabled:text-white/40 disabled:from-white/10 disabled:to-white/10",
                     "flex items-center gap-2 transition-all"
                   )}
@@ -178,8 +178,8 @@ export default function LandingPage() {
                       )}
                     >
                       <div className="relative flex items-start gap-3 sm:gap-4 z-10">
-                        <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white/[0.08] flex items-center justify-center group-hover:bg-[#3d655c]/20 transition-colors">
-                          <IconComponent className="w-5 h-5 sm:w-6 sm:h-6 text-white/70 group-hover:text-[#6b9b8a]" />
+                        <div className="flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-white/[0.08] flex items-center justify-center group-hover:bg-[#2E3524]/20 transition-colors">
+                          <IconComponent className="w-5 h-5 sm:w-6 sm:h-6 text-white/70 group-hover:text-[#5c6652]" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm sm:text-base font-medium text-white/[0.92] mb-1 sm:mb-1.5">
@@ -189,7 +189,7 @@ export default function LandingPage() {
                             {suggestion.prompt}
                           </p>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-white/30 group-hover:text-[#3d655c] group-hover:translate-x-1 transition-all flex-shrink-0 mt-1" />
+                        <ArrowRight className="w-4 h-4 text-white/30 group-hover:text-[#2E3524] group-hover:translate-x-1 transition-all flex-shrink-0 mt-1" />
                       </div>
                     </button>
                   );
@@ -224,8 +224,8 @@ export default function LandingPage() {
         <div className="relative z-10 container mx-auto px-6 lg:px-12 py-20 lg:py-32">
           <div className="max-w-4xl mx-auto text-center">
             {/* Tagline Badge - Updated with green accent */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/80 backdrop-blur-sm border border-[#3d655c]/30 mb-8 lg:mb-10">
-              <Sparkles className="w-4 h-4 text-[#6b9b8a]" />
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/80 backdrop-blur-sm border border-[#2E3524]/30 mb-8 lg:mb-10">
+              <Sparkles className="w-4 h-4 text-[#5c6652]" />
               <span className="text-sm text-white/70 tracking-wide">
                 AI & Sustainability for Fashion
               </span>
@@ -248,9 +248,9 @@ export default function LandingPage() {
                 href="/dashboard"
                 className={cn(
                   "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                  "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white font-medium",
-                  "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
-                  "shadow-lg shadow-[#3d655c]/20"
+                  "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                  "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
+                  "shadow-lg shadow-[#2E3524]/15"
                 )}
               >
                 Open Dashboard
@@ -261,7 +261,7 @@ export default function LandingPage() {
                 className={cn(
                   "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
                   "border border-white/[0.18] text-white/90",
-                  "hover:bg-[#3d655c]/10 hover:border-[#3d655c]/30 transition-colors"
+                  "hover:bg-[#2E3524]/10 hover:border-[#2E3524]/30 transition-colors"
                 )}
               >
                 Explore Domains
@@ -316,10 +316,10 @@ export default function LandingPage() {
                 >
                   <div className="relative z-10">
                     <div className="flex items-start justify-between mb-6">
-                      <span className="text-5xl font-editorial text-white/15 group-hover:text-[#3d655c]/30 transition-colors">
+                      <span className="text-5xl font-editorial text-white/15 group-hover:text-[#2E3524]/30 transition-colors">
                         0{i + 1}
                       </span>
-                      <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-[#3d655c] group-hover:translate-x-1 transition-all" />
+                      <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-[#2E3524] group-hover:translate-x-1 transition-all" />
                     </div>
                     <h3 className="text-xl lg:text-2xl font-medium text-white/[0.92] mb-3">
                       {service.title}
@@ -339,7 +339,7 @@ export default function LandingPage() {
                 className={cn(
                   "inline-flex items-center gap-2 px-8 py-3",
                   "bg-[#141414] border border-white/[0.10] rounded-full",
-                  "text-white/80 hover:bg-[#3d655c]/10 hover:border-[#3d655c]/30",
+                  "text-white/80 hover:bg-[#2E3524]/10 hover:border-[#2E3524]/30",
                   "transition-colors"
                 )}
               >
@@ -386,7 +386,7 @@ export default function LandingPage() {
                     "Real deliverables, not just conversations"
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-3 text-white/[0.85]">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#6b9b8a]"></div>
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#5c6652]"></div>
                       {item}
                     </li>
                   ))}
@@ -395,9 +395,9 @@ export default function LandingPage() {
                   href="/signup"
                   className={cn(
                     "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                    "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white font-medium",
-                    "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
-                    "shadow-lg shadow-[#3d655c]/20"
+                    "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                    "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
+                    "shadow-lg shadow-[#2E3524]/15"
                   )}
                 >
                   Start Your Journey
@@ -416,8 +416,8 @@ export default function LandingPage() {
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
               {/* Content - Left on desktop */}
               <div className="lg:py-12 order-2 lg:order-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-[#3d655c]/30 mb-6">
-                  <Leaf className="w-4 h-4 text-[#6b9b8a]" />
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-[#2E3524]/30 mb-6">
+                  <Leaf className="w-4 h-4 text-[#5c6652]" />
                   <span className="text-sm text-white/60">
                     Sustainability First
                   </span>
@@ -432,11 +432,11 @@ export default function LandingPage() {
                 </p>
                 <div className="grid grid-cols-2 gap-8 mb-10">
                   <div>
-                    <p className="text-4xl font-editorial text-[#6b9b8a] mb-2">85%</p>
+                    <p className="text-4xl font-editorial text-[#5c6652] mb-2">85%</p>
                     <p className="text-sm text-white/50">Time saved on sustainability research</p>
                   </div>
                   <div>
-                    <p className="text-4xl font-editorial text-[#6b9b8a] mb-2">100+</p>
+                    <p className="text-4xl font-editorial text-[#5c6652] mb-2">100+</p>
                     <p className="text-sm text-white/50">Certification databases tracked</p>
                   </div>
                 </div>
@@ -444,8 +444,8 @@ export default function LandingPage() {
                   href="/about"
                   className={cn(
                     "inline-flex items-center gap-2 px-8 py-3",
-                    "bg-[#141414] border border-[#3d655c]/30 rounded-full",
-                    "text-white hover:bg-[#3d655c]/10 hover:border-[#3d655c]/50",
+                    "bg-[#141414] border border-[#2E3524]/30 rounded-full",
+                    "text-white hover:bg-[#2E3524]/10 hover:border-[#2E3524]/50",
                     "transition-colors"
                   )}
                 >
@@ -531,9 +531,9 @@ export default function LandingPage() {
                 href="/signup"
                 className={cn(
                   "inline-flex items-center gap-2 px-10 py-4 rounded-full",
-                  "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white font-medium",
-                  "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
-                  "shadow-lg shadow-[#3d655c]/20"
+                  "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                  "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
+                  "shadow-lg shadow-[#2E3524]/15"
                 )}
               >
                 Start Free Trial
@@ -544,7 +544,7 @@ export default function LandingPage() {
                 className={cn(
                   "inline-flex items-center gap-2 px-10 py-4 rounded-full",
                   "bg-[#141414] border border-white/[0.10] text-white",
-                  "hover:bg-[#3d655c]/10 hover:border-[#3d655c]/30 transition-colors"
+                  "hover:bg-[#2E3524]/10 hover:border-[#2E3524]/30 transition-colors"
                 )}
               >
                 View Pricing

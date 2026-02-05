@@ -123,11 +123,11 @@ function ReasoningLayerItem({
 
   // Updated colors - McLeuker green palette instead of purple
   const getColor = () => {
-    if (layer.status === 'complete') return 'text-green-400';
+    if (layer.status === 'complete') return 'text-[#5c6652]';
     switch (layer.type) {
-      case 'understanding': return 'text-[#3d655c]';
-      case 'planning': return 'text-[#3d665c]';
-      case 'research': return 'text-[#3d665c]';
+      case 'understanding': return 'text-[#2E3524]';
+      case 'planning': return 'text-[#2A3021]';
+      case 'research': return 'text-[#2A3021]';
       case 'analysis': return 'text-[#4c7748]';
       case 'synthesis': return 'text-[#457556]';
       case 'writing': return 'text-emerald-400';
@@ -136,12 +136,12 @@ function ReasoningLayerItem({
   };
 
   return (
-    <div className="border-l-2 border-[#3d655c]/30 pl-3 py-1">
+    <div className="border-l-2 border-[#2E3524]/30 pl-3 py-1">
       <button
         onClick={onToggleExpand}
         className={cn(
           "flex items-center gap-2 w-full text-left py-1.5 px-2 rounded-lg transition-all",
-          isLatest && layer.status === 'active' ? "bg-[#3d655c]/10" : "hover:bg-[#3d655c]/5"
+          isLatest && layer.status === 'active' ? "bg-[#2E3524]/10" : "hover:bg-[#2E3524]/5"
         )}
       >
         <div className={cn("flex-shrink-0", getColor())}>
@@ -169,7 +169,7 @@ function ReasoningLayerItem({
           </div>
         )}
         {layer.status === 'active' && (
-          <Loader2 className="h-3 w-3 animate-spin text-[#3d655c] flex-shrink-0" />
+          <Loader2 className="h-3 w-3 animate-spin text-[#2E3524] flex-shrink-0" />
         )}
       </button>
       
@@ -180,7 +180,7 @@ function ReasoningLayerItem({
             <div key={i} className="flex items-start gap-2 py-1">
               <div className={cn(
                 "mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0",
-                subStep.status === 'complete' ? "bg-green-400" : "bg-[#3d655c]/50"
+                subStep.status === 'complete' ? "bg-green-400" : "bg-[#2E3524]/50"
               )} />
               <p className="text-xs text-white/50 leading-relaxed">
                 {subStep.step}
@@ -192,7 +192,7 @@ function ReasoningLayerItem({
       
       {/* Layer content summary */}
       {layer.content && layer.expanded && (
-        <div className="ml-6 mt-2 p-2 rounded bg-[#3d655c]/5 border border-[#3d655c]/20">
+        <div className="ml-6 mt-2 p-2 rounded bg-[#2E3524]/5 border border-[#2E3524]/20">
           <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
             {layer.content}
           </p>
@@ -377,6 +377,74 @@ function MessageContent({
 
   return (
     <div className="space-y-4">
+      {/* Action Buttons - ABOVE the answer text */}
+      <div className="flex items-center gap-1 mb-2">
+        {/* Copy Button */}
+        <button
+          onClick={handleCopy}
+          className="p-1.5 text-white/30 hover:text-white/60 transition-colors rounded"
+          title="Copy to clipboard"
+        >
+          {copied ? <Check className="h-3.5 w-3.5 text-[#5c6652]" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
+        
+        {/* Export Menu */}
+        <div className="relative">
+          <button
+            onClick={() => setShowExportMenu(!showExportMenu)}
+            className="p-1.5 text-white/30 hover:text-white/60 transition-colors rounded"
+            title="Export document"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+          </button>
+          
+          {showExportMenu && (
+            <div className="absolute left-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 min-w-[160px] py-1">
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={!!exporting}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                {exporting === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-red-400" />}
+                Export as PDF
+              </button>
+              <button
+                onClick={() => handleExport('docx')}
+                disabled={!!exporting}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                {exporting === 'docx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-blue-400" />}
+                Export as Word
+              </button>
+              <button
+                onClick={() => handleExport('xlsx')}
+                disabled={!!exporting}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                {exporting === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-[#5c6652]" />}
+                Export as Excel
+              </button>
+              <button
+                onClick={() => handleExport('pptx')}
+                disabled={!!exporting}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                {exporting === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4 text-orange-400" />}
+                Export as PowerPoint
+              </button>
+              <button
+                onClick={() => handleExport('markdown')}
+                disabled={!!exporting}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
+              >
+                {exporting === 'markdown' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-white/60" />}
+                Export as Markdown
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Response Content */}
       <div className="relative">
         <div className={cn(
@@ -389,7 +457,7 @@ function MessageContent({
         {content.length > 1000 && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs text-[#3d655c] hover:text-[#3d665c] mt-2"
+            className="flex items-center gap-1 text-xs text-[#5c6652] hover:text-[#7a8a6e] mt-2"
           >
             {expanded ? (
               <>Show less <ChevronUp className="h-3 w-3" /></>
@@ -398,74 +466,6 @@ function MessageContent({
             )}
           </button>
         )}
-        
-        {/* Action Buttons */}
-        <div className="absolute top-0 right-0 flex items-center gap-1">
-          {/* Copy Button */}
-          <button
-            onClick={handleCopy}
-            className="p-2 text-white/40 hover:text-white/70 transition-colors"
-            title="Copy to clipboard"
-          >
-            {copied ? <Check className="h-4 w-4 text-green-400" /> : <Copy className="h-4 w-4" />}
-          </button>
-          
-          {/* Export Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              className="p-2 text-white/40 hover:text-white/70 transition-colors"
-              title="Export document"
-            >
-              <FileDown className="h-4 w-4" />
-            </button>
-            
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 min-w-[160px] py-1">
-                <button
-                  onClick={() => handleExport('pdf')}
-                  disabled={!!exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-                >
-                  {exporting === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-red-400" />}
-                  Export as PDF
-                </button>
-                <button
-                  onClick={() => handleExport('docx')}
-                  disabled={!!exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-                >
-                  {exporting === 'docx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-blue-400" />}
-                  Export as Word
-                </button>
-                <button
-                  onClick={() => handleExport('xlsx')}
-                  disabled={!!exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-                >
-                  {exporting === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-green-400" />}
-                  Export as Excel
-                </button>
-                <button
-                  onClick={() => handleExport('pptx')}
-                  disabled={!!exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-                >
-                  {exporting === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4 text-orange-400" />}
-                  Export as PowerPoint
-                </button>
-                <button
-                  onClick={() => handleExport('markdown')}
-                  disabled={!!exporting}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-                >
-                  {exporting === 'markdown' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-white/60" />}
-                  Export as Markdown
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Sources */}
@@ -479,7 +479,7 @@ function MessageContent({
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#3d655c]/10 border border-white/10 hover:border-[#3d655c]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
               >
                 <Globe className="h-3 w-3" />
                 <span className="truncate max-w-[150px]">{source.title}</span>
@@ -499,7 +499,7 @@ function MessageContent({
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="px-3 py-1.5 bg-white/5 hover:bg-[#3d655c]/10 border border-white/10 hover:border-[#3d655c]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
+                className="px-3 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
               >
                 {question}
               </button>
@@ -567,7 +567,7 @@ function ChatSidebar({
         <div className="p-2 pt-4">
           <button
             onClick={onToggle}
-            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-[#3d655c]/10 rounded-lg transition-colors"
+            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-[#2E3524]/10 rounded-lg transition-colors"
           >
             <PanelLeft className="h-4 w-4" />
           </button>
@@ -588,7 +588,7 @@ function ChatSidebar({
           <span className="font-medium text-[13px] text-white/80">Chat History</span>
           <button
             onClick={onToggle}
-            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-[#3d655c]/10 rounded-lg transition-colors"
+            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-[#2E3524]/10 rounded-lg transition-colors"
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
@@ -600,7 +600,7 @@ function ChatSidebar({
             onClick={onNewConversation}
             className={cn(
               "w-full justify-center gap-2 flex items-center",
-              "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]",
+              "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white hover:from-[#3a4530] hover:to-[#353d2a]",
               "h-10 rounded-full text-[13px] font-medium transition-all"
             )}
           >
@@ -621,7 +621,7 @@ function ChatSidebar({
                 "w-full pl-10 pr-10 h-10 text-[13px]",
                 "bg-white/[0.05] border border-white/[0.08] rounded-full",
                 "text-white placeholder:text-white/35",
-                "focus:border-[#3d655c]/40 focus:outline-none focus:ring-1 focus:ring-[#3d655c]/20",
+                "focus:border-[#2E3524]/40 focus:outline-none focus:ring-1 focus:ring-[#2E3524]/20",
                 "transition-all"
               )}
             />
@@ -725,7 +725,7 @@ function ChatSidebar({
 }
 
 // =============================================================================
-// Domain Tabs Component - Static, centered with green glow underline
+// Domain Tabs Component - Non-scrollable, centered with olive glow underline
 // =============================================================================
 
 function DomainTabs() {
@@ -734,23 +734,21 @@ function DomainTabs() {
   
   const handleDomainClick = (sectorId: Sector) => {
     setSector(sectorId);
-    // Navigate to domain page (except for 'all' which stays on dashboard)
-    if (sectorId !== 'all') {
-      router.push(`/domain/${sectorId}`);
-    }
+    // Navigate to domain page for all tabs
+    router.push(`/domain/${sectorId}`);
   };
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+    <div className="flex items-center justify-center gap-1">
       {SECTORS.map((sector) => (
         <button
           key={sector.id}
           onClick={() => handleDomainClick(sector.id)}
           className={cn(
-            "px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all whitespace-nowrap",
+            "domain-tab relative px-3 py-1.5 text-[13px] font-medium transition-all whitespace-nowrap",
             currentSector === sector.id
-              ? "text-white bg-[#3d655c]/20 shadow-[0_0_10px_rgba(23,123,87,0.3)]"
-              : "text-white/60 hover:text-white hover:bg-white/[0.05]"
+              ? "domain-tab-active text-white"
+              : "text-white/50 hover:text-white/80"
           )}
         >
           {sector.label}
@@ -831,15 +829,15 @@ function ProfileDropdown() {
           onClick={() => setIsOpen(!isOpen)}
           className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center overflow-hidden',
-            'border border-white/[0.12] hover:border-[#3d655c]/50 hover:bg-[#3d655c]/10',
+            'border border-white/[0.12] hover:border-[#2E3524]/50 hover:bg-[#2E3524]/10',
             'transition-all duration-200',
-            isOpen && 'ring-2 ring-[#3d655c]/30'
+            isOpen && 'ring-2 ring-[#2E3524]/30'
           )}
         >
           {avatarUrl ? (
             <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#3d655c] to-[#3d665c] flex items-center justify-center">
+            <div className="w-full h-full bg-gradient-to-br from-[#2E3524] to-[#2A3021] flex items-center justify-center">
               <span className="text-xs font-medium text-white">{initials}</span>
             </div>
           )}
@@ -862,7 +860,7 @@ function ProfileDropdown() {
               </p>
               <p className="text-xs text-white/50 capitalize mt-0.5">{plan} plan</p>
               <div className="text-xs text-white/50 mt-1">
-                <span className="font-medium text-[#6b9b8a]">{creditBalance}</span> credits available
+                <span className="font-medium text-[#5c6652]">{creditBalance}</span> credits available
               </div>
             </div>
             
@@ -871,7 +869,7 @@ function ProfileDropdown() {
               <Link
                 href="/settings"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#2E3524]/10 hover:text-white transition-colors"
               >
                 <User className="h-4 w-4" />
                 Profile
@@ -879,7 +877,7 @@ function ProfileDropdown() {
               <Link
                 href="/billing"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#2E3524]/10 hover:text-white transition-colors"
               >
                 <CreditCard className="h-4 w-4" />
                 Billing & Credits
@@ -887,7 +885,7 @@ function ProfileDropdown() {
               <Link
                 href="/preferences"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#2E3524]/10 hover:text-white transition-colors"
               >
                 <Settings className="h-4 w-4" />
                 Workspace Preferences
@@ -898,7 +896,7 @@ function ProfileDropdown() {
               <Link
                 href="/contact"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#2E3524]/10 hover:text-white transition-colors"
               >
                 <HelpCircle className="h-4 w-4" />
                 Support / Help
@@ -966,15 +964,15 @@ function FileUploadButton({
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "h-10 w-10 rounded-xl flex items-center justify-center transition-all",
-          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-[#3d655c]/10 hover:border-[#3d655c]/30",
+          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-[#2E3524]/10 hover:border-[#2E3524]/30",
           "border border-white/[0.08]",
-          isOpen && "bg-[#3d655c]/10 text-white border-[#3d655c]/30",
-          attachedFiles.length > 0 && "bg-[#3d655c]/20 border-[#3d655c]/40"
+          isOpen && "bg-[#2E3524]/10 text-white border-[#2E3524]/30",
+          attachedFiles.length > 0 && "bg-[#2E3524]/20 border-[#2E3524]/40"
         )}
       >
         <Plus className="w-5 h-5" />
         {attachedFiles.length > 0 && (
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#3d655c] text-white text-[10px] rounded-full flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#2E3524] text-white text-[10px] rounded-full flex items-center justify-center">
             {attachedFiles.length}
           </span>
         )}
@@ -984,7 +982,7 @@ function FileUploadButton({
         <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1A1A1A] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#3d655c]/10 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#2E3524]/10 transition-colors"
           >
             <Paperclip className="w-4 h-4" />
             Upload File
@@ -994,7 +992,7 @@ function FileUploadButton({
               onOpenImageGenerator();
               setIsOpen(false);
             }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#3d655c]/10 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#2E3524]/10 transition-colors"
           >
             <ImageIcon className="w-4 h-4" />
             Generate Image
@@ -1030,7 +1028,7 @@ function AttachedFilesDisplay({
     if (type.startsWith('image/')) return <ImageIcon className="w-4 h-4" />;
     if (type.includes('pdf')) return <FileText className="w-4 h-4 text-red-400" />;
     if (type.includes('word') || type.includes('doc')) return <FileText className="w-4 h-4 text-blue-400" />;
-    if (type.includes('excel') || type.includes('sheet') || type.includes('csv')) return <FileText className="w-4 h-4 text-green-400" />;
+    if (type.includes('excel') || type.includes('sheet') || type.includes('csv')) return <FileText className="w-4 h-4 text-[#5c6652]" />;
     if (type.includes('presentation') || type.includes('powerpoint')) return <FileText className="w-4 h-4 text-orange-400" />;
     return <File className="w-4 h-4" />;
   };
@@ -1165,7 +1163,7 @@ function ImageGenerationModal({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#3d655c] to-[#3d665c] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#2E3524] to-[#2A3021] flex items-center justify-center">
               <ImageIcon className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -1194,7 +1192,7 @@ function ImageGenerationModal({
                   className={cn(
                     "px-3 py-1.5 text-sm rounded-lg border transition-all",
                     style === s.id
-                      ? "bg-[#3d655c]/20 border-[#3d655c] text-white"
+                      ? "bg-[#2E3524]/20 border-[#2E3524] text-white"
                       : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:border-white/20"
                   )}
                 >
@@ -1211,7 +1209,7 @@ function ImageGenerationModal({
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Describe the image you want to generate..."
-              className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:border-[#3d655c]/50 focus:outline-none resize-none"
+              className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:border-[#2E3524]/50 focus:outline-none resize-none"
             />
           </div>
 
@@ -1240,7 +1238,7 @@ function ImageGenerationModal({
                 </button>
                 <button
                   onClick={handleUseImage}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#3d655c] hover:bg-[#1a8a62] text-white rounded-lg transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#2E3524] hover:bg-[#3a4530] text-white rounded-lg transition-colors"
                 >
                   <Check className="w-4 h-4" />
                   Use Image
@@ -1257,7 +1255,7 @@ function ImageGenerationModal({
               className={cn(
                 "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all",
                 prompt.trim() && !isGenerating
-                  ? "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                  ? "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white hover:from-[#3a4530] hover:to-[#353d2a]"
                   : "bg-white/5 text-white/30 cursor-not-allowed"
               )}
             >
@@ -1854,19 +1852,15 @@ function DashboardContent() {
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
               /* STATE A: Empty State - "Where is my mind?" with search bar and suggestions */
-              <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                {/* Title */}
-                <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 text-center">
+              <div className="flex flex-col items-center justify-center min-h-[70vh]">
+                {/* Title - 3x larger, no subtitle */}
+                <h1 className="text-6xl md:text-7xl lg:text-8xl font-editorial text-white/90 mb-8 text-center tracking-tight">
                   Where is my mind?
                 </h1>
-                {/* Subtitle */}
-                <p className="text-white/50 max-w-md text-center mb-6">
-                  Give me chaos — I'll return a map.
-                </p>
                 
                 {/* Search Bar - Directly under title */}
                 <div className="w-full max-w-xl mb-6">
-                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-[#3d655c]/30 transition-all">
+                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-[#2E3524]/30 transition-all">
                     <FileUploadButton
                       onFileSelect={handleFileSelect}
                       onOpenImageGenerator={() => setShowImageGenerator(true)}
@@ -1887,7 +1881,7 @@ function DashboardContent() {
                       className={cn(
                         "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
                         input.trim() && !isStreaming
-                          ? "bg-[#3d655c] text-white hover:bg-[#4a7a6d]"
+                          ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
                           : "bg-white/[0.05] text-white/30"
                       )}
                     >
@@ -1907,7 +1901,7 @@ function DashboardContent() {
                         className={cn(
                           "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                           searchMode === 'quick'
-                            ? "bg-[#3d655c]/20 text-white"
+                            ? "bg-[#2E3524]/20 text-white"
                             : "text-white/50 hover:text-white/70"
                         )}
                       >
@@ -1919,7 +1913,7 @@ function DashboardContent() {
                         className={cn(
                           "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                           searchMode === 'deep'
-                            ? "bg-[#3d655c]/20 text-white"
+                            ? "bg-[#2E3524]/20 text-white"
                             : "text-white/50 hover:text-white/70"
                         )}
                       >
@@ -1965,7 +1959,7 @@ function DashboardContent() {
                       "max-w-[85%]",
                       message.role === 'user' 
                         ? "mcleuker-user-bubble rounded-2xl rounded-tr-md px-4 py-3"
-                        : "bg-[#141414] rounded-xl rounded-tl-md px-4 py-3"
+                        : "" // AI messages have no bubble - plain text
                     )}>
                       {/* User message with attached files */}
                       {message.role === 'user' && (
@@ -2048,7 +2042,7 @@ function DashboardContent() {
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                       searchMode === 'quick'
-                        ? "bg-[#3d655c]/20 text-white"
+                        ? "bg-[#2E3524]/20 text-white"
                         : "text-white/50 hover:text-white/70"
                     )}
                   >
@@ -2060,7 +2054,7 @@ function DashboardContent() {
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
                       searchMode === 'deep'
-                        ? "bg-[#3d655c]/20 text-white"
+                        ? "bg-[#2E3524]/20 text-white"
                         : "text-white/50 hover:text-white/70"
                     )}
                   >
@@ -2102,7 +2096,7 @@ function DashboardContent() {
                   className={cn(
                     "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
                     input.trim() && !isStreaming
-                      ? "bg-[#3d655c] text-white hover:bg-[#4a7a6d]"
+                      ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
                       : "bg-white/[0.05] text-white/30"
                   )}
                 >
