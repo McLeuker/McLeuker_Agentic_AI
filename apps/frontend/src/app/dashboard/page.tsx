@@ -228,12 +228,14 @@ function MessageContent({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Export document function
+  // Export document function - Fixed to handle two-step download
   const handleExport = async (format: string) => {
     setExporting(format);
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
-      const response = await fetch(`${API_URL}/api/document/generate`, {
+      
+      // Step 1: Generate the document and get the download URL
+      const generateResponse = await fetch(`${API_URL}/api/document/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -243,25 +245,30 @@ function MessageContent({
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Export failed');
+      if (!generateResponse.ok) {
+        const errorData = await generateResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate document');
       }
 
-      // Get the blob and download
-      const blob = await response.blob();
+      const result = await generateResponse.json();
+      
+      if (!result.success || !result.download_url) {
+        throw new Error(result.error || 'Failed to generate document');
+      }
+
+      // Step 2: Download the actual file using the returned URL
+      const fileResponse = await fetch(`${API_URL}${result.download_url}`);
+      
+      if (!fileResponse.ok) {
+        throw new Error('Failed to download file');
+      }
+
+      // Get the blob and trigger download
+      const blob = await fileResponse.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
-      // Get filename from Content-Disposition header or use default
-      const disposition = response.headers.get('Content-Disposition');
-      let filename = `mcleuker-report.${format}`;
-      if (disposition) {
-        const match = disposition.match(/filename="(.+)"/);
-        if (match) filename = match[1];
-      }
-      
-      a.download = filename;
+      a.download = result.filename || `mcleuker-report.${format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -269,7 +276,7 @@ function MessageContent({
       setShowExportMenu(false);
     } catch (error) {
       console.error('Export error:', error);
-      alert('Failed to export document. Please try again.');
+      alert(error instanceof Error ? error.message : 'Failed to export document. Please try again.');
     } finally {
       setExporting(null);
     }
@@ -1713,17 +1720,43 @@ function DashboardContent() {
       .order("created_at", { ascending: true });
     
     if (!error && data) {
-      const loadedMessages: Message[] = data.map((msg: any) => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        reasoning_layers: [],
-        sources: msg.sources || [],
-        follow_up_questions: msg.follow_up_questions || [],
-        timestamp: new Date(msg.created_at),
-        isStreaming: false,
-        is_favorite: msg.is_favorite,
-      }));
+      const loadedMessages: Message[] = data.map((msg: any) => {
+        // Parse metadata if it exists (contains sources, reasoning_layers, follow_up_questions)
+        let metadata: any = {};
+        if (msg.metadata) {
+          try {
+            metadata = typeof msg.metadata === 'string' 
+              ? JSON.parse(msg.metadata) 
+              : msg.metadata;
+          } catch (e) {
+            console.error('Error parsing message metadata:', e);
+          }
+        }
+        
+        // Parse reasoning layers with proper structure
+        const reasoningLayers: ReasoningLayer[] = (metadata.reasoning_layers || []).map((layer: any, index: number) => ({
+          id: layer.id || `layer-${index}`,
+          layer_num: layer.layer_num || index + 1,
+          type: layer.type || 'analysis',
+          title: layer.title || `Layer ${index + 1}`,
+          content: layer.content || '',
+          sub_steps: layer.sub_steps || [],
+          status: 'complete' as const,
+          expanded: false,
+        }));
+        
+        return {
+          id: msg.id,
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          reasoning_layers: reasoningLayers,
+          sources: metadata.sources || msg.sources || [],
+          follow_up_questions: metadata.follow_up_questions || msg.follow_up_questions || [],
+          timestamp: new Date(msg.created_at),
+          isStreaming: false,
+          is_favorite: msg.is_favorite,
+        };
+      });
       setMessages(loadedMessages);
     }
   };
