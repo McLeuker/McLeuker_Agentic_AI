@@ -28,6 +28,8 @@ interface UserData {
   created_at: string;
   last_login_at: string | null;
   auth_provider: string;
+  company: string | null;
+  role: string | null;
 }
 
 const ROLES = [
@@ -85,44 +87,68 @@ export function AccountOverview() {
       // First try to get from users table
       const { data: usersData, error: usersError } = await supabase
         .from('users')
-        .select('name, email, profile_image, subscription_plan, created_at, last_login_at, auth_provider')
+        .select('name, email, profile_image, subscription_plan, created_at, last_login_at, auth_provider, company, role')
         .eq('user_id', user.id)
         .single();
 
-      if (usersData) {
+      if (usersData && !usersError) {
         setUserData(usersData);
         const initialData = {
           name: usersData.name || '',
-          company: '',
-          role: '',
+          company: usersData.company || '',
+          role: usersData.role || '',
           profile_image: usersData.profile_image,
         };
         setFormData(initialData);
         setOriginalData(initialData);
       } else {
-        // Fallback to profiles table
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('full_name, email, created_at')
-          .eq('user_id', user.id)
+        // User doesn't exist in users table, create them
+        console.log('User not found in users table, creating...');
+        
+        const newUserData = {
+          user_id: user.id,
+          email: user.email || '',
+          name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+          auth_provider: user.app_metadata?.provider || 'email',
+          last_login_at: new Date().toISOString(),
+        };
+
+        const { data: insertedUser, error: insertError } = await supabase
+          .from('users')
+          .insert(newUserData)
+          .select()
           .single();
 
-        if (profileData) {
+        if (insertError) {
+          console.error('Error creating user:', insertError);
+          // Use fallback data from auth
           const fallbackData: UserData = {
-            name: profileData.full_name || user.user_metadata?.full_name || '',
-            email: profileData.email || user.email || '',
+            name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+            email: user.email || '',
             profile_image: null,
             subscription_plan: 'free',
-            created_at: profileData.created_at,
+            created_at: user.created_at || new Date().toISOString(),
             last_login_at: new Date().toISOString(),
             auth_provider: user.app_metadata?.provider || 'email',
+            company: null,
+            role: null,
           };
           setUserData(fallbackData);
           const initialData = {
             name: fallbackData.name || '',
             company: '',
             role: '',
-            profile_image: null as string | null,
+            profile_image: null,
+          };
+          setFormData(initialData);
+          setOriginalData(initialData);
+        } else if (insertedUser) {
+          setUserData(insertedUser);
+          const initialData = {
+            name: insertedUser.name || '',
+            company: insertedUser.company || '',
+            role: insertedUser.role || '',
+            profile_image: insertedUser.profile_image,
           };
           setFormData(initialData);
           setOriginalData(initialData);
@@ -139,13 +165,15 @@ export function AccountOverview() {
         created_at: user.created_at || new Date().toISOString(),
         last_login_at: new Date().toISOString(),
         auth_provider: user.app_metadata?.provider || 'email',
+        company: null,
+        role: null,
       };
       setUserData(fallbackData);
       const initialData = {
         name: fallbackData.name || '',
         company: '',
         role: '',
-        profile_image: null as string | null,
+        profile_image: null,
       };
       setFormData(initialData);
       setOriginalData(initialData);
@@ -160,35 +188,76 @@ export function AccountOverview() {
     setSaving(true);
 
     try {
-      // Build update object
-      const updates: Record<string, string | null> = {};
+      // Build update object with all changed fields
+      const updates: Record<string, string | null> = {
+        updated_at: new Date().toISOString(),
+      };
 
       if (formData.name !== originalData.name) {
-        updates.name = formData.name.trim();
+        updates.name = formData.name.trim() || null;
+      }
+
+      if (formData.company !== originalData.company) {
+        updates.company = formData.company.trim() || null;
+      }
+
+      if (formData.role !== originalData.role) {
+        updates.role = formData.role || null;
       }
 
       if (pendingImage) {
         updates.profile_image = pendingImage;
       }
 
-      // Try to update users table first
-      if (Object.keys(updates).length > 0) {
-        const { error: usersError } = await supabase
-          .from('users')
-          .update(updates)
-          .eq('user_id', user.id);
+      console.log('Saving profile updates:', updates);
 
-        if (usersError) {
-          console.log('Users table update failed, trying profiles:', usersError);
+      // Update users table
+      const { error: usersError } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('user_id', user.id);
+
+      if (usersError) {
+        console.error('Users table update failed:', usersError);
+        
+        // If user doesn't exist, try to insert
+        if (usersError.code === 'PGRST116') {
+          const { error: insertError } = await supabase
+            .from('users')
+            .insert({
+              user_id: user.id,
+              email: user.email || '',
+              name: formData.name.trim() || null,
+              company: formData.company.trim() || null,
+              role: formData.role || null,
+              profile_image: pendingImage || null,
+              auth_provider: user.app_metadata?.provider || 'email',
+            });
+
+          if (insertError) {
+            throw insertError;
+          }
+        } else {
+          throw usersError;
         }
       }
 
-      // Also update profiles table if name changed
+      // Also update profiles table for backward compatibility
       if (updates.name) {
-        await supabase
+        const { error: profileError } = await supabase
           .from('profiles')
-          .update({ full_name: updates.name })
-          .eq('user_id', user.id);
+          .upsert({
+            user_id: user.id,
+            full_name: updates.name,
+            email: user.email,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'user_id',
+          });
+
+        if (profileError) {
+          console.log('Profiles table update failed (non-critical):', profileError);
+        }
       }
 
       // Update local state
@@ -197,19 +266,27 @@ export function AccountOverview() {
           ? {
               ...prev,
               name: formData.name.trim(),
+              company: formData.company.trim(),
+              role: formData.role,
               profile_image: pendingImage || prev.profile_image,
             }
           : null
       );
 
       const newOriginalData = {
-        ...formData,
         name: formData.name.trim(),
+        company: formData.company.trim(),
+        role: formData.role,
         profile_image: pendingImage || originalData.profile_image,
       };
 
       setOriginalData(newOriginalData);
-      setFormData((prev) => ({ ...prev, profile_image: pendingImage || prev.profile_image }));
+      setFormData((prev) => ({ 
+        ...prev, 
+        name: formData.name.trim(),
+        company: formData.company.trim(),
+        profile_image: pendingImage || prev.profile_image 
+      }));
       setPendingImage(null);
 
       toast({
@@ -449,7 +526,7 @@ export function AccountOverview() {
             >
               {saving ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Saving...
                 </>
               ) : (

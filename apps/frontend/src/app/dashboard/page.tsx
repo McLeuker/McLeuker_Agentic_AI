@@ -1852,9 +1852,9 @@ function DashboardContent() {
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
               /* STATE A: Empty State - "Where is my mind?" with search bar and suggestions */
-              <div className="flex flex-col items-center justify-center min-h-[70vh]">
-                {/* Title - 3x larger, no subtitle */}
-                <h1 className="text-6xl md:text-7xl lg:text-8xl font-editorial text-white/90 mb-8 text-center tracking-tight">
+              <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                {/* Title - Elegant, centered */}
+                <h1 className="text-2xl md:text-3xl lg:text-4xl font-editorial text-white/80 mb-6 text-center tracking-tight">
                   Where is my mind?
                 </h1>
                 
