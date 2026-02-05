@@ -133,6 +133,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register memory endpoints router
+try:
+    from .memory_endpoints import router as memory_router
+    app.include_router(memory_router)
+    logger.info("Memory endpoints registered successfully")
+except ImportError as e:
+    logger.warning(f"Memory endpoints not available: {e}")
+
 # =============================================================================
 # Health & Info Endpoints
 # =============================================================================
