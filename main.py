@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from src.config.settings import settings
 from src.core.orchestrator import orchestrator, OrchestratorResponse
+from src.core.hybrid_orchestrator import hybrid_orchestrator
 
 
 # =============================================================================
@@ -136,14 +137,29 @@ async def api_status():
     """Detailed API status."""
     return {
         "platform": "McLeuker AI",
-        "version": "5.0.0",
-        "architecture": "V5 Agentic",
-        "brain": "Grok (XAI)",
+        "version": "7.0.0",
+        "architecture": "V7 Hybrid Agentic",
+        "brain": "Dual-Model (Grok + Kimi)",
+        "models": {
+            "reasoning": {
+                "provider": "Grok (xAI)",
+                "model": settings.GROK_MODEL,
+                "configured": settings.is_grok_configured(),
+                "role": "Intent understanding, planning, synthesis"
+            },
+            "execution": {
+                "provider": "Kimi K2.5 (Moonshot AI)",
+                "model": settings.KIMI_MODEL,
+                "configured": settings.is_kimi_configured(),
+                "role": "Code generation, tool calling, agentic workflows"
+            },
+            "hybrid_enabled": settings.ENABLE_MULTI_MODEL and settings.is_kimi_configured()
+        },
         "layers": {
             "intent_router": "Rule-based fast detection",
             "context_manager": "Session-based memory",
             "query_planner": "Automatic mode selection",
-            "tool_executor": "Parallel search + Grok",
+            "tool_executor": "Parallel search + Hybrid Brain",
             "response_synthesizer": "Clean formatting with citations"
         },
         "focus_areas": [
@@ -153,6 +169,7 @@ async def api_status():
         "current_date": datetime.now().strftime("%B %d, %Y"),
         "services": {
             "grok": settings.is_grok_configured(),
+            "kimi": settings.is_kimi_configured(),
             "perplexity": bool(settings.PERPLEXITY_API_KEY),
             "exa": bool(settings.EXA_API_KEY),
             "google": bool(settings.GOOGLE_SEARCH_API_KEY),
