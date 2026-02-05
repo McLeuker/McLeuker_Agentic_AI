@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
@@ -19,15 +19,15 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/pricing', '/about', '/contact'];
+const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/pricing', '/about', '/contact', '/domains', '/how-it-works', '/solutions', '/press', '/careers', '/help', '/terms', '/privacy', '/cookies'];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
-  const initRef = useRef(false);
 
   // Refresh session manually
   const refreshSession = useCallback(async () => {
@@ -42,10 +42,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Initialize auth state
+  // Initialize auth state - only once
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
+    if (initialized) return;
 
     let mounted = true;
 
@@ -58,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error("Error getting session:", error);
           if (mounted) {
             setLoading(false);
+            setInitialized(true);
           }
           return;
         }
@@ -81,16 +81,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           
           setLoading(false);
-
-          // If user is logged in and on login page, redirect to dashboard
-          if (existingSession?.user && (pathname === '/login' || pathname === '/signup')) {
-            router.replace('/dashboard');
-          }
+          setInitialized(true);
         }
       } catch (err) {
         console.error("Auth initialization error:", err);
         if (mounted) {
           setLoading(false);
+          setInitialized(true);
         }
       }
     };
@@ -102,13 +99,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (!mounted) return;
 
+        // Update state
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
 
         // Handle different auth events
         if (event === 'SIGNED_IN') {
-          if (pathname === '/login' || pathname === '/signup' || pathname === '/') {
+          // Check if we have a return URL stored
+          const returnTo = typeof window !== 'undefined' ? localStorage.getItem('auth-return-to') : null;
+          if (returnTo) {
+            localStorage.removeItem('auth-return-to');
+            router.replace(returnTo);
+          } else if (pathname === '/login' || pathname === '/signup' || pathname === '/auth/callback') {
             router.replace('/dashboard');
           }
         } else if (event === 'SIGNED_OUT') {
@@ -121,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initializeAuth();
 
-    // Set up periodic token refresh (every 10 minutes)
+    // Set up periodic token refresh (every 5 minutes)
     const refreshInterval = setInterval(async () => {
       const { data: { session: currentSession } } = await supabase.auth.getSession();
       if (currentSession) {
@@ -136,21 +139,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
       }
-    }, 10 * 60 * 1000);
+    }, 5 * 60 * 1000);
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
       clearInterval(refreshInterval);
     };
-  }, [pathname, router, refreshSession]);
+  }, [initialized, refreshSession, router, pathname]);
 
   // Redirect unauthenticated users from protected routes
   useEffect(() => {
-    if (!loading && !user && !PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith('/auth/'))) {
+    // Don't redirect while loading or not initialized
+    if (loading || !initialized) return;
+    
+    // Check if current path is public
+    const isPublicRoute = PUBLIC_ROUTES.some(route => 
+      pathname === route || 
+      pathname.startsWith('/auth/') ||
+      pathname.startsWith('/domain/') ||
+      pathname.startsWith('/solutions/')
+    );
+    
+    // Only redirect if not on a public route and not authenticated
+    if (!user && !isPublicRoute) {
       router.replace('/login');
     }
-  }, [loading, user, pathname, router]);
+  }, [loading, initialized, user, pathname, router]);
 
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     try {
@@ -194,7 +209,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // FIXED: Use select_account directly - no prompt:none which causes interaction_required
   const signInWithGoogle = useCallback(async () => {
     try {
       // Store the current URL to redirect back after login

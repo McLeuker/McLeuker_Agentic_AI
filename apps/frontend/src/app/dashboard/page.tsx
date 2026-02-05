@@ -723,9 +723,14 @@ function ChatSidebar({
 
 function DomainTabs() {
   const { currentSector, setSector } = useSector();
+  const router = useRouter();
   
   const handleDomainClick = (sectorId: Sector) => {
     setSector(sectorId);
+    // Navigate to domain page (except for 'all' which stays on dashboard)
+    if (sectorId !== 'all') {
+      router.push(`/domain/${sectorId}`);
+    }
   };
 
   return (
@@ -1721,13 +1726,45 @@ function DashboardContent() {
     }
   };
 
-  // Starter questions
-  const starterQuestions = [
+  // Dynamic starter questions - randomized from a larger pool each time
+  const allStarterQuestions = [
+    // Fashion
     "What are the latest trends in sustainable fashion?",
+    "How is Gen Z reshaping fashion consumption?",
+    "Which emerging designers should I watch in 2026?",
+    "What's driving the resale and secondhand market boom?",
+    // Beauty
     "How is AI transforming the beauty industry?",
+    "What are the top skincare innovations this year?",
+    "How are beauty brands adapting to clean beauty demands?",
+    "What's the future of personalized beauty?",
+    // Luxury
     "Analyze the luxury market outlook for 2026",
+    "How are luxury brands embracing digital experiences?",
+    "What's driving luxury consumer behavior changes?",
+    "Which luxury brands are leading in sustainability?",
+    // Textile & Manufacturing
     "What innovations are shaping textile manufacturing?",
+    "How is 3D printing changing fashion production?",
+    "What are the most sustainable fabric alternatives?",
+    "How are supply chains becoming more transparent?",
+    // Sustainability
+    "What are the biggest sustainability challenges in fashion?",
+    "How are brands measuring their environmental impact?",
+    "What's the future of circular fashion?",
+    "Which certifications matter most for sustainable fashion?",
+    // Tech & Innovation
+    "How is blockchain being used in fashion?",
+    "What role does AI play in trend forecasting?",
+    "How are virtual try-ons changing e-commerce?",
+    "What's the impact of the metaverse on fashion?",
   ];
+  
+  // Randomly select 4 questions on each render
+  const [starterQuestions] = useState(() => {
+    const shuffled = [...allStarterQuestions].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, 4);
+  });
 
   return (
     <div className="min-h-screen bg-[#070707] flex w-full">
