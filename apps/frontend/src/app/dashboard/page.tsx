@@ -1615,8 +1615,6 @@ function DashboardContent() {
                       content: finalContent,
                       model_used: 'grok-4',
                       credits_used: creditsUsed,
-                      sources: eventData.sources || currentSources,
-                      follow_up_questions: followUpQuestions,
                     });
                     
                     // Update conversation title if it's a new conversation
