@@ -11,11 +11,26 @@ export interface Source {
   snippet?: string;
 }
 
+export interface ReasoningLayer {
+  id: number;
+  title: string;
+  description: string;
+  status: 'pending' | 'active' | 'complete';
+  details?: string[];
+}
+
 export interface KeyInsight {
   title: string;
   description: string;
   importance: string;
   icon?: string;
+}
+
+export interface MessageMetadata {
+  sources?: Source[];
+  reasoning_layers?: ReasoningLayer[];
+  follow_up_questions?: string[];
+  search_mode?: 'quick' | 'deep';
 }
 
 export interface ChatMessage {
@@ -28,9 +43,11 @@ export interface ChatMessage {
   credits_used: number;
   is_favorite: boolean;
   created_at: string;
+  // Metadata fields (parsed from JSON)
   sources?: Source[];
-  followUpQuestions?: string[];
-  keyInsights?: KeyInsight[];
+  reasoning_layers?: ReasoningLayer[];
+  follow_up_questions?: string[];
+  search_mode?: 'quick' | 'deep';
 }
 
 export interface Conversation {
@@ -74,7 +91,7 @@ export function useConversations() {
     }
   }, [user]);
 
-  // Load messages for a conversation
+  // Load messages for a conversation - now includes metadata parsing
   const loadMessages = useCallback(async (conversationId: string) => {
     if (!user) return;
 
@@ -87,17 +104,36 @@ export function useConversations() {
 
       if (error) throw error;
 
-      const formattedMessages: ChatMessage[] = (data || []).map((msg) => ({
-        id: msg.id,
-        conversation_id: msg.conversation_id,
-        user_id: msg.user_id,
-        role: msg.role as "user" | "assistant",
-        content: msg.content,
-        model_used: msg.model_used,
-        credits_used: msg.credits_used || 0,
-        is_favorite: msg.is_favorite,
-        created_at: msg.created_at,
-      }));
+      const formattedMessages: ChatMessage[] = (data || []).map((msg) => {
+        // Parse metadata if it exists
+        let metadata: MessageMetadata = {};
+        if (msg.metadata) {
+          try {
+            metadata = typeof msg.metadata === 'string' 
+              ? JSON.parse(msg.metadata) 
+              : msg.metadata as MessageMetadata;
+          } catch (e) {
+            console.error('Error parsing message metadata:', e);
+          }
+        }
+
+        return {
+          id: msg.id,
+          conversation_id: msg.conversation_id,
+          user_id: msg.user_id,
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+          model_used: msg.model_used,
+          credits_used: msg.credits_used || 0,
+          is_favorite: msg.is_favorite,
+          created_at: msg.created_at,
+          // Include parsed metadata fields
+          sources: metadata.sources,
+          reasoning_layers: metadata.reasoning_layers,
+          follow_up_questions: metadata.follow_up_questions,
+          search_mode: metadata.search_mode,
+        };
+      });
 
       setMessages(formattedMessages);
     } catch (error) {
@@ -143,17 +179,21 @@ export function useConversations() {
     }
   }, [user]);
 
-  // Save a message
+  // Save a message with optional metadata
   const saveMessage = useCallback(async (
     conversationId: string,
     role: "user" | "assistant",
     content: string,
     modelUsed?: string,
-    creditsUsed?: number
+    creditsUsed?: number,
+    metadata?: MessageMetadata
   ): Promise<ChatMessage | null> => {
     if (!user) return null;
 
     try {
+      // Convert metadata to JSON-compatible format
+      const jsonMetadata = metadata ? JSON.parse(JSON.stringify(metadata)) : null;
+      
       const { data, error } = await supabase
         .from("chat_messages")
         .insert({
@@ -163,11 +203,24 @@ export function useConversations() {
           content,
           model_used: modelUsed || null,
           credits_used: creditsUsed || 0,
+          metadata: jsonMetadata,
         })
         .select()
         .single();
 
       if (error) throw error;
+
+      // Parse metadata from response
+      let parsedMetadata: MessageMetadata = {};
+      if (data.metadata) {
+        try {
+          parsedMetadata = typeof data.metadata === 'string' 
+            ? JSON.parse(data.metadata) 
+            : data.metadata as MessageMetadata;
+        } catch (e) {
+          console.error('Error parsing saved message metadata:', e);
+        }
+      }
 
       const newMessage: ChatMessage = {
         id: data.id,
@@ -179,6 +232,10 @@ export function useConversations() {
         credits_used: data.credits_used || 0,
         is_favorite: data.is_favorite,
         created_at: data.created_at,
+        sources: parsedMetadata.sources,
+        reasoning_layers: parsedMetadata.reasoning_layers,
+        follow_up_questions: parsedMetadata.follow_up_questions,
+        search_mode: parsedMetadata.search_mode,
       };
 
       setMessages((prev) => [...prev, newMessage]);

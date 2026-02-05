@@ -7,8 +7,8 @@
 
 /* =============================================================================
    McLeuker Green Palette (Allowed Accents)
-   #177b57 - Primary green
-   #266a2e - Forest green
+   #3d655c - Primary green
+   #3d665c - Forest green
    #0a290a - Deep dark green
    #3d665c - Muted teal green
    #4c7748 - Sage green
@@ -41,8 +41,8 @@
   --font-editorial: 'Cormorant Garamond', Georgia, serif;
   
   /* McLeuker Green CSS Variables */
-  --mcleuker-green-primary: #177b57;
-  --mcleuker-green-forest: #266a2e;
+  --mcleuker-green-primary: #3d655c;
+  --mcleuker-green-forest: #3d665c;
   --mcleuker-green-deep: #0a290a;
   --mcleuker-green-teal: #3d665c;
   --mcleuker-green-sage: #4c7748;
@@ -136,7 +136,7 @@ body {
 
 /* User message bubble - McLeuker green ombre */
 .mcleuker-user-bubble {
-  background: linear-gradient(135deg, #177b57 0%, #266a2e 50%, #215e21 100%);
+  background: linear-gradient(135deg, #3d655c 0%, #3d665c 50%, #215e21 100%);
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 14px 40px rgba(23, 123, 87, 0.25);
 }
@@ -159,7 +159,7 @@ body {
 
 /* Brain icon green ombre gradient */
 .mcleuker-brain-gradient {
-  background: linear-gradient(135deg, #177b57 0%, #266a2e 50%, #4c7748 100%);
+  background: linear-gradient(135deg, #3d655c 0%, #3d665c 50%, #4c7748 100%);
 }
 
 /* =============================================================================
@@ -308,7 +308,7 @@ body {
   transform: translateX(-50%);
   width: 70%;
   height: 2px;
-  background: linear-gradient(90deg, #177b57, #266a2e);
+  background: linear-gradient(90deg, #3d655c, #3d665c);
   border-radius: 1px;
   box-shadow: 0 0 8px rgba(23, 123, 87, 0.5), 0 0 16px rgba(23, 123, 87, 0.3);
   filter: blur(0.5px);
@@ -469,7 +469,7 @@ select:focus-visible {
 
 /* Links - Updated to McLeuker green */
 .ai-message-content a {
-  color: #4ade80;
+  color: #6b9b8a;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -536,22 +536,22 @@ select:focus-visible {
    ============================================================================= */
 
 .text-mcleuker-green {
-  color: #177b57;
+  color: #3d655c;
 }
 
 .bg-mcleuker-green {
-  background-color: #177b57;
+  background-color: #3d655c;
 }
 
 .border-mcleuker-green {
-  border-color: #177b57;
+  border-color: #3d655c;
 }
 
 /* Green status indicators */
 .status-complete {
-  color: #4ade80;
+  color: #6b9b8a;
 }
 
 .status-active {
-  color: #177b57;
+  color: #3d655c;
 }

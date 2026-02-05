@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useRouter, usePathname } from "next/navigation";
@@ -13,147 +13,127 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  refreshSession: () => Promise<void>;
+  refreshSession: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback', '/pricing', '/about', '/contact', '/domains', '/how-it-works', '/solutions', '/press', '/careers', '/help', '/terms', '/privacy', '/cookies'];
+const PUBLIC_ROUTES = [
+  '/', '/login', '/signup', '/auth/callback', '/pricing', '/about', '/contact', 
+  '/domains', '/how-it-works', '/solutions', '/press', '/careers', '/help', 
+  '/terms', '/privacy', '/cookies'
+];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [initialized, setInitialized] = useState(false);
+  const initRef = useRef(false);
   const router = useRouter();
   const pathname = usePathname();
 
-  // Refresh session manually
+  // Refresh session
   const refreshSession = useCallback(async () => {
     try {
       const { data: { session: refreshedSession }, error } = await supabase.auth.refreshSession();
       if (!error && refreshedSession) {
         setSession(refreshedSession);
         setUser(refreshedSession.user);
+        return true;
       }
     } catch (err) {
       console.error("Session refresh error:", err);
     }
+    return false;
   }, []);
 
-  // Initialize auth state - only once
+  // Initialize auth - only once per mount
   useEffect(() => {
-    if (initialized) return;
+    if (initRef.current) return;
+    initRef.current = true;
 
     let mounted = true;
 
-    const initializeAuth = async () => {
+    const initAuth = async () => {
       try {
-        // Get session from Supabase
-        const { data: { session: existingSession }, error } = await supabase.auth.getSession();
+        // First, check if we have a confirmed session from callback
+        const sessionConfirmed = typeof window !== 'undefined' && localStorage.getItem('mcleuker-session-confirmed');
+        
+        // Get current session
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
         
         if (error) {
-          console.error("Error getting session:", error);
+          console.error("Session error:", error);
           if (mounted) {
             setLoading(false);
-            setInitialized(true);
           }
           return;
         }
 
-        if (mounted) {
-          if (existingSession) {
-            setSession(existingSession);
-            setUser(existingSession.user);
-            
-            // Check if token needs refresh (within 10 minutes of expiry)
-            const expiresAt = existingSession.expires_at;
-            if (expiresAt) {
-              const expiryTime = expiresAt * 1000;
-              const now = Date.now();
-              const tenMinutes = 10 * 60 * 1000;
-              
-              if (expiryTime - now < tenMinutes) {
-                await refreshSession();
-              }
-            }
-          }
+        if (currentSession && mounted) {
+          setSession(currentSession);
+          setUser(currentSession.user);
           
+          // Clear the confirmation flag
+          if (sessionConfirmed) {
+            localStorage.removeItem('mcleuker-session-confirmed');
+          }
+        }
+        
+        if (mounted) {
           setLoading(false);
-          setInitialized(true);
         }
       } catch (err) {
-        console.error("Auth initialization error:", err);
+        console.error("Auth init error:", err);
         if (mounted) {
           setLoading(false);
-          setInitialized(true);
         }
       }
     };
 
-    // Set up auth state listener
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        console.log("Auth state changed:", event, currentSession?.user?.email);
-        
         if (!mounted) return;
 
-        // Update state
+        console.log("Auth event:", event);
+
+        // Update state immediately
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
 
-        // Handle different auth events
+        // Handle navigation based on event
         if (event === 'SIGNED_IN') {
-          // Check if we have a return URL stored
-          const returnTo = typeof window !== 'undefined' ? localStorage.getItem('auth-return-to') : null;
-          if (returnTo) {
+          // Only redirect if on login/signup pages
+          if (pathname === '/login' || pathname === '/signup') {
+            const returnTo = localStorage.getItem('auth-return-to') || '/dashboard';
             localStorage.removeItem('auth-return-to');
             router.replace(returnTo);
-          } else if (pathname === '/login' || pathname === '/signup' || pathname === '/auth/callback') {
-            router.replace('/dashboard');
           }
         } else if (event === 'SIGNED_OUT') {
+          // Clear any stored user data
+          localStorage.removeItem('mcleuker-session-confirmed');
+          localStorage.removeItem('mcleuker-user-id');
           router.replace('/');
-        } else if (event === 'TOKEN_REFRESHED') {
-          console.log('Token refreshed successfully');
         }
       }
     );
 
-    initializeAuth();
-
-    // Set up periodic token refresh (every 5 minutes)
-    const refreshInterval = setInterval(async () => {
-      const { data: { session: currentSession } } = await supabase.auth.getSession();
-      if (currentSession) {
-        const expiresAt = currentSession.expires_at;
-        if (expiresAt) {
-          const expiryTime = expiresAt * 1000;
-          const now = Date.now();
-          const tenMinutes = 10 * 60 * 1000;
-          
-          if (expiryTime - now < tenMinutes) {
-            await refreshSession();
-          }
-        }
-      }
-    }, 5 * 60 * 1000);
+    // Then initialize
+    initAuth();
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      clearInterval(refreshInterval);
     };
-  }, [initialized, refreshSession, router, pathname]);
+  }, []); // Empty deps - only run once
 
-  // Redirect unauthenticated users from protected routes
+  // Redirect protection - separate effect
   useEffect(() => {
-    // Don't redirect while loading or not initialized
-    if (loading || !initialized) return;
+    if (loading) return;
     
-    // Check if current path is public
     const isPublicRoute = PUBLIC_ROUTES.some(route => 
       pathname === route || 
       pathname.startsWith('/auth/') ||
@@ -161,11 +141,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       pathname.startsWith('/solutions/')
     );
     
-    // Only redirect if not on a public route and not authenticated
+    // Only redirect if not authenticated and not on public route
     if (!user && !isPublicRoute) {
+      // Store current path for return
+      localStorage.setItem('auth-return-to', pathname);
       router.replace('/login');
     }
-  }, [loading, initialized, user, pathname, router]);
+  }, [loading, user, pathname, router]);
 
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     try {
@@ -177,15 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           data: { full_name: fullName.trim() },
         },
       });
-
-      if (error) {
-        console.error("Signup error:", error);
-        return { error: error as Error };
-      }
-
-      return { error: null };
+      return { error: error as Error | null };
     } catch (err) {
-      console.error("Unexpected signup error:", err);
       return { error: err as Error };
     }
   }, []);
@@ -196,26 +171,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: email.trim().toLowerCase(),
         password,
       });
-      
-      if (error) {
-        console.error("SignIn error:", error);
-        return { error: error as Error };
-      }
-
-      return { error: null };
+      return { error: error as Error | null };
     } catch (err) {
-      console.error("Unexpected signin error:", err);
       return { error: err as Error };
     }
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
     try {
-      // Store the current URL to redirect back after login
-      if (typeof window !== 'undefined') {
-        const returnTo = pathname !== '/login' && pathname !== '/signup' ? pathname : '/dashboard';
-        localStorage.setItem('auth-return-to', returnTo);
-      }
+      // Store return URL
+      const returnTo = pathname !== '/login' && pathname !== '/signup' ? pathname : '/dashboard';
+      localStorage.setItem('auth-return-to', returnTo);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -228,26 +194,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       });
       
-      if (error) {
-        console.error("Google OAuth error:", error);
-        return { error: error as Error };
-      }
-
-      return { error: null };
+      return { error: error as Error | null };
     } catch (err) {
-      console.error("Unexpected Google OAuth error:", err);
       return { error: err as Error };
     }
   }, [pathname]);
 
   const signOut = useCallback(async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error("SignOut error:", error);
-      }
+      await supabase.auth.signOut();
+      // Clear local storage
+      localStorage.removeItem('mcleuker-session-confirmed');
+      localStorage.removeItem('mcleuker-user-id');
+      localStorage.removeItem('auth-return-to');
     } catch (err) {
-      console.error("Unexpected signout error:", err);
+      console.error("SignOut error:", err);
     }
   }, []);
 

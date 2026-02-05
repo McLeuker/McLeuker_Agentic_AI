@@ -125,8 +125,8 @@ function ReasoningLayerItem({
   const getColor = () => {
     if (layer.status === 'complete') return 'text-green-400';
     switch (layer.type) {
-      case 'understanding': return 'text-[#177b57]';
-      case 'planning': return 'text-[#266a2e]';
+      case 'understanding': return 'text-[#3d655c]';
+      case 'planning': return 'text-[#3d665c]';
       case 'research': return 'text-[#3d665c]';
       case 'analysis': return 'text-[#4c7748]';
       case 'synthesis': return 'text-[#457556]';
@@ -136,12 +136,12 @@ function ReasoningLayerItem({
   };
 
   return (
-    <div className="border-l-2 border-[#177b57]/30 pl-3 py-1">
+    <div className="border-l-2 border-[#3d655c]/30 pl-3 py-1">
       <button
         onClick={onToggleExpand}
         className={cn(
           "flex items-center gap-2 w-full text-left py-1.5 px-2 rounded-lg transition-all",
-          isLatest && layer.status === 'active' ? "bg-[#177b57]/10" : "hover:bg-[#177b57]/5"
+          isLatest && layer.status === 'active' ? "bg-[#3d655c]/10" : "hover:bg-[#3d655c]/5"
         )}
       >
         <div className={cn("flex-shrink-0", getColor())}>
@@ -169,7 +169,7 @@ function ReasoningLayerItem({
           </div>
         )}
         {layer.status === 'active' && (
-          <Loader2 className="h-3 w-3 animate-spin text-[#177b57] flex-shrink-0" />
+          <Loader2 className="h-3 w-3 animate-spin text-[#3d655c] flex-shrink-0" />
         )}
       </button>
       
@@ -180,7 +180,7 @@ function ReasoningLayerItem({
             <div key={i} className="flex items-start gap-2 py-1">
               <div className={cn(
                 "mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0",
-                subStep.status === 'complete' ? "bg-green-400" : "bg-[#177b57]/50"
+                subStep.status === 'complete' ? "bg-green-400" : "bg-[#3d655c]/50"
               )} />
               <p className="text-xs text-white/50 leading-relaxed">
                 {subStep.step}
@@ -192,7 +192,7 @@ function ReasoningLayerItem({
       
       {/* Layer content summary */}
       {layer.content && layer.expanded && (
-        <div className="ml-6 mt-2 p-2 rounded bg-[#177b57]/5 border border-[#177b57]/20">
+        <div className="ml-6 mt-2 p-2 rounded bg-[#3d655c]/5 border border-[#3d655c]/20">
           <p className="text-xs text-white/60 leading-relaxed line-clamp-3">
             {layer.content}
           </p>
@@ -382,7 +382,7 @@ function MessageContent({
         {content.length > 1000 && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs text-[#177b57] hover:text-[#266a2e] mt-2"
+            className="flex items-center gap-1 text-xs text-[#3d655c] hover:text-[#3d665c] mt-2"
           >
             {expanded ? (
               <>Show less <ChevronUp className="h-3 w-3" /></>
@@ -472,7 +472,7 @@ function MessageContent({
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#177b57]/10 border border-white/10 hover:border-[#177b57]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#3d655c]/10 border border-white/10 hover:border-[#3d655c]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
               >
                 <Globe className="h-3 w-3" />
                 <span className="truncate max-w-[150px]">{source.title}</span>
@@ -492,7 +492,7 @@ function MessageContent({
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="px-3 py-1.5 bg-white/5 hover:bg-[#177b57]/10 border border-white/10 hover:border-[#177b57]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
+                className="px-3 py-1.5 bg-white/5 hover:bg-[#3d655c]/10 border border-white/10 hover:border-[#3d655c]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
               >
                 {question}
               </button>
@@ -560,7 +560,7 @@ function ChatSidebar({
         <div className="p-2 pt-4">
           <button
             onClick={onToggle}
-            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-[#177b57]/10 rounded-lg transition-colors"
+            className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-[#3d655c]/10 rounded-lg transition-colors"
           >
             <PanelLeft className="h-4 w-4" />
           </button>
@@ -581,7 +581,7 @@ function ChatSidebar({
           <span className="font-medium text-[13px] text-white/80">Chat History</span>
           <button
             onClick={onToggle}
-            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-[#177b57]/10 rounded-lg transition-colors"
+            className="h-8 w-8 flex items-center justify-center text-white/50 hover:text-white hover:bg-[#3d655c]/10 rounded-lg transition-colors"
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
@@ -593,7 +593,7 @@ function ChatSidebar({
             onClick={onNewConversation}
             className={cn(
               "w-full justify-center gap-2 flex items-center",
-              "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]",
+              "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]",
               "h-10 rounded-full text-[13px] font-medium transition-all"
             )}
           >
@@ -614,7 +614,7 @@ function ChatSidebar({
                 "w-full pl-10 pr-10 h-10 text-[13px]",
                 "bg-white/[0.05] border border-white/[0.08] rounded-full",
                 "text-white placeholder:text-white/35",
-                "focus:border-[#177b57]/40 focus:outline-none focus:ring-1 focus:ring-[#177b57]/20",
+                "focus:border-[#3d655c]/40 focus:outline-none focus:ring-1 focus:ring-[#3d655c]/20",
                 "transition-all"
               )}
             />
@@ -742,7 +742,7 @@ function DomainTabs() {
           className={cn(
             "px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all whitespace-nowrap",
             currentSector === sector.id
-              ? "text-white bg-[#177b57]/20 shadow-[0_0_10px_rgba(23,123,87,0.3)]"
+              ? "text-white bg-[#3d655c]/20 shadow-[0_0_10px_rgba(23,123,87,0.3)]"
               : "text-white/60 hover:text-white hover:bg-white/[0.05]"
           )}
         >
@@ -818,30 +818,21 @@ function ProfileDropdown() {
 
   return (
     <div className="flex items-center gap-3">
-      {/* Credits Display - Updated with green accent */}
-      <Link
-        href="/billing"
-        className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-[#177b57]/10 border border-white/[0.08] hover:border-[#177b57]/30 transition-colors"
-      >
-        <Coins className="h-3.5 w-3.5 text-[#4ade80]" />
-        <span className="text-xs font-medium text-white/80">{creditBalance} credits</span>
-      </Link>
-
       {/* Profile Button */}
       <div ref={menuRef} className="relative">
         <button
           onClick={() => setIsOpen(!isOpen)}
           className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center overflow-hidden',
-            'border border-white/[0.12] hover:border-[#177b57]/50 hover:bg-[#177b57]/10',
+            'border border-white/[0.12] hover:border-[#3d655c]/50 hover:bg-[#3d655c]/10',
             'transition-all duration-200',
-            isOpen && 'ring-2 ring-[#177b57]/30'
+            isOpen && 'ring-2 ring-[#3d655c]/30'
           )}
         >
           {avatarUrl ? (
             <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
+            <div className="w-full h-full bg-gradient-to-br from-[#3d655c] to-[#3d665c] flex items-center justify-center">
               <span className="text-xs font-medium text-white">{initials}</span>
             </div>
           )}
@@ -864,7 +855,7 @@ function ProfileDropdown() {
               </p>
               <p className="text-xs text-white/50 capitalize mt-0.5">{plan} plan</p>
               <div className="text-xs text-white/50 mt-1">
-                <span className="font-medium text-[#4ade80]">{creditBalance}</span> credits available
+                <span className="font-medium text-[#6b9b8a]">{creditBalance}</span> credits available
               </div>
             </div>
             
@@ -873,7 +864,7 @@ function ProfileDropdown() {
               <Link
                 href="/settings"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
               >
                 <User className="h-4 w-4" />
                 Profile
@@ -881,7 +872,7 @@ function ProfileDropdown() {
               <Link
                 href="/billing"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
               >
                 <CreditCard className="h-4 w-4" />
                 Billing & Credits
@@ -889,7 +880,7 @@ function ProfileDropdown() {
               <Link
                 href="/preferences"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
               >
                 <Settings className="h-4 w-4" />
                 Workspace Preferences
@@ -900,7 +891,7 @@ function ProfileDropdown() {
               <Link
                 href="/contact"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#177b57]/10 hover:text-white transition-colors"
+                className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/80 hover:bg-[#3d655c]/10 hover:text-white transition-colors"
               >
                 <HelpCircle className="h-4 w-4" />
                 Support / Help
@@ -968,15 +959,15 @@ function FileUploadButton({
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "h-10 w-10 rounded-xl flex items-center justify-center transition-all",
-          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-[#177b57]/10 hover:border-[#177b57]/30",
+          "bg-white/[0.05] text-white/50 hover:text-white hover:bg-[#3d655c]/10 hover:border-[#3d655c]/30",
           "border border-white/[0.08]",
-          isOpen && "bg-[#177b57]/10 text-white border-[#177b57]/30",
-          attachedFiles.length > 0 && "bg-[#177b57]/20 border-[#177b57]/40"
+          isOpen && "bg-[#3d655c]/10 text-white border-[#3d655c]/30",
+          attachedFiles.length > 0 && "bg-[#3d655c]/20 border-[#3d655c]/40"
         )}
       >
         <Plus className="w-5 h-5" />
         {attachedFiles.length > 0 && (
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#177b57] text-white text-[10px] rounded-full flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#3d655c] text-white text-[10px] rounded-full flex items-center justify-center">
             {attachedFiles.length}
           </span>
         )}
@@ -986,7 +977,7 @@ function FileUploadButton({
         <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1A1A1A] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#177b57]/10 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#3d655c]/10 transition-colors"
           >
             <Paperclip className="w-4 h-4" />
             Upload File
@@ -996,7 +987,7 @@ function FileUploadButton({
               onOpenImageGenerator();
               setIsOpen(false);
             }}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#177b57]/10 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-white/70 hover:text-white hover:bg-[#3d655c]/10 transition-colors"
           >
             <ImageIcon className="w-4 h-4" />
             Generate Image
@@ -1167,7 +1158,7 @@ function ImageGenerationModal({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#3d655c] to-[#3d665c] flex items-center justify-center">
               <ImageIcon className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -1196,7 +1187,7 @@ function ImageGenerationModal({
                   className={cn(
                     "px-3 py-1.5 text-sm rounded-lg border transition-all",
                     style === s.id
-                      ? "bg-[#177b57]/20 border-[#177b57] text-white"
+                      ? "bg-[#3d655c]/20 border-[#3d655c] text-white"
                       : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:border-white/20"
                   )}
                 >
@@ -1213,7 +1204,7 @@ function ImageGenerationModal({
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Describe the image you want to generate..."
-              className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:border-[#177b57]/50 focus:outline-none resize-none"
+              className="w-full h-24 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 focus:border-[#3d655c]/50 focus:outline-none resize-none"
             />
           </div>
 
@@ -1242,7 +1233,7 @@ function ImageGenerationModal({
                 </button>
                 <button
                   onClick={handleUseImage}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#177b57] hover:bg-[#1a8a62] text-white rounded-lg transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-[#3d655c] hover:bg-[#1a8a62] text-white rounded-lg transition-colors"
                 >
                   <Check className="w-4 h-4" />
                   Use Image
@@ -1259,7 +1250,7 @@ function ImageGenerationModal({
               className={cn(
                 "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all",
                 prompt.trim() && !isGenerating
-                  ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                  ? "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
                   : "bg-white/5 text-white/30 cursor-not-allowed"
               )}
             >
@@ -1610,9 +1601,26 @@ function DashboardContent() {
 
                 setCreditBalance(prev => Math.max(0, prev - creditsUsed));
 
-                // Save assistant message to database
+                // Save assistant message to database with full metadata
                 if (requestConversationId && user) {
                   try {
+                    // Store complete metadata including sources, reasoning, and suggestions
+                    // Convert to JSON-serializable format
+                    const messageMetadata = JSON.stringify({
+                      sources: eventData.sources || currentSources,
+                      reasoning_layers: currentLayers.map(l => ({
+                        id: l.id,
+                        layer_num: l.layer_num,
+                        type: l.type,
+                        title: l.title,
+                        content: l.content,
+                        sub_steps: l.sub_steps || [],
+                        status: l.status,
+                      })),
+                      follow_up_questions: followUpQuestions,
+                      search_mode: searchMode,
+                    });
+                    
                     await supabase.from('chat_messages').insert({
                       conversation_id: requestConversationId,
                       user_id: user.id,
@@ -1620,6 +1628,7 @@ function DashboardContent() {
                       content: finalContent,
                       model_used: 'grok-4',
                       credits_used: creditsUsed,
+                      metadata: JSON.parse(messageMetadata),
                     });
                     
                     // Update conversation title if it's a new conversation
@@ -1719,7 +1728,7 @@ function DashboardContent() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -1811,31 +1820,91 @@ function DashboardContent() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
-              /* STATE A: Empty State - "Where is my mind?" */
+              /* STATE A: Empty State - "Where is my mind?" with search bar and suggestions */
               <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                <div className="text-center mb-8">
-                  {/* Brain Icon with McLeuker green ombre */}
-                  <div className="w-16 h-16 rounded-2xl mcleuker-brain-gradient flex items-center justify-center mx-auto mb-4 shadow-lg shadow-[#177b57]/20">
-                    <Brain className="h-8 w-8 text-white" />
+                {/* Title */}
+                <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 text-center">
+                  Where is my mind?
+                </h1>
+                {/* Subtitle */}
+                <p className="text-white/50 max-w-md text-center mb-6">
+                  Give me chaos — I'll return a map.
+                </p>
+                
+                {/* Search Bar - Directly under title */}
+                <div className="w-full max-w-xl mb-6">
+                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-[#3d655c]/30 transition-all">
+                    <FileUploadButton
+                      onFileSelect={handleFileSelect}
+                      onOpenImageGenerator={() => setShowImageGenerator(true)}
+                      attachedFiles={attachedFiles}
+                      onRemoveFile={handleRemoveFile}
+                    />
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Ask me anything..."
+                      className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none text-sm"
+                    />
+                    <button
+                      onClick={() => handleSendMessage()}
+                      disabled={!input.trim() || isStreaming}
+                      className={cn(
+                        "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                        input.trim() && !isStreaming
+                          ? "bg-[#3d655c] text-white hover:bg-[#4a7a6d]"
+                          : "bg-white/[0.05] text-white/30"
+                      )}
+                    >
+                      {isStreaming ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </button>
                   </div>
-                  {/* New Title */}
-                  <h1 className="text-2xl font-bold text-white mb-2">
-                    Where is my mind?
-                  </h1>
-                  {/* New Subtitle */}
-                  <p className="text-white/50 max-w-md">
-                    Give me chaos — I'll return a map.
-                  </p>
+                  
+                  {/* Quick/Deep Mode Toggle - Under search bar */}
+                  <div className="flex justify-center mt-3">
+                    <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
+                      <button
+                        onClick={() => setSearchMode('quick')}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                          searchMode === 'quick'
+                            ? "bg-[#3d655c]/20 text-white"
+                            : "text-white/50 hover:text-white/70"
+                        )}
+                      >
+                        <Zap className="h-3 w-3" />
+                        Quick
+                      </button>
+                      <button
+                        onClick={() => setSearchMode('deep')}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                          searchMode === 'deep'
+                            ? "bg-[#3d655c]/20 text-white"
+                            : "text-white/50 hover:text-white/70"
+                        )}
+                      >
+                        <Brain className="h-3 w-3" />
+                        Deep
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 
-                {/* Suggestion Cards with bubble gradient variation */}
-                <div className="grid gap-3 w-full max-w-xl mb-8">
+                {/* Suggestion Cards - Under search bar */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
                   {starterQuestions.map((question, i) => (
                     <button
                       key={i}
                       onClick={() => handleSendMessage(question)}
                       className={cn(
-                        "text-left p-4 rounded-xl transition-all",
+                        "text-left p-3 rounded-xl transition-all",
                         "mcleuker-bubble",
                         i % 4 === 0 && "mcleuker-bubble-v1",
                         i % 4 === 1 && "mcleuker-bubble-v2",
@@ -1843,7 +1912,7 @@ function DashboardContent() {
                         i % 4 === 3 && "mcleuker-bubble-v4"
                       )}
                     >
-                      <p className="text-sm text-white/80">{question}</p>
+                      <p className="text-xs sm:text-sm text-white/80 line-clamp-2">{question}</p>
                     </button>
                   ))}
                 </div>
@@ -1928,104 +1997,99 @@ function DashboardContent() {
           </div>
         </div>
 
-        {/* Input Area - Fixed at bottom */}
-        <div className="sticky bottom-0 bg-gradient-to-t from-[#070707] via-[#070707] to-transparent pt-6 pb-4">
-          <div className="max-w-3xl mx-auto px-4">
-            {/* Attached Files Display */}
-            <AttachedFilesDisplay 
-              files={attachedFiles} 
-              onRemove={handleRemoveFile} 
-            />
-            
-            {/* Quick/Deep Mode Toggle - Centered */}
-            <div className="flex justify-center mb-3">
-              <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
-                <button
-                  onClick={() => setSearchMode('quick')}
+        {/* Input Area - Fixed at bottom (only show when there are messages) */}
+        {messages.length > 0 && (
+          <div className="sticky bottom-0 bg-gradient-to-t from-[#070707] via-[#070707] to-transparent pt-6 pb-4">
+            <div className="max-w-3xl mx-auto px-4">
+              {/* Attached Files Display */}
+              <AttachedFilesDisplay 
+                files={attachedFiles} 
+                onRemove={handleRemoveFile} 
+              />
+              
+              {/* Quick/Deep Mode Toggle - Centered (no credit numbers) */}
+              <div className="flex justify-center mb-3">
+                <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
+                  <button
+                    onClick={() => setSearchMode('quick')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      searchMode === 'quick'
+                        ? "bg-[#3d655c]/20 text-white"
+                        : "text-white/50 hover:text-white/70"
+                    )}
+                  >
+                    <Zap className="h-3 w-3" />
+                    Quick
+                  </button>
+                  <button
+                    onClick={() => setSearchMode('deep')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      searchMode === 'deep'
+                        ? "bg-[#3d655c]/20 text-white"
+                        : "text-white/50 hover:text-white/70"
+                    )}
+                  >
+                    <Brain className="h-3 w-3" />
+                    Deep
+                  </button>
+                </div>
+              </div>
+              
+              {/* Input Container */}
+              <div className="flex items-end gap-2 p-2 rounded-2xl border transition-all bg-[#141414] border-white/[0.08]">
+                {/* Plus Button */}
+                <FileUploadButton
+                  onFileSelect={handleFileSelect}
+                  onOpenImageGenerator={() => setShowImageGenerator(true)}
+                  attachedFiles={attachedFiles}
+                  onRemoveFile={handleRemoveFile}
+                />
+                
+                {/* Text Input */}
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask me anything..."
+                  rows={1}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                    searchMode === 'quick'
-                      ? "bg-[#177b57]/20 text-white shadow-[0_0_10px_rgba(23,123,87,0.2)]"
-                      : "text-white/50 hover:text-white/70"
+                    "flex-1 bg-transparent text-white placeholder:text-white/30 resize-none",
+                    "focus:outline-none text-sm leading-relaxed py-2.5 px-2",
+                    "max-h-[200px]"
+                  )}
+                />
+                
+                {/* Send Button */}
+                <button
+                  onClick={() => handleSendMessage()}
+                  disabled={!input.trim() || isStreaming}
+                  className={cn(
+                    "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                    input.trim() && !isStreaming
+                      ? "bg-[#3d655c] text-white hover:bg-[#4a7a6d]"
+                      : "bg-white/[0.05] text-white/30"
                   )}
                 >
-                  <Zap className="h-3 w-3" />
-                  Quick
-                  <span className="text-white/40">2</span>
-                </button>
-                <button
-                  onClick={() => setSearchMode('deep')}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                    searchMode === 'deep'
-                      ? "bg-[#177b57]/20 text-white shadow-[0_0_10px_rgba(23,123,87,0.2)]"
-                      : "text-white/50 hover:text-white/70"
+                  {isStreaming ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
                   )}
-                >
-                  <Brain className="h-3 w-3" />
-                  Deep
-                  <span className="text-white/40">5</span>
                 </button>
               </div>
-            </div>
-            
-            {/* Input Container */}
-            <div className={cn(
-              "flex items-end gap-2 p-2 rounded-2xl border transition-all",
-              messages.length === 0
-                ? "mcleuker-input-bubble"
-                : "bg-[#141414] border-white/[0.08]"
-            )}>
-              {/* Plus Button */}
-              <FileUploadButton
-                onFileSelect={handleFileSelect}
-                onOpenImageGenerator={() => setShowImageGenerator(true)}
-                attachedFiles={attachedFiles}
-                onRemoveFile={handleRemoveFile}
-              />
               
-              {/* Text Input */}
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask me anything..."
-                rows={1}
-                className={cn(
-                  "flex-1 bg-transparent text-white placeholder:text-white/30 resize-none",
-                  "focus:outline-none text-sm leading-relaxed py-2.5 px-2",
-                  "max-h-[200px]"
-                )}
-              />
-              
-              {/* Send Button */}
-              <button
-                onClick={() => handleSendMessage()}
-                disabled={!input.trim() || isStreaming}
-                className={cn(
-                  "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                  input.trim() && !isStreaming
-                    ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
-                    : "bg-white/[0.05] text-white/30"
-                )}
-              >
-                {isStreaming ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-            
-            {/* Helper Text */}
-            <div className="flex items-center justify-center gap-4 mt-2">
-              <p className="text-[10px] text-white/30">
-                Press Enter to send • Shift + Enter for new line
-              </p>
+              {/* Helper Text */}
+              <div className="flex items-center justify-center gap-4 mt-2">
+                <p className="text-[10px] text-white/30">
+                  Press Enter to send • Shift + Enter for new line
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </main>
 
       {/* Image Generation Modal */}

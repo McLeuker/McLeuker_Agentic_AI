@@ -145,7 +145,7 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.08]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#177b57] to-[#266a2e] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#3d655c] to-[#3d665c] flex items-center justify-center">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -178,7 +178,7 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
                     "w-full h-32 px-4 py-3 rounded-xl",
                     "bg-[#0A0A0A] border border-white/[0.08]",
                     "text-white placeholder:text-white/30",
-                    "focus:border-[#177b57]/50 focus:outline-none focus:ring-1 focus:ring-[#177b57]/20",
+                    "focus:border-[#3d655c]/50 focus:outline-none focus:ring-1 focus:ring-[#3d655c]/20",
                     "resize-none transition-all"
                   )}
                   disabled={isGenerating}
@@ -199,13 +199,13 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
                       className={cn(
                         "px-4 py-3 rounded-xl text-left transition-all",
                         selectedStyle === style.id
-                          ? "bg-gradient-to-r from-[#177b57]/20 to-[#266a2e]/20 border border-[#177b57]/50"
+                          ? "bg-gradient-to-r from-[#3d655c]/20 to-[#3d665c]/20 border border-[#3d655c]/50"
                           : "bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.15]"
                       )}
                     >
                       <span className={cn(
                         "text-sm font-medium",
-                        selectedStyle === style.id ? "text-[#4ade80]" : "text-white/80"
+                        selectedStyle === style.id ? "text-[#6b9b8a]" : "text-white/80"
                       )}>
                         {style.label}
                       </span>
@@ -231,7 +231,7 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
                   </div>
                   <div className="h-2 bg-white/[0.05] rounded-full overflow-hidden">
                     <div 
-                      className="h-full bg-gradient-to-r from-[#177b57] to-[#266a2e] transition-all duration-300"
+                      className="h-full bg-gradient-to-r from-[#3d655c] to-[#3d665c] transition-all duration-300"
                       style={{ width: `${progress}%` }}
                     />
                   </div>
@@ -245,7 +245,7 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
                 className={cn(
                   "w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
                   prompt.trim() && !isGenerating
-                    ? "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
+                    ? "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white hover:from-[#1a8a62] hover:to-[#2d7a35]"
                     : "bg-white/[0.05] text-white/40 cursor-not-allowed"
                 )}
               >
@@ -277,7 +277,7 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
               <div className="flex gap-3">
                 <button
                   onClick={handleDownload}
-                  className="flex-1 py-3 rounded-xl font-medium bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all flex items-center justify-center gap-2"
+                  className="flex-1 py-3 rounded-xl font-medium bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all flex items-center justify-center gap-2"
                 >
                   <Download className="h-5 w-5" />
                   Download

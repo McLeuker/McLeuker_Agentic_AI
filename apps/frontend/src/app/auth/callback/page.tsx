@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense, useCallback } from 'react';
+import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -9,9 +9,13 @@ function AuthCallbackContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState('Processing authentication...');
   const [error, setError] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(true);
+  const processedRef = useRef(false);
 
   const handleAuthCallback = useCallback(async () => {
+    // Prevent double processing
+    if (processedRef.current) return;
+    processedRef.current = true;
+
     try {
       // Check for error in URL params
       const urlError = searchParams.get('error');
@@ -27,78 +31,77 @@ function AuthCallbackContent() {
 
       setStatus('Verifying session...');
       
-      // CRITICAL FIX: Wait for Supabase to fully process the URL hash/code
-      // This prevents the "flash" where session isn't detected immediately
-      let retries = 0;
-      const maxRetries = 5;
-      let session = null;
+      // Get the code from URL for PKCE flow
+      const code = searchParams.get('code');
       
-      while (retries < maxRetries && !session) {
-        // Wait before checking (increases with each retry)
-        await new Promise(resolve => setTimeout(resolve, 300 + (retries * 200)));
+      if (code) {
+        setStatus('Completing authentication...');
         
-        // Try to get session
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        // Exchange code for session
+        const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
         
-        if (sessionError) {
-          console.error('Session error on retry', retries, ':', sessionError);
-        } else if (sessionData.session) {
-          session = sessionData.session;
-          break;
-        }
-        
-        // If no session, try code exchange for PKCE flow
-        const code = searchParams.get('code');
-        if (code && retries === 0) {
-          setStatus('Completing authentication...');
-          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          console.error('Code exchange error:', exchangeError);
           
-          if (!exchangeError && data.session) {
-            session = data.session;
-            break;
-          } else if (exchangeError) {
-            console.error('Code exchange error:', exchangeError);
+          // If code already used, check if we have a session
+          if (exchangeError.message?.includes('already used') || exchangeError.message?.includes('expired')) {
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData.session) {
+              // Session exists, redirect
+              setStatus('Session found! Redirecting...');
+              const returnTo = localStorage.getItem('auth-return-to') || '/dashboard';
+              localStorage.removeItem('auth-return-to');
+              router.replace(returnTo);
+              return;
+            }
           }
+          
+          setError(exchangeError.message);
+          setStatus('Authentication failed');
+          setTimeout(() => router.replace('/login?error=exchange_failed'), 2000);
+          return;
         }
         
-        retries++;
-        setStatus(`Verifying session... (attempt ${retries + 1})`);
+        if (data.session) {
+          setStatus('Authentication successful!');
+          
+          // Store session confirmation in localStorage
+          localStorage.setItem('mcleuker-session-confirmed', 'true');
+          localStorage.setItem('mcleuker-user-id', data.session.user.id);
+          
+          // Get return URL
+          const returnTo = localStorage.getItem('auth-return-to') || '/dashboard';
+          localStorage.removeItem('auth-return-to');
+          
+          // Small delay to ensure session is propagated
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Use router.replace for smoother navigation
+          router.replace(returnTo);
+          return;
+        }
       }
       
-      if (session) {
-        setStatus('Authentication successful! Redirecting...');
-        
-        // CRITICAL: Force a session refresh to ensure it's properly stored
-        await supabase.auth.refreshSession();
-        
-        // Get the return URL from localStorage
-        const returnTo = typeof window !== 'undefined' 
-          ? localStorage.getItem('auth-return-to') || '/dashboard'
-          : '/dashboard';
-        
-        // Clear the return URL
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('auth-return-to');
-        }
-        
-        // Small delay to ensure session is fully propagated
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Use window.location for a full page reload to ensure auth state is fresh
-        window.location.href = returnTo;
-      } else {
-        // No session found after all retries
-        setStatus('Session verification failed. Redirecting to login...');
-        setError('Could not verify your session. Please try again.');
-        setTimeout(() => router.replace('/login?error=session_not_found'), 2000);
+      // No code, check for existing session
+      const { data: sessionData } = await supabase.auth.getSession();
+      
+      if (sessionData.session) {
+        setStatus('Session found! Redirecting...');
+        const returnTo = localStorage.getItem('auth-return-to') || '/dashboard';
+        localStorage.removeItem('auth-return-to');
+        router.replace(returnTo);
+        return;
       }
+      
+      // No session found
+      setStatus('No session found. Redirecting to login...');
+      setTimeout(() => router.replace('/login'), 1500);
+      
     } catch (err) {
       console.error('Unexpected auth callback error:', err);
       setError('An unexpected error occurred');
       setStatus('Authentication error');
       setTimeout(() => router.replace('/login?error=unexpected'), 2000);
-    } finally {
-      setIsProcessing(false);
     }
   }, [router, searchParams]);
 
@@ -111,11 +114,8 @@ function AuthCallbackContent() {
       <div className="text-center max-w-md px-4">
         {!error ? (
           <>
-            <div className="w-12 h-12 border-4 border-[#177b57] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="w-12 h-12 border-4 border-[#3d655c] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-white/60">{status}</p>
-            {isProcessing && (
-              <p className="text-white/30 text-xs mt-2">Please wait while we verify your session...</p>
-            )}
           </>
         ) : (
           <>
@@ -138,7 +138,7 @@ function LoadingFallback() {
   return (
     <div className="min-h-screen bg-[#070707] flex items-center justify-center">
       <div className="text-center">
-        <div className="w-12 h-12 border-4 border-[#177b57] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <div className="w-12 h-12 border-4 border-[#3d655c] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
         <p className="text-white/60">Loading...</p>
       </div>
     </div>

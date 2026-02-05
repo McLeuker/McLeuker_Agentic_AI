@@ -73,12 +73,12 @@ export default function ContactPage() {
                   "flex items-start gap-4 p-4 rounded-xl",
                   "mcleuker-bubble mcleuker-bubble-v1"
                 )}>
-                  <div className="w-12 h-12 rounded-lg bg-[#177b57]/20 flex items-center justify-center flex-shrink-0 relative z-10">
-                    <Mail className="w-5 h-5 text-[#4ade80]" />
+                  <div className="w-12 h-12 rounded-lg bg-[#3d655c]/20 flex items-center justify-center flex-shrink-0 relative z-10">
+                    <Mail className="w-5 h-5 text-[#6b9b8a]" />
                   </div>
                   <div className="relative z-10">
                     <h3 className="text-white/[0.92] font-medium mb-1">Email</h3>
-                    <a href="mailto:contact@mcluker.com" className="text-[#4ade80] hover:text-[#86efac] transition-colors">
+                    <a href="mailto:contact@mcluker.com" className="text-[#6b9b8a] hover:text-[#86efac] transition-colors">
                       contact@mcluker.com
                     </a>
                   </div>
@@ -89,8 +89,8 @@ export default function ContactPage() {
                   "flex items-start gap-4 p-4 rounded-xl",
                   "mcleuker-bubble mcleuker-bubble-v2"
                 )}>
-                  <div className="w-12 h-12 rounded-lg bg-[#177b57]/20 flex items-center justify-center flex-shrink-0 relative z-10">
-                    <MessageSquare className="w-5 h-5 text-[#4ade80]" />
+                  <div className="w-12 h-12 rounded-lg bg-[#3d655c]/20 flex items-center justify-center flex-shrink-0 relative z-10">
+                    <MessageSquare className="w-5 h-5 text-[#6b9b8a]" />
                   </div>
                   <div className="relative z-10">
                     <h3 className="text-white/[0.92] font-medium mb-1">Support</h3>
@@ -105,8 +105,8 @@ export default function ContactPage() {
                   "flex items-start gap-4 p-4 rounded-xl",
                   "mcleuker-bubble mcleuker-bubble-v3"
                 )}>
-                  <div className="w-12 h-12 rounded-lg bg-[#177b57]/20 flex items-center justify-center flex-shrink-0 relative z-10">
-                    <MapPin className="w-5 h-5 text-[#4ade80]" />
+                  <div className="w-12 h-12 rounded-lg bg-[#3d655c]/20 flex items-center justify-center flex-shrink-0 relative z-10">
+                    <MapPin className="w-5 h-5 text-[#6b9b8a]" />
                   </div>
                   <div className="relative z-10">
                     <h3 className="text-white/[0.92] font-medium mb-1">Location</h3>
@@ -126,8 +126,8 @@ export default function ContactPage() {
               <div className="relative z-10">
                 {submitted ? (
                   <div className="text-center py-12">
-                    <div className="w-16 h-16 rounded-full bg-[#177b57]/20 flex items-center justify-center mx-auto mb-6">
-                      <Mail className="w-8 h-8 text-[#4ade80]" />
+                    <div className="w-16 h-16 rounded-full bg-[#3d655c]/20 flex items-center justify-center mx-auto mb-6">
+                      <Mail className="w-8 h-8 text-[#6b9b8a]" />
                     </div>
                     <h3 className="text-xl font-medium text-white/[0.92] mb-2">
                       Message Sent!
@@ -137,7 +137,7 @@ export default function ContactPage() {
                     </p>
                     <button
                       onClick={() => setSubmitted(false)}
-                      className="text-sm text-[#4ade80] hover:text-[#86efac] transition-colors"
+                      className="text-sm text-[#6b9b8a] hover:text-[#86efac] transition-colors"
                     >
                       Send another message
                     </button>
@@ -154,7 +154,7 @@ export default function ContactPage() {
                           "w-full h-12 px-4 rounded-lg",
                           "bg-white/[0.06] border border-white/[0.10]",
                           "text-white placeholder:text-white/40",
-                          "focus:outline-none focus:border-[#177b57]/50 focus:ring-1 focus:ring-[#177b57]/20"
+                          "focus:outline-none focus:border-[#3d655c]/50 focus:ring-1 focus:ring-[#3d655c]/20"
                         )}
                         placeholder="Your name"
                         required
@@ -171,7 +171,7 @@ export default function ContactPage() {
                           "w-full h-12 px-4 rounded-lg",
                           "bg-white/[0.06] border border-white/[0.10]",
                           "text-white placeholder:text-white/40",
-                          "focus:outline-none focus:border-[#177b57]/50 focus:ring-1 focus:ring-[#177b57]/20"
+                          "focus:outline-none focus:border-[#3d655c]/50 focus:ring-1 focus:ring-[#3d655c]/20"
                         )}
                         placeholder="your@email.com"
                         required
@@ -188,7 +188,7 @@ export default function ContactPage() {
                           "w-full h-12 px-4 rounded-lg",
                           "bg-white/[0.06] border border-white/[0.10]",
                           "text-white placeholder:text-white/40",
-                          "focus:outline-none focus:border-[#177b57]/50 focus:ring-1 focus:ring-[#177b57]/20"
+                          "focus:outline-none focus:border-[#3d655c]/50 focus:ring-1 focus:ring-[#3d655c]/20"
                         )}
                         placeholder="Your company"
                       />
@@ -203,7 +203,7 @@ export default function ContactPage() {
                           "w-full h-32 px-4 py-3 rounded-lg resize-none",
                           "bg-white/[0.06] border border-white/[0.10]",
                           "text-white placeholder:text-white/40",
-                          "focus:outline-none focus:border-[#177b57]/50 focus:ring-1 focus:ring-[#177b57]/20"
+                          "focus:outline-none focus:border-[#3d655c]/50 focus:ring-1 focus:ring-[#3d655c]/20"
                         )}
                         placeholder="How can we help?"
                         required
@@ -215,7 +215,7 @@ export default function ContactPage() {
                       disabled={isSubmitting}
                       className={cn(
                         "w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full",
-                        "bg-gradient-to-r from-[#177b57] to-[#266a2e] text-white font-medium",
+                        "bg-gradient-to-r from-[#3d655c] to-[#3d665c] text-white font-medium",
                         "hover:from-[#1a8a62] hover:to-[#2d7a35] transition-all",
                         "disabled:opacity-50"
                       )}

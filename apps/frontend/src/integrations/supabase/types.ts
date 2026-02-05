@@ -20,6 +20,7 @@ export type Database = {
           model_used: string | null
           role: string
           user_id: string
+          metadata: Json | null
         }
         Insert: {
           content: string
@@ -31,6 +32,7 @@ export type Database = {
           model_used?: string | null
           role: string
           user_id: string
+          metadata?: Json | null
         }
         Update: {
           content?: string
@@ -42,6 +44,7 @@ export type Database = {
           model_used?: string | null
           role?: string
           user_id?: string
+          metadata?: Json | null
         }
         Relationships: [
           {
