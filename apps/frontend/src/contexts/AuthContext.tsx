@@ -1,7 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { User, Session, AuthError } from "@supabase/supabase-js";
-import { supabase, ensureSession, updateLastLogin } from "@/integrations/supabase/client";
+import { supabase, updateLastLogin } from "@/integrations/supabase/client";
 
 interface AuthContextType {
   user: User | null;
@@ -23,18 +23,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [initialized, setInitialized] = useState(false);
 
   // Refresh session function
   const refreshSession = useCallback(async () => {
     try {
-      const currentSession = await ensureSession();
-      if (currentSession) {
-        setSession(currentSession);
-        setUser(currentSession.user);
+      const { data: { session: refreshedSession }, error } = await supabase.auth.refreshSession();
+      if (error) {
+        console.error('Error refreshing session:', error);
+        return;
+      }
+      if (refreshedSession) {
+        setSession(refreshedSession);
+        setUser(refreshedSession.user);
       }
     } catch (error) {
-      console.error('Error refreshing session:', error);
+      console.error('Unexpected error refreshing session:', error);
     }
   }, []);
 
@@ -44,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initSession = async () => {
       try {
-        // First, try to get session from Supabase
+        // Get the current session
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
         
         if (error) {
@@ -62,13 +65,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
           setLoading(false);
-          setInitialized(true);
         }
       } catch (error) {
         console.error('Error initializing session:', error);
         if (mounted) {
           setLoading(false);
-          setInitialized(true);
         }
       }
     };
@@ -82,8 +83,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Listen for auth state changes
   useEffect(() => {
-    if (!initialized) return;
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         console.log('Auth state change:', event);
@@ -94,7 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Handle specific events
         if (event === 'SIGNED_IN' && currentSession?.user) {
-          // Update last login on sign in
           updateLastLogin(currentSession.user.id);
         }
 
@@ -103,14 +101,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         if (event === 'SIGNED_OUT') {
-          // Clear any local storage
-          localStorage.removeItem('mcleuker-auth-token');
+          setSession(null);
+          setUser(null);
         }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [initialized]);
+  }, []);
 
   // Periodic session refresh to prevent expiry
   useEffect(() => {
@@ -148,18 +146,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session, refreshSession]);
 
   const signIn = async (email: string, password: string) => {
+    setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    setLoading(false);
     return { error };
   };
 
   const signInWithGoogle = async () => {
+    // Get the current origin for the redirect URL
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo,
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
@@ -170,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
+    setLoading(true);
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -177,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
+    setLoading(false);
     return { error };
   };
 
@@ -184,8 +189,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setSession(null);
     setUser(null);
-    // Clear local storage
-    localStorage.removeItem('mcleuker-auth-token');
   };
 
   return (
