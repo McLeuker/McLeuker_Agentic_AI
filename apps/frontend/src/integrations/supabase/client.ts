@@ -1,15 +1,14 @@
 import { createBrowserClient } from '@supabase/ssr';
-import type { Database } from './types';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export const supabase = createBrowserClient<Database>(
+export const supabase = createBrowserClient(
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
   {
     cookieOptions: {
-      maxAge: 60 * 60 * 24 * 365, // 1 year persistence
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
       secure: true,
     },
