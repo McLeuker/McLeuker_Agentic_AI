@@ -76,7 +76,7 @@ export async function GET(request: Request) {
             email: user.email || '',
             name: user.user_metadata?.full_name || user.user_metadata?.name || '',
             auth_provider: user.app_metadata?.provider || 'email',
-            last_login_at: new Date().toISOString(),
+            last_active_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           }, {
             onConflict: 'id',
