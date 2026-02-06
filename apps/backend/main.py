@@ -2063,21 +2063,38 @@ class KimiEngine:
                             "tool_call_id": tr["tool_call_id"]
                         })
                     
-                    # Stream the continuation response
+                    # Add instruction to keep continuation response concise
+                    continuation_messages.insert(0, {
+                        "role": "system",
+                        "content": (
+                            "The tool has been executed and the file has been generated successfully. "
+                            "Provide a brief, concise summary of what was created (2-3 sentences max). "
+                            "Do NOT repeat yourself or describe what you plan to do. The file is already created."
+                        )
+                    })
+                    
+                    # Stream the continuation response with max_tokens limit
                     continuation_response = client.chat.completions.create(
                         model="kimi-k2.5",
                         messages=continuation_messages,
                         stream=True,
                         temperature=0.6,
+                        max_tokens=500,  # Keep continuation concise
                         extra_body={"thinking": {"type": "disabled"}}
                     )
                     
+                    cont_token_count = 0
                     for cont_chunk in continuation_response:
                         cont_delta = cont_chunk.choices[0].delta
                         cont_content = getattr(cont_delta, 'content', None)
                         if cont_content:
+                            cont_token_count += 1
                             full_content += cont_content
                             yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
+                            # Safety: stop if we've generated too much
+                            if cont_token_count > 600:
+                                logger.warning("Continuation response exceeded 600 tokens, stopping")
+                                break
                     
                 except Exception as e:
                     logger.error(f"Tool execution error in stream: {e}")
