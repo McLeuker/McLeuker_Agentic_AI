@@ -29,9 +29,9 @@ class Settings:
     GROK_API_KEY: str = os.getenv("GROK_API_KEY", os.getenv("XAI_API_KEY", ""))
     
     # Kimi K2.5 (Moonshot AI) - Execution Model
-    MOONSHOT_API_KEY: str = os.getenv("MOONSHOT_API_KEY", "")
+    KIMI_API_KEY: str = os.getenv("KIMI_API_KEY", "")
     KIMI_MODEL: str = os.getenv("KIMI_MODEL", "kimi-k2.5")
-    KIMI_API_BASE: str = os.getenv("KIMI_API_BASE", "https://api.moonshot.ai/v1")
+    KIMI_API_BASE: str = os.getenv("KIMI_API_BASE", "https://api.moonshot.cn/v1")
     KIMI_THINKING_ENABLED: bool = os.getenv("KIMI_THINKING_ENABLED", "true").lower() == "true"
     KIMI_MAX_TOKENS: int = int(os.getenv("KIMI_MAX_TOKENS", "32768"))
     
@@ -129,7 +129,7 @@ class Settings:
     
     def is_kimi_configured(self) -> bool:
         """Check if Kimi/Moonshot API is configured."""
-        return bool(self.MOONSHOT_API_KEY)
+        return bool(self.KIMI_API_KEY)
     
     def is_search_configured(self) -> bool:
         """Check if any search provider is configured."""

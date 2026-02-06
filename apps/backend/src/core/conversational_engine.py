@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # API Configuration
 GROK_API_KEY = os.getenv("GROK_API_KEY", "") or os.getenv("XAI_API_KEY", "")
-MOONSHOT_API_KEY = os.getenv("MOONSHOT_API_KEY", "")
+KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 GROK_BASE_URL = "https://api.x.ai/v1"
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
 
@@ -421,14 +421,14 @@ Each response should feel unique and tailored to this specific question. The use
     ) -> AsyncGenerator[Dict, None]:
         """Generate response with Kimi K2.5 for tool execution"""
         
-        if not MOONSHOT_API_KEY:
-            yield {"type": "error", "data": {"message": "Moonshot API key not configured"}}
+        if not KIMI_API_KEY:
+            yield {"type": "error", "data": {"message": "Kimi API key not configured"}}
             return
         
         try:
             async with aiohttp.ClientSession() as session:
                 headers = {
-                    "Authorization": f"Bearer {MOONSHOT_API_KEY}",
+                    "Authorization": f"Bearer {KIMI_API_KEY}",
                     "Content-Type": "application/json"
                 }
                 
