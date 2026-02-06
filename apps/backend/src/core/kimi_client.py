@@ -66,7 +66,6 @@ class KimiClient:
         context: Optional[str] = None,
         tools: Optional[List[Dict]] = None,
         system_prompt: Optional[str] = None,
-        temperature: float = 0.7,
         stream: bool = False
     ) -> KimiResponse:
         """
@@ -77,7 +76,6 @@ class KimiClient:
             context: Additional context (search results, previous steps)
             tools: List of tools available for the model to call
             system_prompt: Custom system prompt
-            temperature: Sampling temperature (0-1)
             stream: Whether to stream the response
         
         Returns:
@@ -88,10 +86,11 @@ class KimiClient:
             messages = self._build_messages(query, context, system_prompt)
             
             # Prepare request payload
+            # Note: Kimi K2.5 only supports temperature=1
             payload = {
                 "model": self.model,
                 "messages": messages,
-                "temperature": temperature,
+                "temperature": 1,  # Kimi only accepts temperature=1
                 "max_tokens": self.max_tokens,
             }
             

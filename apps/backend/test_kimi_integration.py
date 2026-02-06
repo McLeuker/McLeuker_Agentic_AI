@@ -26,8 +26,7 @@ async def test_kimi_client():
     
     try:
         response = await kimi_client.execute(
-            query="Say 'Hello from Kimi K2.5!' in one sentence.",
-            temperature=0.7
+            query="Say 'Hello from Kimi K2.5!' in one sentence."
         )
         
         if response.success:
