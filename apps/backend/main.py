@@ -1749,7 +1749,7 @@ class KimiEngine:
             "extra_body": {"thinking": {"type": "disabled"}}
         },
         "thinking": {
-            "temperature": 1.0,
+            "temperature": 0.6,
             "top_p": 0.95,
             "extra_body": {"thinking": {"type": "enabled"}}
         },
@@ -1762,7 +1762,7 @@ class KimiEngine:
             }
         },
         "swarm": {
-            "temperature": 0.7,
+            "temperature": 0.6,
             "top_p": 0.95,
             "extra_body": {
                 "thinking": {"type": "enabled"},
@@ -1770,7 +1770,7 @@ class KimiEngine:
             }
         },
         "research": {
-            "temperature": 0.7,
+            "temperature": 0.6,
             "top_p": 0.95,
             "extra_body": {
                 "thinking": {"type": "enabled"},
@@ -1778,7 +1778,7 @@ class KimiEngine:
             }
         },
         "code": {
-            "temperature": 0.3,
+            "temperature": 0.6,
             "top_p": 0.95,
             "extra_body": {"thinking": {"type": "disabled"}}
         }
@@ -2251,7 +2251,7 @@ class KimiEngine:
             content_response = client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=gen_messages,
-                temperature=0.7,
+                temperature=0.6,
                 max_tokens=4000,
                 extra_body={"thinking": {"type": "disabled"}}
             )
@@ -2537,7 +2537,7 @@ Provide a well-structured, actionable final response that integrates all perspec
         response = client.chat.completions.create(
             model="kimi-k2.5",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
+            temperature=0.6,
             max_tokens=4096,
             extra_body={"thinking": {"type": "enabled"}}
         )
