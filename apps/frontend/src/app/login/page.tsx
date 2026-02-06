@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const { signIn, signInWithGoogle, loading: authLoading } = useAuth();
   
@@ -189,7 +189,7 @@ export default function LoginPage() {
 
           <div className="mt-8 pt-6 border-t border-white/[0.08] text-center">
             <p className="text-sm text-white/55">
-              Don't have an account?{" "}
+              Don&apos;t have an account?{" "}
               <Link href="/signup" className="text-[#5c6652] hover:text-[#7a8a6e] transition-colors">
                 Sign up
               </Link>
@@ -207,4 +207,15 @@ export default function LoginPage() {
     </div>
   );
 }
-// Force rebuild - Fri Feb  6 05:12:31 EST 2026
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#070707] flex items-center justify-center">
+        <div className="text-white/40">Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
+  );
+}
