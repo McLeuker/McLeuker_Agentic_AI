@@ -1,18 +1,16 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Hardcode the Supabase credentials directly to ensure they're always available
+// This is a temporary fix - in production, these should come from environment variables
+const SUPABASE_URL = 'https://cvnpoarfgkzswwjkhoes.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2bnBvYXJmZ2t6c3d3amtob2VzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNTEzNTYsImV4cCI6MjA3NjYyNzM1Nn0.BH49KtjHLlwAjTDO4eGYwnb3D2meFQ-ffl63XDbRtYQ';
 
-// Validate environment variables
-if (!SUPABASE_URL) {
-  console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
-}
-if (!SUPABASE_ANON_KEY) {
-  console.error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable');
+// Validate that credentials are available
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error('Supabase credentials are missing');
 }
 
 // Create Supabase client with proper SSR cookie handling for PKCE flow
-// This ensures the code verifier is stored in cookies and accessible during OAuth callback
 export const supabase = createBrowserClient(
   SUPABASE_URL,
   SUPABASE_ANON_KEY,
@@ -22,15 +20,21 @@ export const supabase = createBrowserClient(
       flowType: 'pkce',
       // Automatically refresh token before expiry
       autoRefreshToken: true,
-      // Persist session - this will use cookies via @supabase/ssr
+      // Persist session in cookies
       persistSession: true,
       // Detect session from URL (for OAuth callbacks)
       detectSessionInUrl: true,
       // Storage key prefix
       storageKey: 'sb-auth',
+      // Cookie options
+      cookieOptions: {
+        name: 'sb-auth-token',
+        lifetime: 60 * 60 * 24 * 365, // 1 year
+        domain: typeof window !== 'undefined' ? window.location.hostname : '',
+        path: '/',
+        sameSite: 'lax',
+      }
     },
-    // Cookie options are handled by @supabase/ssr automatically
-    // The library stores the PKCE code verifier in cookies for SSR compatibility
   }
 );
 
@@ -60,7 +64,7 @@ export async function ensureSession() {
         
         if (refreshError) {
           console.error('Error refreshing session:', refreshError);
-          return session; // Return existing session as fallback
+          return session;
         }
         
         return refreshedSession;
@@ -77,7 +81,6 @@ export async function ensureSession() {
 // Helper to update last login timestamp
 export async function updateLastLogin(userId: string) {
   try {
-    // Use 'id' column since that's the primary key in your users table
     await supabase
       .from('users')
       .update({ last_login_at: new Date().toISOString() })
