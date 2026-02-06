@@ -1520,6 +1520,23 @@ function DashboardContent() {
     loadConversations();
   }, [loadConversations]);
 
+  // Auto-restore last conversation on page load
+  useEffect(() => {
+    if (conversations.length > 0 && !currentConversation && messages.length === 0) {
+      try {
+        const lastConvId = localStorage.getItem('mcleuker_last_conversation_id');
+        if (lastConvId) {
+          const conv = conversations.find(c => c.id === lastConvId);
+          if (conv) {
+            handleSelectConversation(conv);
+          }
+        }
+      } catch (e) {
+        // localStorage not available
+      }
+    }
+  }, [conversations]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1610,6 +1627,7 @@ function DashboardContent() {
       const newConv = await createConversation(messageText.slice(0, 50));
       if (newConv) {
         conversationId = newConv.id;
+        try { localStorage.setItem('mcleuker_last_conversation_id', newConv.id); } catch (e) {}
       }
     }
 
@@ -1864,6 +1882,7 @@ function DashboardContent() {
                       })),
                       follow_up_questions: followUpQuestions,
                       search_mode: searchMode,
+                      downloads: allDownloads.length > 0 ? allDownloads : undefined,
                     });
                     
                     await supabase.from('chat_messages').insert({
@@ -1931,6 +1950,7 @@ function DashboardContent() {
     setMessages([]);
     setIsStreaming(false);
     startNewChat();
+    try { localStorage.removeItem('mcleuker_last_conversation_id'); } catch (e) {}
   };
 
   const handleSelectConversation = async (conv: Conversation) => {
@@ -1950,6 +1970,7 @@ function DashboardContent() {
     }
     
     await selectConversation(conv);
+    try { localStorage.setItem('mcleuker_last_conversation_id', conv.id); } catch (e) {}
     // Load messages for this conversation
     const { data, error } = await supabase
       .from("chat_messages")
@@ -1983,6 +2004,14 @@ function DashboardContent() {
           expanded: false,
         }));
         
+        // Parse downloads from metadata
+        const downloads: DownloadFile[] = (metadata.downloads || []).map((dl: any) => ({
+          filename: dl.filename || '',
+          download_url: dl.download_url || '',
+          file_id: dl.file_id || '',
+          file_type: dl.file_type || '',
+        }));
+
         return {
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
@@ -1993,6 +2022,7 @@ function DashboardContent() {
           timestamp: new Date(msg.created_at),
           isStreaming: false,
           is_favorite: msg.is_favorite,
+          downloads: downloads.length > 0 ? downloads : undefined,
         };
       });
       setMessages(loadedMessages);
