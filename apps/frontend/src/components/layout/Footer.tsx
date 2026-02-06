@@ -28,6 +28,13 @@ const footerLinks = {
   legal: [
     { name: "Privacy Policy", href: "/privacy" },
     { name: "Terms of Service", href: "/terms" },
+    { name: "Cookie Policy", href: "/cookies" },
+    { name: "Mentions Légales", href: "/legal/mentions-legales" },
+    { name: "Acceptable Use", href: "/legal/aup" },
+    { name: "AI Transparency", href: "/legal/ai-transparency" },
+    { name: "Security & Trust", href: "/legal/security" },
+    { name: "Subprocessors", href: "/legal/subprocessors" },
+    { name: "Data Requests", href: "/legal/dsar" },
   ],
 };
 
@@ -236,12 +243,18 @@ export function Footer() {
           <p className="text-sm text-white/40">
             © {currentYear} McLeuker AI. All rights reserved.
           </p>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-6 flex-wrap justify-center">
             <Link href="/privacy" className="text-sm text-white/40 hover:text-white/70 transition-colors">
               Privacy
             </Link>
             <Link href="/terms" className="text-sm text-white/40 hover:text-white/70 transition-colors">
               Terms
+            </Link>
+            <Link href="/cookies" className="text-sm text-white/40 hover:text-white/70 transition-colors">
+              Cookies
+            </Link>
+            <Link href="/legal/mentions-legales" className="text-sm text-white/40 hover:text-white/70 transition-colors">
+              Mentions Légales
             </Link>
           </div>
         </div>

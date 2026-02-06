@@ -5,6 +5,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { SectorProvider } from "@/contexts/SectorContext";
 import { ChatProvider } from "@/contexts/ChatContext";
 import { Toaster } from "@/components/ui/toaster";
+import { CookieConsent } from "@/components/CookieConsent";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -30,6 +31,7 @@ export default function RootLayout({
             <ChatProvider>
               {children}
               <Toaster />
+              <CookieConsent />
             </ChatProvider>
           </SectorProvider>
         </AuthProvider>
