@@ -1883,7 +1883,29 @@ class KimiEngine:
         mode: str = "thinking",
         enable_tools: bool = True
     ) -> AsyncGenerator[str, None]:
-        """Stream chat responses"""
+        """Stream chat responses with full tool execution support"""
+        
+        # Check if user is asking for file generation - auto-upgrade to agent mode
+        user_msg = ""
+        for m in messages:
+            if m.get("role") == "user":
+                content = m.get("content", "")
+                if isinstance(content, str):
+                    user_msg = content.lower()
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            user_msg = part.get("text", "").lower()
+        
+        file_keywords = ['generate', 'create', 'make', 'build', 'excel', 'spreadsheet',
+                        'word doc', 'document', 'pdf', 'powerpoint', 'presentation',
+                        'pptx', 'docx', 'xlsx', 'csv', 'report file', 'download']
+        needs_tools = any(kw in user_msg for kw in file_keywords)
+        
+        if needs_tools and mode in ["instant", "thinking"]:
+            mode = "agent"
+        
+        use_tools = enable_tools and mode in ["agent", "research"]
         
         config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
         params = {
@@ -1893,33 +1915,151 @@ class KimiEngine:
             **config
         }
         
-        if enable_tools and mode in ["agent", "research"]:
+        if use_tools:
             params["tools"] = TOOLS
             params["tool_choice"] = "auto"
+            # Add system instruction for file generation
+            if needs_tools:
+                file_system_msg = {
+                    "role": "system",
+                    "content": (
+                        "IMPORTANT: When the user asks you to generate, create, or make any file "
+                        "(Excel, Word, PDF, PowerPoint, CSV), you MUST use the appropriate tool "
+                        "(generate_excel, generate_word, generate_pdf, generate_presentation) to create "
+                        "an actual downloadable file. Do NOT just describe the content in text. "
+                        "Always call the tool with real structured data."
+                    )
+                }
+                params["messages"] = [file_system_msg] + params["messages"]
         
-        response = client.chat.completions.create(**params)
+        try:
+            response = client.chat.completions.create(**params)
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+            return
         
         full_content = ''
         full_reasoning = ''
+        collected_tool_calls = {}  # index -> {id, function: {name, arguments}}
+        downloads = []
         
         for chunk in response:
             delta = chunk.choices[0].delta
+            finish_reason = chunk.choices[0].finish_reason
             
             content = getattr(delta, 'content', None)
             reasoning = getattr(delta, 'reasoning_content', None)
-            tool_calls = getattr(delta, 'tool_calls', None)
+            tool_calls_delta = getattr(delta, 'tool_calls', None)
             
             if content:
                 full_content += content
                 yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': content}})}\n\n"
-            elif reasoning:
+            
+            if reasoning:
                 full_reasoning += reasoning
                 yield f"data: {json.dumps({'type': 'reasoning', 'data': {'chunk': reasoning}})}\n\n"
-            elif tool_calls:
-                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Using tools...'}})}\n\n"
+            
+            # Collect tool call chunks (they come in pieces across multiple chunks)
+            if tool_calls_delta:
+                for tc in tool_calls_delta:
+                    idx = tc.index
+                    if idx not in collected_tool_calls:
+                        collected_tool_calls[idx] = {
+                            "id": getattr(tc, 'id', None),
+                            "function": {"name": "", "arguments": ""}
+                        }
+                    if tc.id:
+                        collected_tool_calls[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            collected_tool_calls[idx]["function"]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+            
+            # When the model finishes with tool_calls, execute them
+            if finish_reason == "tool_calls" and collected_tool_calls:
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating files...'}})}\n\n"
+                
+                # Build tool call objects for execution
+                class ToolCallObj:
+                    def __init__(self, tc_dict):
+                        self.id = tc_dict["id"]
+                        self.function = type('Function', (), {
+                            'name': tc_dict["function"]["name"],
+                            'arguments': tc_dict["function"]["arguments"]
+                        })()
+                
+                tool_call_objects = [ToolCallObj(tc) for tc in collected_tool_calls.values()]
+                
+                # Execute all tools
+                try:
+                    tool_results = await ToolExecutor.execute(tool_call_objects)
+                    
+                    # Extract download info from tool results
+                    for tr in tool_results:
+                        try:
+                            result_content = json.loads(tr["content"])
+                            if "download_url" in result_content:
+                                download_info = {
+                                    "filename": result_content.get("filename", "file"),
+                                    "download_url": result_content["download_url"],
+                                    "file_id": result_content.get("file_id", ""),
+                                    "file_type": result_content.get("type", result_content.get("file_type", "unknown"))
+                                }
+                                downloads.append(download_info)
+                                yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
+                        except:
+                            pass
+                    
+                    # Continue conversation with tool results
+                    continuation_messages = list(params["messages"])
+                    continuation_messages.append({
+                        "role": "assistant",
+                        "content": full_content if full_content else None,
+                        "tool_calls": [
+                            {
+                                "id": tc["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tc["function"]["name"],
+                                    "arguments": tc["function"]["arguments"]
+                                }
+                            }
+                            for tc in collected_tool_calls.values()
+                        ]
+                    })
+                    
+                    for tr in tool_results:
+                        continuation_messages.append({
+                            "role": "tool",
+                            "content": tr["content"],
+                            "tool_call_id": tr["tool_call_id"]
+                        })
+                    
+                    # Stream the continuation response
+                    continuation_response = client.chat.completions.create(
+                        model="kimi-k2.5",
+                        messages=continuation_messages,
+                        stream=True,
+                        temperature=0.6,
+                        extra_body={"thinking": {"type": "disabled"}}
+                    )
+                    
+                    for cont_chunk in continuation_response:
+                        cont_delta = cont_chunk.choices[0].delta
+                        cont_content = getattr(cont_delta, 'content', None)
+                        if cont_content:
+                            full_content += cont_content
+                            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"Tool execution error in stream: {e}")
+                    error_msg = f"\n\n*Error executing tools: {str(e)}*"
+                    full_content += error_msg
+                    yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
         
-        # Send complete event with full content
-        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning}})}\n\n"
+        # Send complete event with downloads
+        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning, 'downloads': downloads}})}\n\n"
 
 # ============================================================================
 # AGENT SWARM

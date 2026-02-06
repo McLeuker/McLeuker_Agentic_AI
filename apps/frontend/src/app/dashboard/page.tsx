@@ -78,6 +78,13 @@ interface AttachedFile {
   base64?: string;
 }
 
+interface DownloadFile {
+  filename: string;
+  download_url: string;
+  file_id: string;
+  file_type: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -89,6 +96,7 @@ interface Message {
   isStreaming: boolean;
   is_favorite?: boolean;
   attachedFiles?: AttachedFile[];
+  downloads?: DownloadFile[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -1656,6 +1664,7 @@ function DashboardContent() {
     let currentSources: Source[] = [];
     let currentContent = '';
     let finalFollowUp: string[] = [];
+    let currentDownloads: DownloadFile[] = [];
 
     try {
       // Map frontend mode names to backend mode names
@@ -1787,6 +1796,20 @@ function DashboardContent() {
                     ? { ...m, content: currentContent }
                     : m
                 ));
+              } else if (eventType === 'download') {
+                // Handle file download events from tool execution
+                const downloadInfo: DownloadFile = {
+                  filename: eventData.filename || 'file',
+                  download_url: eventData.download_url || '',
+                  file_id: eventData.file_id || '',
+                  file_type: eventData.file_type || 'unknown',
+                };
+                currentDownloads.push(downloadInfo);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, downloads: [...currentDownloads] }
+                    : m
+                ));
               } else if (eventType === 'follow_up') {
                 finalFollowUp = eventData.questions || [];
                 setMessages(prev => prev.map(m =>
@@ -1801,6 +1824,12 @@ function DashboardContent() {
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
 
+                // Merge downloads from complete event and from stream
+                const completeDownloads = eventData.downloads || [];
+                const allDownloads = [...currentDownloads, ...completeDownloads.filter(
+                  (d: DownloadFile) => !currentDownloads.some(cd => cd.file_id === d.file_id)
+                )];
+
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
                     ? {
@@ -1809,6 +1838,7 @@ function DashboardContent() {
                         reasoning_layers: currentLayers,
                         sources: eventData.sources || currentSources,
                         follow_up_questions: followUpQuestions,
+                        downloads: allDownloads.length > 0 ? allDownloads : undefined,
                         isStreaming: false,
                       }
                     : m
@@ -2234,6 +2264,39 @@ function DashboardContent() {
                               onFollowUpClick={handleSendMessage}
                               searchQuery={sidebarSearchQuery}
                             />
+                          )}
+                          
+                          {/* Download Files */}
+                          {message.downloads && message.downloads.length > 0 && (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-xs text-white/40 mb-1">Generated Files</p>
+                              {message.downloads.map((dl, dlIdx) => {
+                                const getFileIcon = (ft: string) => {
+                                  if (ft.includes('excel') || ft.includes('xlsx') || ft.includes('csv')) return <FileSpreadsheet className="h-4 w-4 text-green-400" />;
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return <Presentation className="h-4 w-4 text-orange-400" />;
+                                  if (ft.includes('pdf')) return <FileText className="h-4 w-4 text-red-400" />;
+                                  return <File className="h-4 w-4 text-blue-400" />;
+                                };
+                                return (
+                                  <a
+                                    key={dlIdx}
+                                    href={`${API_URL}${dl.download_url}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-3 px-4 py-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] rounded-xl transition-all group cursor-pointer"
+                                  >
+                                    <div className="flex-shrink-0 p-2 bg-white/[0.06] rounded-lg">
+                                      {getFileIcon(dl.file_type)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-white/90 truncate">{dl.filename}</p>
+                                      <p className="text-xs text-white/40 uppercase">{dl.file_type}</p>
+                                    </div>
+                                    <Download className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
+                                  </a>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       )}
