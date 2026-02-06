@@ -15,8 +15,8 @@ const values = [
   },
   {
     icon: Leaf,
-    title: "Sustainability",
-    description: "Environmental responsibility is at our core. We help brands make decisions that benefit both business and planet."
+    title: "Responsibility",
+    description: "Evidence-forward outputs and transparent sourcing. We help brands make informed decisions backed by clear assumptions."
   },
   {
     icon: Users,
@@ -32,7 +32,7 @@ const values = [
 
 const capabilities = [
   { title: "Strategy & Planning", desc: "Strategic intelligence for collection planning, market entry, and brand positioning." },
-  { title: "Sustainability", desc: "Environmental impact analysis, certification mapping, and ESG reporting support." },
+  { title: "Sustainability", desc: "Sustainability research, certification mapping, and responsible sourcing intelligence (where available)." },
   { title: "Circularity", desc: "Circular business model research, resale market analysis, and waste reduction strategies." },
   { title: "Traceability", desc: "Supply chain transparency, due diligence research, and compliance verification." },
   { title: "Sourcing", desc: "Supplier discovery, capability assessment, and partnership evaluation." },
@@ -55,11 +55,11 @@ export default function AboutPage() {
               About McLeuker AI
             </p>
             <h1 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.92] mb-6 leading-[1.1]">
-              AI & Sustainability<br />for Fashion
+              AI-Powered Intelligence<br />for Fashion, Beauty &amp; Lifestyle
             </h1>
             <p className="text-white/65 text-lg lg:text-xl max-w-2xl mx-auto leading-relaxed">
-              We&apos;re building the future of fashion intelligence — where AI-powered insights 
-              meet sustainable practices to help brands make smarter decisions.
+              We&apos;re building the future of industry intelligence — where a multi-model engine 
+              delivers structured, source-backed research for teams that move fast.
             </p>
           </div>
         </div>
@@ -79,13 +79,13 @@ export default function AboutPage() {
                 </h2>
                 <p className="text-white/65 text-lg leading-relaxed mb-6">
                   At McLeuker AI, we believe that the fashion industry stands at a crossroads. 
-                  The demand for faster trend cycles, sustainable practices, and data-driven 
-                  decisions has never been greater.
+                  The demand for faster trend cycles, evidence-backed decisions, and structured 
+                  intelligence has never been greater.
                 </p>
                 <p className="text-white/65 text-lg leading-relaxed mb-6">
                   Our mission is to empower fashion professionals with AI-powered tools that 
-                  transform complex research into actionable intelligence — all while keeping 
-                  sustainability at the forefront.
+                  transform complex research into actionable intelligence — across trends, 
+                  competitive analysis, sourcing, and more.
                 </p>
                 <p className="text-white/65 text-lg leading-relaxed">
                   From trend forecasting to supplier research, we&apos;re building the comprehensive 
@@ -208,17 +208,17 @@ export default function AboutPage() {
                   Our Vision
                 </p>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
-                  A sustainable future for fashion
+                  An intelligent future for fashion
                 </h2>
                 <p className="text-white/65 text-lg leading-relaxed mb-8">
                   We envision a fashion industry where every decision is informed by intelligent 
-                  data, where sustainability isn&apos;t an afterthought but a foundation, and where 
+                  data, where evidence-backed insights drive every decision, and where 
                   professionals can focus on creativity while AI handles the research heavy lifting.
                 </p>
                 <div className="inline-flex items-center gap-3 px-5 py-3 rounded-full bg-[#141414] border border-white/[0.10]">
-                  <Leaf className="w-5 h-5 text-white/60" />
+                  <Sparkles className="w-5 h-5 text-white/60" />
                   <span className="text-white/80 font-medium">
-                    Committed to net-zero by 2030
+                    Multi-model engine with web + social + search signals
                   </span>
                 </div>
               </div>

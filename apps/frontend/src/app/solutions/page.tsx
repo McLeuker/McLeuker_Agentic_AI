@@ -46,12 +46,12 @@ const solutions = [
   {
     icon: Leaf,
     title: "Sustainability Insights",
-    description: "Expert guidance on certifications, impact measurement, and ESG compliance for responsible fashion.",
+    description: "Sustainability research, certification mapping, and responsible sourcing intelligence (where available).",
     features: [
       "Certification tracking",
       "Impact assessment",
-      "ESG compliance",
-      "Sustainable sourcing"
+      "Responsible sourcing",
+      "Evidence-backed reporting"
     ],
     href: "/solutions/sustainability-insights"
   }
@@ -76,7 +76,7 @@ export default function SolutionsPage() {
               Comprehensive Fashion Intelligence
             </h1>
             <p className="text-white/65 text-lg lg:text-xl max-w-2xl mx-auto">
-              From trend forecasting to sustainability consulting, we provide the insights you need to make informed decisions.
+              From trend forecasting to competitive analysis, we provide structured, source-backed intelligence for fashion, beauty &amp; lifestyle teams.
             </p>
           </div>
         </div>
