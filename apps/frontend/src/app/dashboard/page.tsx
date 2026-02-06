@@ -237,12 +237,12 @@ function MessageContent({
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
       
       // Step 1: Generate the document and get the download URL
-      const generateResponse = await fetch(`${API_URL}/api/document/generate`, {
+      const generateResponse = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: content,
-          format: format,
+          file_type: format === 'docx' ? 'word' : format,
           title: 'McLeuker AI Report'
         })
       });
@@ -1284,7 +1284,7 @@ function ImageGenerationModal({
     setGeneratedImage(null);
     
     try {
-      const response = await fetch(`${API_URL}/api/image/generate`, {
+      const response = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1658,19 +1658,41 @@ function DashboardContent() {
     let finalFollowUp: string[] = [];
 
     try {
-      const response = await fetch(`${API_URL}/api/chat/stream`, {
+      // Map frontend mode names to backend mode names
+      const modeMap: Record<string, string> = { 'quick': 'instant', 'deep': 'thinking' };
+      const backendMode = modeMap[searchMode] || 'thinking';
+      
+      // Build messages array with optional sector context
+      const chatMessages: Array<{role: string; content: string | Array<Record<string, unknown>>}> = [];
+      if (currentSector !== 'all') {
+        chatMessages.push({ role: 'system', content: `Focus on the ${currentSector} sector.` });
+      }
+      
+      // Handle multimodal content (files)
+      if (currentFiles.length > 0) {
+        const contentParts: Array<Record<string, unknown>> = [
+          { type: 'text', text: messageText }
+        ];
+        for (const f of currentFiles) {
+          if (f.base64) {
+            contentParts.push({ type: 'image_url', image_url: { url: `data:${f.type};base64,${f.base64}` } });
+          } else if (f.url) {
+            contentParts.push({ type: 'image_url', image_url: { url: f.url } });
+          }
+        }
+        chatMessages.push({ role: 'user', content: contentParts });
+      } else {
+        chatMessages.push({ role: 'user', content: messageText });
+      }
+      
+      const response = await fetch(`${API_URL}/api/v1/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: messageText,
-          mode: searchMode,
-          sector: currentSector === 'all' ? null : currentSector,
-          files: currentFiles.length > 0 ? currentFiles.map(f => ({
-            name: f.name,
-            type: f.type,
-            base64: f.base64,
-            url: f.url
-          })) : undefined,
+          messages: chatMessages,
+          mode: backendMode,
+          stream: true,
+          enable_tools: true,
         }),
         signal: currentAbortController.signal,
       });
