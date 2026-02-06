@@ -2027,11 +2027,18 @@ class KimiEngine:
                         try:
                             result_content = json.loads(tr["content"])
                             if "download_url" in result_content:
+                                # Infer file_type from filename extension if not provided
+                                filename = result_content.get("filename", "file")
+                                file_type = result_content.get("file_type", "unknown")
+                                if file_type == "unknown" and "." in filename:
+                                    ext = filename.rsplit(".", 1)[-1].lower()
+                                    ext_map = {"xlsx": "excel", "xls": "excel", "csv": "csv", "docx": "word", "doc": "word", "pdf": "pdf", "pptx": "presentation", "ppt": "presentation"}
+                                    file_type = ext_map.get(ext, ext)
                                 download_info = {
-                                    "filename": result_content.get("filename", "file"),
+                                    "filename": filename,
                                     "download_url": result_content["download_url"],
                                     "file_id": result_content.get("file_id", ""),
-                                    "file_type": result_content.get("type", result_content.get("file_type", "unknown"))
+                                    "file_type": file_type
                                 }
                                 downloads.append(download_info)
                                 yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
