@@ -56,6 +56,15 @@ from pptx.util import Inches as PptxInches, Pt as PptxPt
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.dml.color import RGBColor as PptxRGBColor
 
+# Excel generation
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.chart import BarChart, PieChart, LineChart, Reference
+from openpyxl.utils.dataframe import dataframe_to_rows
+
+# PDF generation (fpdf2)
+from fpdf import FPDF
+
 # Visualization
 import matplotlib.pyplot as plt
 import matplotlib
@@ -65,6 +74,8 @@ import seaborn as sns
 
 # Image processing
 from PIL import Image as PILImage
+import io
+import csv
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
@@ -471,13 +482,576 @@ class SearchAPIs:
         return " ".join(parts) if parts else "Search completed."
 
 # ============================================================================
-# PROFESSIONAL FILE GENERATION
+# KIMI 2.5 CONTENT GENERATOR
 # ============================================================================
 
-class FileGenerator:
-    """Generate professional documents with charts and styling"""
-    
+class KimiContentGenerator:
+    """Uses Kimi 2.5 to generate structured content for files.
+    Then uses Python libraries to create actual professional files."""
+
+    @staticmethod
+    async def generate_excel_structure(prompt: str) -> Dict:
+        system_prompt = """You are an Excel expert. Convert the user's request into a structured JSON format for Excel generation.
+
+Return ONLY this JSON structure:
+{
+    "sheets": [
+        {
+            "name": "Sheet1",
+            "title": "Optional title row",
+            "headers": ["Col1", "Col2", "Col3"],
+            "rows": [
+                ["data1", "data2", "data3"],
+                ["data4", "data5", "data6"]
+            ],
+            "formulas": [
+                {"cell": "D2", "formula": "=A2+B2", "format": "number"}
+            ],
+            "charts": [
+                {
+                    "type": "bar",
+                    "title": "Chart Title",
+                    "data_range": "A1:C5",
+                    "position": "E2"
+                }
+            ],
+            "formatting": {
+                "header_style": {"bold": true, "bg_color": "366092", "font_color": "FFFFFF"},
+                "column_widths": {"A": 20, "B": 15}
+            }
+        }
+    ],
+    "metadata": {"description": "What this file contains"}
+}
+
+IMPORTANT: Include at least 10-15 rows of realistic, accurate data. Use descriptive column names. Make the data comprehensive and useful."""
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create Excel for: {prompt}"}
+                ],
+                temperature=0.6,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            content = response.choices[0].message.content
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            content = content.strip()
+            if content.startswith('```'):
+                content = content[3:]
+            if content.endswith('```'):
+                content = content[:-3]
+            return json.loads(content.strip())
+        except Exception as e:
+            logger.error(f"Excel structure generation error: {e}")
+            return {
+                "sheets": [{
+                    "name": "Data",
+                    "headers": ["Item", "Value", "Date"],
+                    "rows": [["Sample 1", 100, "2026-01-01"], ["Sample 2", 200, "2026-01-02"]],
+                    "formulas": [],
+                    "charts": []
+                }]
+            }
+
+    @staticmethod
+    async def generate_presentation_structure(prompt: str) -> Dict:
+        system_prompt = """You are a presentation expert. Convert the user's request into structured slide content.
+
+Return ONLY this JSON:
+{
+    "title": "Presentation Title",
+    "slides": [
+        {
+            "layout": "title|content|two_column|comparison",
+            "title": "Slide Title",
+            "content": [
+                "Bullet point 1",
+                "Bullet point 2"
+            ],
+            "subtitle": "Optional subtitle",
+            "table": {
+                "headers": ["Col1", "Col2"],
+                "rows": [["A", "B"], ["C", "D"]]
+            }
+        }
+    ],
+    "theme": {
+        "primary_color": [54, 96, 146],
+        "font": "Arial"
+    }
+}
+
+IMPORTANT: Create at least 8-12 slides with rich, detailed content. Include tables where appropriate. Make each slide substantive."""
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create presentation for: {prompt}"}
+                ],
+                temperature=0.6,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            content = response.choices[0].message.content
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            content = content.strip().strip('`')
+            return json.loads(content)
+        except Exception as e:
+            logger.error(f"PPT structure generation error: {e}")
+            return {
+                "title": "Generated Presentation",
+                "slides": [
+                    {"layout": "title", "title": "Title Slide", "content": []},
+                    {"layout": "content", "title": "Content", "content": ["Point 1", "Point 2"]}
+                ]
+            }
+
+    @staticmethod
+    async def generate_document_structure(prompt: str) -> Dict:
+        system_prompt = """Convert the user's request into a structured document format.
+
+Return ONLY this JSON:
+{
+    "title": "Document Title",
+    "sections": [
+        {
+            "heading": "Section Title",
+            "level": 1,
+            "content": "Paragraph text...",
+            "bullets": ["Item 1", "Item 2"],
+            "table": {
+                "headers": ["A", "B"],
+                "rows": [["1", "2"]]
+            }
+        }
+    ],
+    "metadata": {
+        "author": "McLeuker AI",
+        "subject": "Generated Document"
+    }
+}
+
+IMPORTANT: Create at least 5-8 detailed sections with comprehensive content. Each section should have substantial paragraphs (100+ words). Include tables and bullet points where appropriate."""
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create document for: {prompt}"}
+                ],
+                temperature=0.6,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            content = response.choices[0].message.content
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            content = content.strip().strip('`')
+            return json.loads(content)
+        except Exception as e:
+            logger.error(f"Document structure generation error: {e}")
+            return {
+                "title": "Generated Document",
+                "sections": [
+                    {"heading": "Introduction", "level": 1, "content": "Generated content..."}
+                ]
+            }
+
+
+# ============================================================================
+# FILE BUILDERS (Create Actual Files from Structured Content)
+# ============================================================================
+
+class FileBuilder:
+    """Build actual professional files from structured content generated by Kimi."""
+
+    @staticmethod
+    async def build_excel(structure: Dict, filename: str) -> Dict:
+        try:
+            wb = Workbook()
+            default_sheet = wb.active
+            wb.remove(default_sheet)
+
+            for sheet_data in structure.get("sheets", []):
+                ws = wb.create_sheet(title=sheet_data.get("name", "Sheet")[:31])
+
+                current_row = 1
+                if "title" in sheet_data and sheet_data["title"]:
+                    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(len(sheet_data.get("headers", [])), 3))
+                    title_cell = ws.cell(row=1, column=1, value=sheet_data["title"])
+                    title_cell.font = Font(size=16, bold=True)
+                    title_cell.alignment = Alignment(horizontal="center")
+                    current_row = 3
+
+                headers = sheet_data.get("headers", [])
+                if headers:
+                    for col, header in enumerate(headers, 1):
+                        cell = ws.cell(row=current_row, column=col, value=header)
+                        cell.font = Font(bold=True, color="FFFFFF")
+                        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                        cell.border = Border(
+                            bottom=Side(style='thin'),
+                            top=Side(style='thin'),
+                            left=Side(style='thin'),
+                            right=Side(style='thin')
+                        )
+                    current_row += 1
+
+                rows = sheet_data.get("rows", [])
+                for row_idx, row_data in enumerate(rows):
+                    for col, value in enumerate(row_data, 1):
+                        cell = ws.cell(row=current_row, column=col, value=value)
+                        cell.alignment = Alignment(vertical="center")
+                        cell.border = Border(
+                            bottom=Side(style='thin'),
+                            left=Side(style='thin'),
+                            right=Side(style='thin')
+                        )
+                        # Alternate row colors
+                        if row_idx % 2 == 0:
+                            cell.fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+                    current_row += 1
+
+                for formula in sheet_data.get("formulas", []):
+                    cell_ref = formula.get("cell")
+                    if cell_ref:
+                        col_letter = ''.join(filter(str.isalpha, cell_ref))
+                        row_num = int(''.join(filter(str.isdigit, cell_ref)))
+                        col_num = 0
+                        for char in col_letter.upper():
+                            col_num = col_num * 26 + (ord(char) - ord('A') + 1)
+                        cell = ws.cell(row=row_num, column=col_num, value=formula.get("formula"))
+                        cell.font = Font(italic=True)
+                        fmt = formula.get("format")
+                        if fmt == "currency":
+                            cell.number_format = '"$"#,##0.00'
+                        elif fmt == "percentage":
+                            cell.number_format = "0.00%"
+
+                for chart_data in sheet_data.get("charts", []):
+                    chart_type = chart_data.get("type", "bar")
+                    if chart_type == "bar":
+                        chart = BarChart()
+                    elif chart_type == "pie":
+                        chart = PieChart()
+                    elif chart_type == "line":
+                        chart = LineChart()
+                    else:
+                        chart = BarChart()
+                    chart.title = chart_data.get("title", "Chart")
+                    chart.style = 10
+                    try:
+                        data_range = chart_data.get("data_range", "A1:B5")
+                        parts = data_range.split(":")
+                        if len(parts) == 2:
+                            data = Reference(ws, min_col=1, min_row=1, max_col=2, max_row=min(len(rows) + 2, 50))
+                            chart.add_data(data, titles_from_data=True)
+                            pos = chart_data.get("position", "H2")
+                            ws.add_chart(chart, pos)
+                    except Exception as chart_err:
+                        logger.error(f"Chart error: {chart_err}")
+
+                for col_letter, width in sheet_data.get("formatting", {}).get("column_widths", {}).items():
+                    ws.column_dimensions[col_letter].width = width
+
+                if not sheet_data.get("formatting", {}).get("column_widths"):
+                    for column in ws.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        ws.column_dimensions[column_letter].width = max(adjusted_width, 12)
+
+            filepath = OUTPUT_DIR / filename
+            wb.save(filepath)
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "sheets": len(structure.get("sheets", [])),
+                "total_rows": sum(len(s.get("rows", [])) for s in structure.get("sheets", []))
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    @staticmethod
+    async def build_powerpoint(structure: Dict, filename: str) -> Dict:
+        try:
+            prs = Presentation()
+            prs.slide_width = PptxInches(13.333)
+            prs.slide_height = PptxInches(7.5)
+
+            # Title slide
+            title_slide_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(title_slide_layout)
+            title = slide.shapes.title
+            subtitle = slide.placeholders[1]
+            title.text = structure.get("title", "Presentation")
+            subtitle.text = f"Generated by McLeuker AI\n{datetime.now().strftime('%Y-%m-%d')}"
+            title_frame = title.text_frame
+            title_frame.paragraphs[0].font.size = PptxPt(44)
+            title_frame.paragraphs[0].font.bold = True
+
+            for slide_data in structure.get("slides", []):
+                layout_type = slide_data.get("layout", "content")
+                if layout_type == "title":
+                    layout = prs.slide_layouts[6]  # Blank
+                else:
+                    layout = prs.slide_layouts[1]  # Title and content
+
+                slide = prs.slides.add_slide(layout)
+
+                if slide.shapes.title:
+                    slide.shapes.title.text = slide_data.get("title", "")
+
+                content = slide_data.get("content", [])
+                if content and len(slide.placeholders) > 1:
+                    body_shape = slide.placeholders[1]
+                    tf = body_shape.text_frame
+                    tf.text = content[0] if content else ""
+                    for item in content[1:]:
+                        p = tf.add_paragraph()
+                        p.text = item
+                        p.level = 0
+                        p.font.size = PptxPt(18)
+
+                table_data = slide_data.get("table")
+                if table_data and layout_type != "title":
+                    t_rows = len(table_data.get("rows", [])) + 1
+                    t_cols = len(table_data.get("headers", []))
+                    if t_rows > 1 and t_cols > 0:
+                        left = PptxInches(1)
+                        top = PptxInches(2)
+                        width = PptxInches(11)
+                        height = PptxInches(4)
+                        table = slide.shapes.add_table(t_rows, t_cols, left, top, width, height).table
+                        for i, header in enumerate(table_data["headers"]):
+                            cell = table.cell(0, i)
+                            cell.text = header
+                            cell.text_frame.paragraphs[0].font.bold = True
+                            cell.fill.solid()
+                            cell.fill.fore_color.rgb = PptxRGBColor(54, 96, 146)
+                        for i, row in enumerate(table_data.get("rows", [])):
+                            for j, val in enumerate(row):
+                                table.cell(i + 1, j).text = str(val)
+
+            filepath = OUTPUT_DIR / filename
+            prs.save(filepath)
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "slides": len(structure.get("slides", [])) + 1
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    @staticmethod
+    async def build_word(structure: Dict, filename: str) -> Dict:
+        try:
+            doc = Document()
+            title = doc.add_heading(structure.get("title", "Document"), 0)
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            doc.add_paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            doc.add_paragraph()
+
+            for section in structure.get("sections", []):
+                level = min(section.get("level", 1), 4)
+                doc.add_heading(section.get("heading", ""), level=level)
+
+                if "content" in section and section["content"]:
+                    doc.add_paragraph(section["content"])
+
+                for bullet in section.get("bullets", []):
+                    doc.add_paragraph(bullet, style='List Bullet')
+
+                if "table" in section:
+                    table_data = section["table"]
+                    t_headers = table_data.get("headers", [])
+                    t_rows_data = table_data.get("rows", [])
+                    if t_headers and t_rows_data:
+                        table = doc.add_table(rows=len(t_rows_data) + 1, cols=len(t_headers))
+                        table.style = 'Light Grid Accent 1'
+                        for i, header in enumerate(t_headers):
+                            table.rows[0].cells[i].text = header
+                        for i, row in enumerate(t_rows_data):
+                            for j, val in enumerate(row):
+                                if j < len(t_headers):
+                                    table.rows[i + 1].cells[j].text = str(val)
+
+                doc.add_paragraph()
+
+            filepath = OUTPUT_DIR / filename
+            doc.save(filepath)
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "sections": len(structure.get("sections", []))
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    @staticmethod
+    async def build_pdf(structure: Dict, filename: str) -> Dict:
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+
+            # Title
+            pdf.set_font("Arial", "B", 20)
+            pdf.cell(0, 15, structure.get("title", "Document"), ln=True, align="C")
+            pdf.ln(10)
+
+            # Metadata
+            pdf.set_font("Arial", "", 10)
+            pdf.cell(0, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d')}", ln=True, align="C")
+            pdf.ln(10)
+
+            for section in structure.get("sections", []):
+                pdf.set_font("Arial", "B", 14)
+                heading = section.get("heading", "")
+                # Encode to latin-1 safe
+                safe_heading = heading.encode('latin-1', 'replace').decode('latin-1')
+                pdf.cell(0, 12, safe_heading, ln=True)
+
+                pdf.set_font("Arial", "", 11)
+                if "content" in section and section["content"]:
+                    safe_content = section["content"].encode('latin-1', 'replace').decode('latin-1')
+                    pdf.multi_cell(0, 8, safe_content)
+                    pdf.ln(5)
+
+                for bullet in section.get("bullets", []):
+                    safe_bullet = bullet.encode('latin-1', 'replace').decode('latin-1')
+                    pdf.cell(5)  # Indent
+                    pdf.cell(5, 8, chr(149), ln=0)
+                    pdf.multi_cell(0, 8, f" {safe_bullet}")
+
+                pdf.ln(5)
+
+            filepath = OUTPUT_DIR / filename
+            pdf.output(str(filepath))
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "pages": pdf.page_no()
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+
+# ============================================================================
+# UNIFIED FILE GENERATION SERVICE
+# ============================================================================
+
+class FileGenerationService:
+    """Main service for file generation - orchestrates KimiContentGenerator + FileBuilder."""
+
+    # In-memory file registry for download tracking
     generated_files: Dict[str, Dict] = {}
+
+    @classmethod
+    async def generate(cls, file_type: str, prompt: str, content_data: Dict = None) -> Dict:
+        """Generate file from natural language prompt."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_id = str(uuid.uuid4())[:8]
+
+        try:
+            if file_type in ("excel", "csv"):
+                structure = await KimiContentGenerator.generate_excel_structure(prompt)
+                filename = f"report_{timestamp}_{file_id}.xlsx"
+                result = await FileBuilder.build_excel(structure, filename)
+
+            elif file_type in ("powerpoint", "pptx"):
+                structure = await KimiContentGenerator.generate_presentation_structure(prompt)
+                filename = f"presentation_{timestamp}_{file_id}.pptx"
+                result = await FileBuilder.build_powerpoint(structure, filename)
+
+            elif file_type == "word":
+                structure = await KimiContentGenerator.generate_document_structure(prompt)
+                filename = f"document_{timestamp}_{file_id}.docx"
+                result = await FileBuilder.build_word(structure, filename)
+
+            elif file_type == "pdf":
+                structure = await KimiContentGenerator.generate_document_structure(prompt)
+                filename = f"document_{timestamp}_{file_id}.pdf"
+                result = await FileBuilder.build_pdf(structure, filename)
+
+            elif file_type == "json":
+                filename = f"data_{timestamp}_{file_id}.json"
+                filepath = OUTPUT_DIR / filename
+                with open(filepath, 'w') as f:
+                    json.dump(content_data or {"prompt": prompt, "generated": datetime.now().isoformat()}, f, indent=2)
+                result = {"success": True, "filename": filename, "filepath": str(filepath)}
+
+            else:
+                return {"error": f"Unknown file type: {file_type}"}
+
+            if result.get("success"):
+                result["download_url"] = f"/api/v1/download/{file_id}"
+                result["file_type"] = file_type
+                result["file_id"] = file_id
+                result["prompt"] = prompt
+
+                # Register in file registry
+                cls.generated_files[file_id] = {
+                    "filename": result["filename"],
+                    "path": result["filepath"],
+                    "type": file_type,
+                    "created": datetime.now().isoformat(),
+                    "download_url": result["download_url"]
+                }
+
+            return result
+
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e), "file_type": file_type}
+
+    @classmethod
+    def get_file(cls, file_id: str) -> Optional[Dict]:
+        """Get file info by ID."""
+        return cls.generated_files.get(file_id)
+
+    @classmethod
+    def cleanup_old_files(cls, max_age_hours: int = 24) -> int:
+        """Remove files older than max_age_hours."""
+        to_remove = []
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        for fid, info in cls.generated_files.items():
+            try:
+                created = datetime.fromisoformat(info["created"])
+                if created < cutoff:
+                    to_remove.append(fid)
+                    path = info.get("path")
+                    if path and os.path.exists(path):
+                        os.remove(path)
+            except:
+                pass
+        for fid in to_remove:
+            del cls.generated_files[fid]
+        return len(to_remove)
     
     @classmethod
     def generate_excel(
@@ -1641,56 +2215,48 @@ class ToolExecutor:
             result_data["result"] = search_result
             
         elif function_name == "generate_excel":
-            file_id = await asyncio.to_thread(
-                FileGenerator.generate_excel,
-                arguments["data"],
-                arguments.get("filename"),
-                arguments.get("title"),
-                arguments.get("include_charts", False)
-            )
-            file_info = FileGenerator.get_file(file_id)
-            result_data["file_id"] = file_id
-            result_data["filename"] = file_info["filename"]
-            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            prompt = arguments.get("title", "Excel spreadsheet") + ": " + json.dumps(arguments.get("data", {}))
+            gen_result = await FileGenerationService.generate("excel", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
             
         elif function_name == "generate_word":
-            file_id = await asyncio.to_thread(
-                FileGenerator.generate_word,
-                arguments["content"],
-                arguments.get("title"),
-                arguments.get("subtitle"),
-                arguments.get("filename")
-            )
-            file_info = FileGenerator.get_file(file_id)
-            result_data["file_id"] = file_id
-            result_data["filename"] = file_info["filename"]
-            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            prompt = (arguments.get("title", "Document") + ": " + arguments.get("content", ""))[:2000]
+            gen_result = await FileGenerationService.generate("word", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
             
         elif function_name == "generate_pdf":
-            file_id = await asyncio.to_thread(
-                FileGenerator.generate_pdf,
-                arguments["content"],
-                arguments.get("title"),
-                arguments.get("filename"),
-                arguments.get("include_toc", False)
-            )
-            file_info = FileGenerator.get_file(file_id)
-            result_data["file_id"] = file_id
-            result_data["filename"] = file_info["filename"]
-            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            prompt = (arguments.get("title", "PDF Document") + ": " + arguments.get("content", ""))[:2000]
+            gen_result = await FileGenerationService.generate("pdf", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
             
         elif function_name == "generate_presentation":
-            file_id = await asyncio.to_thread(
-                FileGenerator.generate_pptx,
-                arguments["content"],
-                arguments.get("title"),
-                arguments.get("filename"),
-                arguments.get("theme", "professional")
-            )
-            file_info = FileGenerator.get_file(file_id)
-            result_data["file_id"] = file_id
-            result_data["filename"] = file_info["filename"]
-            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            prompt = (arguments.get("title", "Presentation") + ": " + arguments.get("content", ""))[:2000]
+            gen_result = await FileGenerationService.generate("pptx", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
             
         elif function_name == "deep_research":
             # Simplified research - just do a search, don't spawn full swarm in streaming
@@ -2206,145 +2772,52 @@ class KimiEngine:
         file_type: str,
         mode: str
     ) -> AsyncGenerator[str, None]:
-        """Dedicated pipeline for file generation requests.
+        """Dedicated pipeline for file generation requests using KimiContentGenerator + FileBuilder.
         Steps:
         1. Stream a 'thinking' status
-        2. Use Kimi to generate structured content for the file (non-streaming)
-        3. Programmatically create the file
+        2. Use KimiContentGenerator to get structured JSON from Kimi
+        3. Use FileBuilder to create professional file from the JSON
         4. Stream download link + summary
         """
         downloads = []
         
         try:
             # Step 1: Inform user we're working on it
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Researching and generating your file...'}})}\n\n"
-            
-            # Step 2: Determine what content to generate based on file type
             file_type_names = {
                 'excel': 'Excel spreadsheet',
                 'word': 'Word document',
                 'pdf': 'PDF document',
                 'pptx': 'PowerPoint presentation'
             }
+            status_msg = f"Generating structured content for your {file_type_names.get(file_type, 'file')}..."
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': status_msg}})}\n\n"
             
-            if file_type == 'excel':
-                content_prompt = (
-                    "Based on the user's request, generate structured data for an Excel spreadsheet. "
-                    "Return ONLY a valid JSON object with this exact format:\n"
-                    '{"title": "Sheet Title", "filename": "descriptive_name.xlsx", "data": {"Column1": ["val1", "val2"], "Column2": ["val1", "val2"]}}\n'
-                    "Include at least 5-10 rows of real, accurate data. Use descriptive column names. "
-                    "Return ONLY the JSON, no markdown formatting, no explanation."
-                )
-            else:
-                content_prompt = (
-                    f"Based on the user's request, generate comprehensive content for a {file_type_names.get(file_type, 'document')}. "
-                    "Write detailed, well-structured content with clear sections and headings. "
-                    "Include real facts and data. Write at least 500 words of substantive content. "
-                    "Return ONLY the document content text, no JSON, no markdown code blocks."
-                )
+            # Step 2: Use FileGenerationService (KimiContentGenerator + FileBuilder)
+            result = await FileGenerationService.generate(file_type, user_msg)
             
-            gen_messages = [
-                {"role": "system", "content": content_prompt}
-            ] + messages
-            
-            # Non-streaming call to get the content
-            content_response = client.chat.completions.create(
-                model="kimi-k2.5",
-                messages=gen_messages,
-                temperature=0.6,
-                max_tokens=4000,
-                extra_body={"thinking": {"type": "disabled"}}
-            )
-            
-            generated_content = content_response.choices[0].message.content or ""
-            
-            if not generated_content.strip():
-                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': 'I was unable to generate content for the file. Please try again with more specific details.'}})}\n\n"
-                yield f"data: {json.dumps({'type': 'complete', 'data': {'content': 'I was unable to generate content for the file. Please try again with more specific details.', 'reasoning': '', 'downloads': []}})}\n\n"
-                return
-            
-            # Step 3: Generate the file programmatically
-            creating_msg = f"Creating {file_type_names.get(file_type, 'file')}..."
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': creating_msg}})}" + "\n\n"
-            
-            file_id = None
-            filename = None
-            
-            if file_type == 'excel':
-                # Parse JSON data for Excel
-                try:
-                    # Clean up the response - remove markdown code blocks if present
-                    clean_content = generated_content.strip()
-                    if clean_content.startswith('```'):
-                        clean_content = clean_content.split('\n', 1)[1] if '\n' in clean_content else clean_content[3:]
-                    if clean_content.endswith('```'):
-                        clean_content = clean_content[:-3]
-                    clean_content = clean_content.strip()
-                    
-                    data = json.loads(clean_content)
-                    title = data.get('title', 'Report')
-                    filename = data.get('filename', f'report_{uuid.uuid4().hex[:8]}.xlsx')
-                    excel_data = data.get('data', data)
-                    
-                    file_id = await asyncio.to_thread(
-                        FileGenerator.generate_excel,
-                        excel_data, filename, title
-                    )
-                except (json.JSONDecodeError, Exception) as e:
-                    logger.error(f"Excel JSON parse error: {e}, trying as text")
-                    # Fallback: create a simple Excel with the text content
-                    fallback_data = {"Content": [generated_content]}
-                    file_id = await asyncio.to_thread(
-                        FileGenerator.generate_excel,
-                        fallback_data, None, "Report"
-                    )
-            
-            elif file_type == 'word':
-                # Extract title from user message
-                title_words = user_msg.replace('create a word document about ', '').replace('generate a word document about ', '')
-                title = title_words.title()[:60] if title_words else 'Document'
-                file_id = await asyncio.to_thread(
-                    FileGenerator.generate_word,
-                    generated_content, title
-                )
-            
-            elif file_type == 'pdf':
-                title_words = user_msg.replace('create a pdf document about ', '').replace('create a pdf about ', '').replace('generate a pdf about ', '')
-                title = title_words.title()[:60] if title_words else 'Document'
-                file_id = await asyncio.to_thread(
-                    FileGenerator.generate_pdf,
-                    generated_content, title
-                )
-            
-            elif file_type == 'pptx':
-                title_words = user_msg.replace('create a presentation about ', '').replace('create a powerpoint about ', '')
-                title = title_words.title()[:60] if title_words else 'Presentation'
-                file_id = await asyncio.to_thread(
-                    FileGenerator.generate_pptx,
-                    generated_content, title
-                )
-            
-            if file_id:
-                file_info = FileGenerator.get_file(file_id)
-                filename = file_info["filename"] if file_info else f"document.{file_type}"
-                
-                download_info = {
-                    "filename": filename,
-                    "download_url": f"/api/v1/download/{file_id}",
-                    "file_id": file_id,
-                    "file_type": file_type
-                }
-                downloads.append(download_info)
-                yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
-                
-                # Step 4: Stream a concise summary
-                summary = f"I've created a {file_type_names.get(file_type, 'file')} for you. You can download it using the button above."
-                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': summary}})}\n\n"
-                yield f"data: {json.dumps({'type': 'complete', 'data': {'content': summary, 'reasoning': '', 'downloads': downloads}})}\n\n"
-            else:
-                error_msg = "I encountered an error creating the file. Please try again."
+            if result.get("error"):
+                error_msg = f"Error generating file: {result['error']}"
                 yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
                 yield f"data: {json.dumps({'type': 'complete', 'data': {'content': error_msg, 'reasoning': '', 'downloads': []}})}\n\n"
+                return
+            
+            # Step 3: Stream the download info
+            creating_msg = f"Creating {file_type_names.get(file_type, 'file')}..."
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': creating_msg}})}\n\n"
+            
+            download_info = {
+                "filename": result["filename"],
+                "download_url": result["download_url"],
+                "file_id": result["file_id"],
+                "file_type": file_type
+            }
+            downloads.append(download_info)
+            yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
+            
+            # Step 4: Stream a concise summary
+            summary = f"I've created a professional {file_type_names.get(file_type, 'file')} for you. You can download it using the button above."
+            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': summary}})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': summary, 'reasoning': '', 'downloads': downloads}})}\n\n"
         
         except Exception as e:
             logger.error(f"File generation pipeline error: {e}")
@@ -2565,14 +3038,15 @@ Provide a well-structured, actionable final response that integrates all perspec
                 if r.get("success"):
                     content += f"\n### {r['role'].upper()} Analysis\n\n{r['output'][:800]}\n"
             
-            file_id = FileGenerator.generate_word(content, title="Research Report")
-            file_info = FileGenerator.get_file(file_id)
+            gen_result = await FileGenerationService.generate("word", f"Research Report: {synthesis[:1500]}")
+            file_id = gen_result.get("file_id")
+            file_info = FileGenerationService.get_file(file_id) if file_id else None
             
             return {
                 "type": "report",
                 "file_id": file_id,
-                "filename": file_info["filename"],
-                "download_url": f"/api/v1/download/{file_id}"
+                "filename": file_info["filename"] if file_info else gen_result.get("filename", "report.docx"),
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}")
             }
         
         elif deliverable_type == "presentation":
@@ -2581,14 +3055,15 @@ Provide a well-structured, actionable final response that integrates all perspec
                 if r.get("success"):
                     content += f"{r['role'].upper()} Insights\n{r['output'][:500]}\n\n"
             
-            file_id = FileGenerator.generate_pptx(content, title="Research Presentation")
-            file_info = FileGenerator.get_file(file_id)
+            gen_result = await FileGenerationService.generate("pptx", f"Research Presentation: {synthesis[:1000]}")
+            file_id = gen_result.get("file_id")
+            file_info = FileGenerationService.get_file(file_id) if file_id else None
             
             return {
                 "type": "presentation",
                 "file_id": file_id,
-                "filename": file_info["filename"],
-                "download_url": f"/api/v1/download/{file_id}"
+                "filename": file_info["filename"] if file_info else gen_result.get("filename", "presentation.pptx"),
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}")
             }
         
         return None
@@ -2773,63 +3248,40 @@ async def execute_code_endpoint(request: CodeExecutionRequest):
 
 @app.post("/api/v1/generate-file")
 async def generate_file_endpoint(request: FileGenRequest):
-    """Generate downloadable file"""
+    """Generate downloadable file using KimiContentGenerator + FileBuilder"""
     try:
-        # Parse content if string
+        # Build prompt from content
         content = request.content
-        if isinstance(content, str):
-            try:
-                content = json.loads(content)
-            except:
-                pass
+        if isinstance(content, dict) or isinstance(content, list):
+            prompt = json.dumps(content, indent=2)
+        else:
+            prompt = str(content)
         
-        def _generate_sync():
-            if request.file_type == "excel":
-                return FileGenerator.generate_excel(
-                    content,
-                    request.filename,
-                    request.title,
-                    request.include_charts
-                )
-            elif request.file_type == "word":
-                return FileGenerator.generate_word(
-                    content if isinstance(content, str) else json.dumps(content, indent=2),
-                    request.title,
-                    request.subtitle,
-                    request.filename
-                )
-            elif request.file_type == "pdf":
-                return FileGenerator.generate_pdf(
-                    content if isinstance(content, str) else json.dumps(content, indent=2),
-                    request.title,
-                    request.filename
-                )
-            elif request.file_type == "pptx":
-                return FileGenerator.generate_pptx(
-                    content if isinstance(content, str) else json.dumps(content, indent=2),
-                    request.title,
-                    request.filename
-                )
-            else:
-                raise ValueError("Unsupported file type")
+        if request.title:
+            prompt = f"{request.title}: {prompt}"
         
-        # Run synchronous file generation in a thread to avoid blocking the event loop
-        file_id = await asyncio.wait_for(
-            asyncio.to_thread(_generate_sync),
-            timeout=30.0
+        # Map file types
+        file_type = request.file_type
+        if file_type == "csv":
+            file_type = "excel"
+        
+        result = await asyncio.wait_for(
+            FileGenerationService.generate(file_type, prompt),
+            timeout=60.0
         )
         
-        file_info = FileGenerator.get_file(file_id)
+        if result.get("error"):
+            return {"success": False, "error": result["error"]}
         
         return {
             "success": True,
-            "file_id": file_id,
-            "filename": file_info["filename"],
+            "file_id": result["file_id"],
+            "filename": result["filename"],
             "file_type": request.file_type,
-            "download_url": f"/api/v1/download/{file_id}"
+            "download_url": result["download_url"]
         }
     except asyncio.TimeoutError:
-        logger.error("File generation timed out after 30s")
+        logger.error("File generation timed out after 60s")
         return {"success": False, "error": "File generation timed out"}
     except Exception as e:
         logger.error(f"File generation error: {e}")
@@ -2838,7 +3290,7 @@ async def generate_file_endpoint(request: FileGenRequest):
 @app.get("/api/v1/download/{file_id}")
 async def download_file(file_id: str):
     """Download generated file"""
-    file_info = FileGenerator.get_file(file_id)
+    file_info = FileGenerationService.get_file(file_id)
     if not file_info or not os.path.exists(file_info["path"]):
         raise HTTPException(status_code=404, detail="File not found or expired")
     
@@ -2924,7 +3376,7 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Clean up old files on startup"""
-    cleaned = FileGenerator.cleanup_old_files(24)
+    cleaned = FileGenerationService.cleanup_old_files(24)
     logger.info(f"Cleaned up {cleaned} old files")
 
 if __name__ == "__main__":
