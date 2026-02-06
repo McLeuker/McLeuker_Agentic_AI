@@ -24,5 +24,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application using V7.0 reasoning-first main.py
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the application using V8.5 Kimi 2.5 Edition
+CMD ["uvicorn", "src.api.main_v8:app", "--host", "0.0.0.0", "--port", "8000"]

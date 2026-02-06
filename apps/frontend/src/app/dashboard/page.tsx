@@ -1778,7 +1778,7 @@ function DashboardContent() {
                       user_id: user.id,
                       role: 'assistant',
                       content: finalContent,
-                      model_used: 'grok-4',
+                      model_used: 'kimi-k2.5',
                       credits_used: creditsUsed,
                       metadata: JSON.parse(messageMetadata),
                     });

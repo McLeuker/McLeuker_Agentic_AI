@@ -127,4 +127,66 @@ export async function checkHealth(): Promise<boolean> {
   }
 }
 
+// =============================================================================
+// Kimi 2.5 API Client (New Endpoints)
+// =============================================================================
+
+export interface KimiChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | any[];
+}
+
+export interface KimiChatOptions {
+  mode?: 'instant' | 'thinking' | 'agent' | 'swarm' | 'vision_code';
+  stream?: boolean;
+}
+
+export const kimiApi = {
+  async chat(messages: KimiChatMessage[], options: KimiChatOptions = {}) {
+    const response = await api.post('/api/v1/chat', {
+      messages,
+      mode: options.mode || 'thinking',
+      stream: options.stream || false
+    });
+    return response.data;
+  },
+
+  async swarm(masterTask: string, numAgents: number = 5) {
+    const response = await api.post('/api/v1/swarm', {
+      master_task: masterTask,
+      context: {},
+      num_agents: numAgents,
+      auto_synthesize: true
+    });
+    return response.data;
+  },
+
+  async visionToCode(imageBase64: string, requirements: string = '', framework: 'html' | 'react' | 'vue' = 'html') {
+    const response = await api.post('/api/v1/vision-to-code', {
+      image_base64: imageBase64,
+      requirements,
+      framework
+    });
+    return response.data;
+  },
+
+  async multimodal(text: string, imageFile?: File, mode: string = 'thinking') {
+    const formData = new FormData();
+    formData.append('text', text);
+    formData.append('mode', mode);
+    if (imageFile) formData.append('image', imageFile);
+
+    const response = await fetch(`${API_BASE_URL}/api/v1/multimodal`, {
+      method: 'POST',
+      body: formData
+    });
+    return response.json();
+  },
+
+  async health() {
+    const response = await api.get('/api/v1/health');
+    return response.data;
+  }
+};
+
 export default api;
