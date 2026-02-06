@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Menu, X } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
 
 interface TopNavigationProps {
   variant?: "app" | "marketing";
@@ -21,7 +20,6 @@ const marketingLinks = [
 export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user, loading } = useAuth();
   
   const isMarketing = variant === "marketing";
   const isActiveLink = (path: string) => pathname === path;
@@ -79,31 +77,18 @@ export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
             </button>
           )}
 
-          {!loading && user ? (
-            /* Logged in - show Dashboard button */
-            <Link
-              href="/dashboard"
-              className="text-sm bg-white text-black hover:bg-white/90 px-4 py-2 rounded-md transition-colors"
-            >
-              Dashboard
-            </Link>
-          ) : (
-            /* Not logged in - show Sign in and Get started */
-            <>
-              <Link
-                href="/login"
-                className="hidden sm:inline-flex text-sm text-white/70 hover:text-white hover:bg-white/10 px-4 py-2 rounded-md transition-colors"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/signup"
-                className="text-sm bg-white text-black hover:bg-white/90 px-4 py-2 rounded-md transition-colors"
-              >
-                Get started
-              </Link>
-            </>
-          )}
+          <Link
+            href="/login"
+            className="hidden sm:inline-flex text-sm text-white/70 hover:text-white hover:bg-white/10 px-4 py-2 rounded-md transition-colors"
+          >
+            Sign in
+          </Link>
+          <Link
+            href="/signup"
+            className="text-sm bg-white text-black hover:bg-white/90 px-4 py-2 rounded-md transition-colors"
+          >
+            Get started
+          </Link>
         </div>
       </div>
 

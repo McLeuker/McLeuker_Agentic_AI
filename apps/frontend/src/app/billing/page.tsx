@@ -111,15 +111,15 @@ function BillingContent() {
       // Fetch user subscription data
       const { data: userData } = await supabase
         .from('users')
-        .select('subscription_tier, credits_balance')
-        .eq('id', user.id)
+        .select('subscription_plan, credit_balance')
+        .eq('user_id', user.id)
         .single();
 
       if (userData) {
-        setPlan(userData.subscription_tier || 'free');
-        setCreditBalance(userData.credits_balance || 50);
-        setMonthlyCredits(SUBSCRIPTION_PLANS[userData.subscription_tier as keyof typeof SUBSCRIPTION_PLANS]?.credits || 50);
-        setSubscribed(userData.subscription_tier !== 'free');
+        setPlan(userData.subscription_plan || 'free');
+        setCreditBalance(userData.credit_balance || 50);
+        setMonthlyCredits(SUBSCRIPTION_PLANS[userData.subscription_plan as keyof typeof SUBSCRIPTION_PLANS]?.credits || 50);
+        setSubscribed(userData.subscription_plan !== 'free');
       }
 
       // Fetch billing transactions

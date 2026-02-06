@@ -46,7 +46,7 @@ export async function updateLastLogin(userId: string) {
   try {
     await supabase
       .from('users')
-      .update({ last_active_at: new Date().toISOString() })
+      .update({ last_login_at: new Date().toISOString() })
       .eq('id', userId);
   } catch (error) {
     console.error('Error updating last login:', error);
