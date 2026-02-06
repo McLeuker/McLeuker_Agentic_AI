@@ -1912,7 +1912,7 @@ class KimiEngine:
     ) -> AsyncGenerator[str, None]:
         """Stream chat responses with full tool execution support"""
         
-        # Check if user is asking for file generation - auto-upgrade to agent mode
+        # Check if user is asking for file generation
         user_msg = ""
         for m in messages:
             if m.get("role") == "user":
@@ -1925,13 +1925,32 @@ class KimiEngine:
                             user_msg = part.get("text", "").lower()
         
         file_keywords = ['excel', 'spreadsheet', 'xlsx', 'csv',
-                        'word doc', 'docx', 'pdf', 'powerpoint', 'presentation', 'pptx']
-        needs_tools = any(kw in user_msg for kw in file_keywords)
+                        'word doc', 'docx', 'pdf', 'powerpoint', 'presentation', 'pptx',
+                        'word document', 'create a pdf', 'generate a pdf', 'make a pdf',
+                        'create an excel', 'generate an excel', 'make an excel',
+                        'create a word', 'generate a word', 'make a word',
+                        'create a presentation', 'generate a presentation', 'make a presentation']
+        needs_file = any(kw in user_msg for kw in file_keywords)
         
-        # Only upgrade to agent mode if explicitly requesting file generation
-        if needs_tools and mode in ["instant", "thinking"]:
-            mode = "agent"
+        # Determine the file type needed
+        file_type = None
+        if needs_file:
+            if any(kw in user_msg for kw in ['excel', 'spreadsheet', 'xlsx', 'csv']):
+                file_type = 'excel'
+            elif any(kw in user_msg for kw in ['word', 'docx', 'word doc', 'word document']):
+                file_type = 'word'
+            elif any(kw in user_msg for kw in ['pdf']):
+                file_type = 'pdf'
+            elif any(kw in user_msg for kw in ['powerpoint', 'presentation', 'pptx', 'slide']):
+                file_type = 'pptx'
         
+        # ===== DEDICATED FILE GENERATION PIPELINE =====
+        if needs_file and file_type:
+            async for event in cls._file_generation_pipeline(messages, user_msg, file_type, mode):
+                yield event
+            return
+        
+        # ===== NORMAL CHAT FLOW =====
         use_tools = enable_tools and mode in ["agent", "research"]
         
         config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
@@ -1945,19 +1964,6 @@ class KimiEngine:
         if use_tools:
             params["tools"] = TOOLS
             params["tool_choice"] = "auto"
-            # Add system instruction for file generation
-            if needs_tools:
-                file_system_msg = {
-                    "role": "system",
-                    "content": (
-                        "IMPORTANT: When the user asks you to generate, create, or make any file "
-                        "(Excel, Word, PDF, PowerPoint, CSV), you MUST use the appropriate tool "
-                        "(generate_excel, generate_word, generate_pdf, generate_presentation) to create "
-                        "an actual downloadable file. Do NOT just describe the content in text. "
-                        "Always call the tool with real structured data."
-                    )
-                }
-                params["messages"] = [file_system_msg] + params["messages"]
         
         try:
             response = client.chat.completions.create(**params)
@@ -2191,6 +2197,159 @@ class KimiEngine:
         
         # Send complete event with downloads
         yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning, 'downloads': downloads}})}\n\n"
+    
+    @classmethod
+    async def _file_generation_pipeline(
+        cls,
+        messages: List[Dict],
+        user_msg: str,
+        file_type: str,
+        mode: str
+    ) -> AsyncGenerator[str, None]:
+        """Dedicated pipeline for file generation requests.
+        Steps:
+        1. Stream a 'thinking' status
+        2. Use Kimi to generate structured content for the file (non-streaming)
+        3. Programmatically create the file
+        4. Stream download link + summary
+        """
+        downloads = []
+        
+        try:
+            # Step 1: Inform user we're working on it
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Researching and generating your file...'}})}\n\n"
+            
+            # Step 2: Determine what content to generate based on file type
+            file_type_names = {
+                'excel': 'Excel spreadsheet',
+                'word': 'Word document',
+                'pdf': 'PDF document',
+                'pptx': 'PowerPoint presentation'
+            }
+            
+            if file_type == 'excel':
+                content_prompt = (
+                    "Based on the user's request, generate structured data for an Excel spreadsheet. "
+                    "Return ONLY a valid JSON object with this exact format:\n"
+                    '{"title": "Sheet Title", "filename": "descriptive_name.xlsx", "data": {"Column1": ["val1", "val2"], "Column2": ["val1", "val2"]}}\n'
+                    "Include at least 5-10 rows of real, accurate data. Use descriptive column names. "
+                    "Return ONLY the JSON, no markdown formatting, no explanation."
+                )
+            else:
+                content_prompt = (
+                    f"Based on the user's request, generate comprehensive content for a {file_type_names.get(file_type, 'document')}. "
+                    "Write detailed, well-structured content with clear sections and headings. "
+                    "Include real facts and data. Write at least 500 words of substantive content. "
+                    "Return ONLY the document content text, no JSON, no markdown code blocks."
+                )
+            
+            gen_messages = [
+                {"role": "system", "content": content_prompt}
+            ] + messages
+            
+            # Non-streaming call to get the content
+            content_response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=gen_messages,
+                temperature=0.7,
+                max_tokens=4000,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            
+            generated_content = content_response.choices[0].message.content or ""
+            
+            if not generated_content.strip():
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': 'I was unable to generate content for the file. Please try again with more specific details.'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'data': {'content': 'I was unable to generate content for the file. Please try again with more specific details.', 'reasoning': '', 'downloads': []}})}\n\n"
+                return
+            
+            # Step 3: Generate the file programmatically
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': f'Creating {file_type_names.get(file_type, "file")}...'}})}\n\n"
+            
+            file_id = None
+            filename = None
+            
+            if file_type == 'excel':
+                # Parse JSON data for Excel
+                try:
+                    # Clean up the response - remove markdown code blocks if present
+                    clean_content = generated_content.strip()
+                    if clean_content.startswith('```'):
+                        clean_content = clean_content.split('\n', 1)[1] if '\n' in clean_content else clean_content[3:]
+                    if clean_content.endswith('```'):
+                        clean_content = clean_content[:-3]
+                    clean_content = clean_content.strip()
+                    
+                    data = json.loads(clean_content)
+                    title = data.get('title', 'Report')
+                    filename = data.get('filename', f'report_{uuid.uuid4().hex[:8]}.xlsx')
+                    excel_data = data.get('data', data)
+                    
+                    file_id = await asyncio.to_thread(
+                        FileGenerator.generate_excel,
+                        excel_data, filename, title
+                    )
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.error(f"Excel JSON parse error: {e}, trying as text")
+                    # Fallback: create a simple Excel with the text content
+                    fallback_data = {"Content": [generated_content]}
+                    file_id = await asyncio.to_thread(
+                        FileGenerator.generate_excel,
+                        fallback_data, None, "Report"
+                    )
+            
+            elif file_type == 'word':
+                # Extract title from user message
+                title_words = user_msg.replace('create a word document about ', '').replace('generate a word document about ', '')
+                title = title_words.title()[:60] if title_words else 'Document'
+                file_id = await asyncio.to_thread(
+                    FileGenerator.generate_word,
+                    generated_content, title
+                )
+            
+            elif file_type == 'pdf':
+                title_words = user_msg.replace('create a pdf document about ', '').replace('create a pdf about ', '').replace('generate a pdf about ', '')
+                title = title_words.title()[:60] if title_words else 'Document'
+                file_id = await asyncio.to_thread(
+                    FileGenerator.generate_pdf,
+                    generated_content, title
+                )
+            
+            elif file_type == 'pptx':
+                title_words = user_msg.replace('create a presentation about ', '').replace('create a powerpoint about ', '')
+                title = title_words.title()[:60] if title_words else 'Presentation'
+                file_id = await asyncio.to_thread(
+                    FileGenerator.generate_pptx,
+                    generated_content, title
+                )
+            
+            if file_id:
+                file_info = FileGenerator.get_file(file_id)
+                filename = file_info["filename"] if file_info else f"document.{file_type}"
+                
+                download_info = {
+                    "filename": filename,
+                    "download_url": f"/api/v1/download/{file_id}",
+                    "file_id": file_id,
+                    "file_type": file_type
+                }
+                downloads.append(download_info)
+                yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
+                
+                # Step 4: Stream a concise summary
+                summary = f"I've created a {file_type_names.get(file_type, 'file')} for you. You can download it using the button above."
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': summary}})}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'data': {'content': summary, 'reasoning': '', 'downloads': downloads}})}\n\n"
+            else:
+                error_msg = "I encountered an error creating the file. Please try again."
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'data': {'content': error_msg, 'reasoning': '', 'downloads': []}})}\n\n"
+        
+        except Exception as e:
+            logger.error(f"File generation pipeline error: {e}")
+            error_msg = f"Error generating file: {str(e)}"
+            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': error_msg, 'reasoning': '', 'downloads': []}})}\n\n"
 
 # ============================================================================
 # AGENT SWARM
