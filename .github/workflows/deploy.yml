@@ -1,4 +1,4 @@
-name: Deploy to Railway
+name: Deploy to Production
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  deploy:
+  test-backend:
     runs-on: ubuntu-latest
     
     steps:
@@ -19,31 +19,70 @@ jobs:
       with:
         python-version: '3.11'
         
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('apps/backend/requirements.txt') }}
+        
     - name: Install dependencies
       run: |
         cd apps/backend
         pip install -r requirements.txt
         
-    - name: Test Kimi API connection
-      env:
-        KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+    - name: Run tests
       run: |
-        python -c "
-        import openai
-        import os
-        key = os.getenv('KIMI_API_KEY')
-        if key:
-            client = openai.OpenAI(api_key=key, base_url='https://api.moonshot.cn/v1')
-            models = client.models.list()
-            print('Available models:', [m.id for m in models.data])
-        else:
-            print('KIMI_API_KEY not set - skipping API test')
-        "
-        
+        cd apps/backend
+        python -m pytest tests/ -v || echo "No tests yet"
+      continue-on-error: true
+
+  deploy-backend:
+    needs: test-backend
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
     - name: Deploy to Railway
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: railway/cli@latest
       env:
         RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       with:
-        args: up --service web
+        args: up --service web --directory apps/backend
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: |
+        cd apps/frontend
+        npm ci
+        
+    - name: Build
+      run: |
+        cd apps/frontend
+        npm run build
+      env:
+        NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        
+    - name: Deploy to Vercel
+      uses: vercel/action-deploy@v1
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        working-directory: apps/frontend

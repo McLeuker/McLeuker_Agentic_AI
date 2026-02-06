@@ -5,6 +5,7 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -14,15 +15,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create temp directory for file generation
-RUN mkdir -p /tmp/mcleuker_files
+# Create temp directories for file generation and sandbox
+RUN mkdir -p /tmp/mcleuker_outputs /tmp/mcleuker_sandbox /tmp/mcleuker_uploads /tmp/mcleuker_files
 
 # Expose port
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
-# Run the application using V8.5 Kimi 2.5 Edition
-CMD ["uvicorn", "src.api.main_v8:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the Kimi 2.5 Complete Production Backend
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

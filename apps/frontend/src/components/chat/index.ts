@@ -4,4 +4,6 @@ export { MessageList } from './MessageList';
 export { InputArea } from './InputArea';
 export { ToolIndicator } from './ToolIndicator';
 export { DownloadButton } from './DownloadButton';
+export { DownloadPanel } from './DownloadPanel';
 export { SearchResults } from './SearchResults';
+export { SearchSourcesPanel } from './SearchSourcesPanel';
