@@ -2124,14 +2124,24 @@ class KimiEngine:
                             break  # Exit the multi-round loop
                         else:
                             # Not final: allow more tools for next round
+                            # Add strong instruction to use file generation tools
+                            file_gen_instruction = {
+                                "role": "system",
+                                "content": (
+                                    "You have search results now. The user requested a file to be created. "
+                                    "You MUST now call the appropriate file generation tool (generate_pdf, generate_excel, "
+                                    "generate_word, or generate_presentation) to create the actual file. "
+                                    "Do NOT just describe what you will do - call the tool NOW with the data from the search results."
+                                )
+                            }
                             continuation_response = client.chat.completions.create(
                                 model="kimi-k2.5",
-                                messages=current_messages,
+                                messages=[file_gen_instruction] + current_messages,
                                 stream=True,
                                 temperature=0.6,
                                 max_tokens=1000,
                                 tools=TOOLS,
-                                tool_choice="auto",
+                                tool_choice="required",
                                 extra_body={"thinking": {"type": "disabled"}}
                             )
                             
