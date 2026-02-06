@@ -2003,11 +2003,10 @@ class KimiEngine:
                         if tc.function.arguments:
                             collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
             
-            # When the model finishes with tool_calls, execute them
+            # When the model finishes with tool_calls, execute them in a multi-round loop
             if finish_reason == "tool_calls" and collected_tool_calls:
-                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating files...'}})}\n\n"
                 
-                # Build tool call objects for execution
+                # Build tool call objects helper
                 class ToolCallObj:
                     def __init__(self, tc_dict):
                         self.id = tc_dict["id"]
@@ -2016,98 +2015,169 @@ class KimiEngine:
                             'arguments': tc_dict["function"]["arguments"]
                         })()
                 
-                tool_call_objects = [ToolCallObj(tc) for tc in collected_tool_calls.values()]
+                # Multi-round tool execution loop (max 3 rounds)
+                current_messages = list(params["messages"])
+                max_rounds = 3
                 
-                # Execute all tools
-                try:
-                    tool_results = await ToolExecutor.execute(tool_call_objects)
+                for round_num in range(max_rounds):
+                    logger.info(f"Tool execution round {round_num + 1}/{max_rounds}")
                     
-                    # Extract download info from tool results
-                    for tr in tool_results:
-                        try:
-                            result_content = json.loads(tr["content"])
-                            if "download_url" in result_content:
-                                # Infer file_type from filename extension if not provided
-                                filename = result_content.get("filename", "file")
-                                file_type = result_content.get("file_type", "unknown")
-                                if file_type == "unknown" and "." in filename:
-                                    ext = filename.rsplit(".", 1)[-1].lower()
-                                    ext_map = {"xlsx": "excel", "xls": "excel", "csv": "csv", "docx": "word", "doc": "word", "pdf": "pdf", "pptx": "presentation", "ppt": "presentation"}
-                                    file_type = ext_map.get(ext, ext)
-                                download_info = {
-                                    "filename": filename,
-                                    "download_url": result_content["download_url"],
-                                    "file_id": result_content.get("file_id", ""),
-                                    "file_type": file_type
+                    # Determine tool type for status message
+                    tool_names = [tc["function"]["name"] for tc in collected_tool_calls.values()]
+                    has_file_gen = any(n.startswith("generate_") for n in tool_names)
+                    has_search = any(n in ["realtime_search", "deep_research"] for n in tool_names)
+                    
+                    if has_file_gen:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating files...'}})}\n\n"
+                    elif has_search:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching for information...'}})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Using tools...'}})}\n\n"
+                    
+                    tool_call_objects = [ToolCallObj(tc) for tc in collected_tool_calls.values()]
+                    
+                    try:
+                        tool_results = await ToolExecutor.execute(tool_call_objects)
+                        
+                        # Extract download info from tool results
+                        for tr in tool_results:
+                            try:
+                                result_content = json.loads(tr["content"])
+                                if "download_url" in result_content:
+                                    filename = result_content.get("filename", "file")
+                                    file_type = result_content.get("file_type", "unknown")
+                                    if file_type == "unknown" and "." in filename:
+                                        ext = filename.rsplit(".", 1)[-1].lower()
+                                        ext_map = {"xlsx": "excel", "xls": "excel", "csv": "csv", "docx": "word", "doc": "word", "pdf": "pdf", "pptx": "presentation", "ppt": "presentation"}
+                                        file_type = ext_map.get(ext, ext)
+                                    download_info = {
+                                        "filename": filename,
+                                        "download_url": result_content["download_url"],
+                                        "file_id": result_content.get("file_id", ""),
+                                        "file_type": file_type
+                                    }
+                                    downloads.append(download_info)
+                                    yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
+                            except:
+                                pass
+                        
+                        # Build continuation messages
+                        current_messages.append({
+                            "role": "assistant",
+                            "content": full_content if full_content else None,
+                            "tool_calls": [
+                                {
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc["function"]["name"],
+                                        "arguments": tc["function"]["arguments"]
+                                    }
                                 }
-                                downloads.append(download_info)
-                                yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
-                        except:
-                            pass
-                    
-                    # Continue conversation with tool results
-                    continuation_messages = list(params["messages"])
-                    continuation_messages.append({
-                        "role": "assistant",
-                        "content": full_content if full_content else None,
-                        "tool_calls": [
-                            {
-                                "id": tc["id"],
-                                "type": "function",
-                                "function": {
-                                    "name": tc["function"]["name"],
-                                    "arguments": tc["function"]["arguments"]
-                                }
-                            }
-                            for tc in collected_tool_calls.values()
-                        ]
-                    })
-                    
-                    for tr in tool_results:
-                        continuation_messages.append({
-                            "role": "tool",
-                            "content": tr["content"],
-                            "tool_call_id": tr["tool_call_id"]
+                                for tc in collected_tool_calls.values()
+                            ]
                         })
+                        
+                        for tr in tool_results:
+                            current_messages.append({
+                                "role": "tool",
+                                "content": tr["content"],
+                                "tool_call_id": tr["tool_call_id"]
+                            })
+                        
+                        # Reset for next round
+                        collected_tool_calls = {}
+                        full_content = ""
+                        
+                        # Determine if this is the final round or if we should allow more tools
+                        is_final_round = (round_num == max_rounds - 1) or (has_file_gen and downloads)
+                        
+                        if is_final_round:
+                            # Final round: no tools, concise summary
+                            final_system = {
+                                "role": "system",
+                                "content": (
+                                    "The tools have been executed successfully. "
+                                    "Provide a brief, concise summary of what was done (2-3 sentences max). "
+                                    "Do NOT repeat yourself or describe what you plan to do. Everything is already done."
+                                )
+                            }
+                            continuation_response = client.chat.completions.create(
+                                model="kimi-k2.5",
+                                messages=[final_system] + current_messages,
+                                stream=True,
+                                temperature=0.6,
+                                max_tokens=300,
+                                extra_body={"thinking": {"type": "disabled"}}
+                            )
+                            
+                            cont_token_count = 0
+                            for cont_chunk in continuation_response:
+                                cont_delta = cont_chunk.choices[0].delta
+                                cont_content = getattr(cont_delta, 'content', None)
+                                if cont_content:
+                                    cont_token_count += 1
+                                    full_content += cont_content
+                                    yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
+                                    if cont_token_count > 400:
+                                        break
+                            break  # Exit the multi-round loop
+                        else:
+                            # Not final: allow more tools for next round
+                            continuation_response = client.chat.completions.create(
+                                model="kimi-k2.5",
+                                messages=current_messages,
+                                stream=True,
+                                temperature=0.6,
+                                max_tokens=1000,
+                                tools=TOOLS,
+                                tool_choice="auto",
+                                extra_body={"thinking": {"type": "disabled"}}
+                            )
+                            
+                            # Process continuation - might have more tool calls
+                            cont_has_tool_calls = False
+                            for cont_chunk in continuation_response:
+                                cont_delta = cont_chunk.choices[0].delta
+                                cont_finish = cont_chunk.choices[0].finish_reason
+                                cont_content = getattr(cont_delta, 'content', None)
+                                cont_tool_calls = getattr(cont_delta, 'tool_calls', None)
+                                
+                                if cont_content:
+                                    full_content += cont_content
+                                    yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
+                                
+                                if cont_tool_calls:
+                                    for tc in cont_tool_calls:
+                                        idx = tc.index
+                                        if idx not in collected_tool_calls:
+                                            collected_tool_calls[idx] = {
+                                                "id": getattr(tc, 'id', None),
+                                                "function": {"name": "", "arguments": ""}
+                                            }
+                                        if tc.id:
+                                            collected_tool_calls[idx]["id"] = tc.id
+                                        if tc.function:
+                                            if tc.function.name:
+                                                collected_tool_calls[idx]["function"]["name"] += tc.function.name
+                                            if tc.function.arguments:
+                                                collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                                
+                                if cont_finish == "tool_calls":
+                                    cont_has_tool_calls = True
+                                    break
+                                elif cont_finish == "stop":
+                                    break
+                            
+                            if not cont_has_tool_calls:
+                                break  # No more tool calls, exit loop
                     
-                    # Add instruction to keep continuation response concise
-                    continuation_messages.insert(0, {
-                        "role": "system",
-                        "content": (
-                            "The tool has been executed and the file has been generated successfully. "
-                            "Provide a brief, concise summary of what was created (2-3 sentences max). "
-                            "Do NOT repeat yourself or describe what you plan to do. The file is already created."
-                        )
-                    })
-                    
-                    # Stream the continuation response with max_tokens limit
-                    continuation_response = client.chat.completions.create(
-                        model="kimi-k2.5",
-                        messages=continuation_messages,
-                        stream=True,
-                        temperature=0.6,
-                        max_tokens=500,  # Keep continuation concise
-                        extra_body={"thinking": {"type": "disabled"}}
-                    )
-                    
-                    cont_token_count = 0
-                    for cont_chunk in continuation_response:
-                        cont_delta = cont_chunk.choices[0].delta
-                        cont_content = getattr(cont_delta, 'content', None)
-                        if cont_content:
-                            cont_token_count += 1
-                            full_content += cont_content
-                            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
-                            # Safety: stop if we've generated too much
-                            if cont_token_count > 600:
-                                logger.warning("Continuation response exceeded 600 tokens, stopping")
-                                break
-                    
-                except Exception as e:
-                    logger.error(f"Tool execution error in stream: {e}")
-                    error_msg = f"\n\n*Error executing tools: {str(e)}*"
-                    full_content += error_msg
-                    yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+                    except Exception as e:
+                        logger.error(f"Tool execution error in stream round {round_num + 1}: {e}")
+                        error_msg = f"\n\n*Error executing tools: {str(e)}*"
+                        full_content += error_msg
+                        yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+                        break
         
         # Send complete event with downloads
         yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning, 'downloads': downloads}})}\n\n"
