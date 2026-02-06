@@ -1581,116 +1581,26 @@ class ToolExecutor:
     
     @classmethod
     async def execute_single(cls, call: Any) -> Dict:
-        """Execute a single tool call"""
+        """Execute a single tool call with timeout protection"""
         function_name = call.function.name
-        arguments = json.loads(call.function.arguments)
+        try:
+            arguments = json.loads(call.function.arguments)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid tool arguments for {function_name}: {e}")
+            return {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "content": json.dumps({"tool": function_name, "status": "error", "error": f"Invalid arguments: {e}"}),
+                "name": function_name
+            }
         
-        logger.info(f"Executing tool: {function_name} with args: {arguments.keys()}")
+        logger.info(f"Executing tool: {function_name} with args: {list(arguments.keys())}")
         
         try:
-            result_data = {"tool": function_name, "status": "success"}
-            
-            if function_name == "realtime_search":
-                search_result = await SearchAPIs.multi_search(
-                    arguments["query"],
-                    arguments.get("sources", ["web"]),
-                    arguments.get("num_results", 10),
-                    arguments.get("recency_days")
-                )
-                result_data["result"] = search_result
-                
-            elif function_name == "generate_excel":
-                file_id = FileGenerator.generate_excel(
-                    arguments["data"],
-                    arguments.get("filename"),
-                    arguments.get("title"),
-                    arguments.get("include_charts", False)
-                )
-                file_info = FileGenerator.get_file(file_id)
-                result_data["file_id"] = file_id
-                result_data["filename"] = file_info["filename"]
-                result_data["download_url"] = f"/api/v1/download/{file_id}"
-                
-            elif function_name == "generate_word":
-                file_id = FileGenerator.generate_word(
-                    arguments["content"],
-                    arguments.get("title"),
-                    arguments.get("subtitle"),
-                    arguments.get("filename")
-                )
-                file_info = FileGenerator.get_file(file_id)
-                result_data["file_id"] = file_id
-                result_data["filename"] = file_info["filename"]
-                result_data["download_url"] = f"/api/v1/download/{file_id}"
-                
-            elif function_name == "generate_pdf":
-                file_id = FileGenerator.generate_pdf(
-                    arguments["content"],
-                    arguments.get("title"),
-                    arguments.get("filename"),
-                    arguments.get("include_toc", False)
-                )
-                file_info = FileGenerator.get_file(file_id)
-                result_data["file_id"] = file_id
-                result_data["filename"] = file_info["filename"]
-                result_data["download_url"] = f"/api/v1/download/{file_id}"
-                
-            elif function_name == "generate_presentation":
-                file_id = FileGenerator.generate_pptx(
-                    arguments["content"],
-                    arguments.get("title"),
-                    arguments.get("filename"),
-                    arguments.get("theme", "professional")
-                )
-                file_info = FileGenerator.get_file(file_id)
-                result_data["file_id"] = file_id
-                result_data["filename"] = file_info["filename"]
-                result_data["download_url"] = f"/api/v1/download/{file_id}"
-                
-            elif function_name == "deep_research":
-                swarm = AgentSwarm()
-                research_result = await swarm.execute(
-                    arguments["query"],
-                    {},
-                    5 if arguments.get("depth") == "quick" else 10 if arguments.get("depth") == "deep" else 15,
-                    True
-                )
-                result_data["result"] = research_result
-                
-            elif function_name == "execute_code":
-                code_result = await CodeSandbox.execute(
-                    arguments["code"],
-                    arguments.get("language", "python"),
-                    arguments.get("timeout", 30)
-                )
-                result_data["result"] = code_result
-                
-            elif function_name == "analyze_data":
-                # Data analysis with code execution
-                analysis_code = f"""
-import json
-import pandas as pd
-import numpy as np
-
-# Load data
-data = json.loads('{arguments["data"]}')
-df = pd.DataFrame(data) if isinstance(data, list) else pd.DataFrame([data])
-
-# Perform analysis
-result = {{}}
-if "{arguments['analysis_type']}" == "summary":
-    result = df.describe().to_dict()
-elif "{arguments['analysis_type']}" == "trends":
-    result = {{"trend": "Analysis would show trends here"}}
-
-print(json.dumps(result))
-"""
-                analysis_result = await CodeSandbox.execute(analysis_code, "python")
-                result_data["result"] = analysis_result
-            
-            else:
-                result_data["status"] = "error"
-                result_data["error"] = f"Unknown tool: {function_name}"
+            result_data = await asyncio.wait_for(
+                cls._execute_tool_inner(function_name, arguments),
+                timeout=60.0  # 60 second max per tool
+            )
             
             return {
                 "tool_call_id": call.id,
@@ -1699,6 +1609,14 @@ print(json.dumps(result))
                 "name": function_name
             }
             
+        except asyncio.TimeoutError:
+            logger.error(f"Tool {function_name} timed out after 60s")
+            return {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "content": json.dumps({"tool": function_name, "status": "error", "error": "Tool execution timed out after 60 seconds"}),
+                "name": function_name
+            }
         except Exception as e:
             logger.error(f"Tool execution error: {e}")
             return {
@@ -1707,6 +1625,115 @@ print(json.dumps(result))
                 "content": json.dumps({"tool": function_name, "status": "error", "error": str(e)}),
                 "name": function_name
             }
+    
+    @classmethod
+    async def _execute_tool_inner(cls, function_name: str, arguments: Dict) -> Dict:
+        """Inner tool execution logic"""
+        result_data = {"tool": function_name, "status": "success"}
+        
+        if function_name == "realtime_search":
+            search_result = await SearchAPIs.multi_search(
+                arguments["query"],
+                arguments.get("sources", ["web"]),
+                arguments.get("num_results", 10),
+                arguments.get("recency_days")
+            )
+            result_data["result"] = search_result
+            
+        elif function_name == "generate_excel":
+            file_id = await asyncio.to_thread(
+                FileGenerator.generate_excel,
+                arguments["data"],
+                arguments.get("filename"),
+                arguments.get("title"),
+                arguments.get("include_charts", False)
+            )
+            file_info = FileGenerator.get_file(file_id)
+            result_data["file_id"] = file_id
+            result_data["filename"] = file_info["filename"]
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "generate_word":
+            file_id = await asyncio.to_thread(
+                FileGenerator.generate_word,
+                arguments["content"],
+                arguments.get("title"),
+                arguments.get("subtitle"),
+                arguments.get("filename")
+            )
+            file_info = FileGenerator.get_file(file_id)
+            result_data["file_id"] = file_id
+            result_data["filename"] = file_info["filename"]
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "generate_pdf":
+            file_id = await asyncio.to_thread(
+                FileGenerator.generate_pdf,
+                arguments["content"],
+                arguments.get("title"),
+                arguments.get("filename"),
+                arguments.get("include_toc", False)
+            )
+            file_info = FileGenerator.get_file(file_id)
+            result_data["file_id"] = file_id
+            result_data["filename"] = file_info["filename"]
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "generate_presentation":
+            file_id = await asyncio.to_thread(
+                FileGenerator.generate_pptx,
+                arguments["content"],
+                arguments.get("title"),
+                arguments.get("filename"),
+                arguments.get("theme", "professional")
+            )
+            file_info = FileGenerator.get_file(file_id)
+            result_data["file_id"] = file_id
+            result_data["filename"] = file_info["filename"]
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "deep_research":
+            # Simplified research - just do a search, don't spawn full swarm in streaming
+            search_result = await SearchAPIs.multi_search(
+                arguments["query"],
+                ["web", "news"],
+                10
+            )
+            result_data["result"] = search_result
+            
+        elif function_name == "execute_code":
+            code_result = await CodeSandbox.execute(
+                arguments["code"],
+                arguments.get("language", "python"),
+                min(arguments.get("timeout", 30), 30)  # Cap at 30s
+            )
+            result_data["result"] = code_result
+            
+        elif function_name == "analyze_data":
+            analysis_code = f"""
+import json
+import pandas as pd
+import numpy as np
+
+data = json.loads('''{json.dumps(arguments.get('data', []))}''')
+df = pd.DataFrame(data) if isinstance(data, list) else pd.DataFrame([data])
+
+result = {{}}
+if "{arguments.get('analysis_type', 'summary')}" == "summary":
+    result = df.describe().to_dict()
+else:
+    result = {{"info": str(df.info()), "shape": list(df.shape)}}
+
+print(json.dumps(result))
+"""
+            analysis_result = await CodeSandbox.execute(analysis_code, "python", 30)
+            result_data["result"] = analysis_result
+        
+        else:
+            result_data["status"] = "error"
+            result_data["error"] = f"Unknown tool: {function_name}"
+        
+        return result_data
 
 # ============================================================================
 # KIMI ENGINE
@@ -1897,11 +1924,11 @@ class KimiEngine:
                         if isinstance(part, dict) and part.get("type") == "text":
                             user_msg = part.get("text", "").lower()
         
-        file_keywords = ['generate', 'create', 'make', 'build', 'excel', 'spreadsheet',
-                        'word doc', 'document', 'pdf', 'powerpoint', 'presentation',
-                        'pptx', 'docx', 'xlsx', 'csv', 'report file', 'download']
+        file_keywords = ['excel', 'spreadsheet', 'xlsx', 'csv',
+                        'word doc', 'docx', 'pdf', 'powerpoint', 'presentation', 'pptx']
         needs_tools = any(kw in user_msg for kw in file_keywords)
         
+        # Only upgrade to agent mode if explicitly requesting file generation
         if needs_tools and mode in ["instant", "thinking"]:
             mode = "agent"
         
@@ -2492,34 +2519,41 @@ async def generate_file_endpoint(request: FileGenRequest):
             except:
                 pass
         
-        if request.file_type == "excel":
-            file_id = FileGenerator.generate_excel(
-                content,
-                request.filename,
-                request.title,
-                request.include_charts
-            )
-        elif request.file_type == "word":
-            file_id = FileGenerator.generate_word(
-                content if isinstance(content, str) else json.dumps(content, indent=2),
-                request.title,
-                request.subtitle,
-                request.filename
-            )
-        elif request.file_type == "pdf":
-            file_id = FileGenerator.generate_pdf(
-                content if isinstance(content, str) else json.dumps(content, indent=2),
-                request.title,
-                request.filename
-            )
-        elif request.file_type == "pptx":
-            file_id = FileGenerator.generate_pptx(
-                content if isinstance(content, str) else json.dumps(content, indent=2),
-                request.title,
-                request.filename
-            )
-        else:
-            return {"success": False, "error": "Unsupported file type"}
+        def _generate_sync():
+            if request.file_type == "excel":
+                return FileGenerator.generate_excel(
+                    content,
+                    request.filename,
+                    request.title,
+                    request.include_charts
+                )
+            elif request.file_type == "word":
+                return FileGenerator.generate_word(
+                    content if isinstance(content, str) else json.dumps(content, indent=2),
+                    request.title,
+                    request.subtitle,
+                    request.filename
+                )
+            elif request.file_type == "pdf":
+                return FileGenerator.generate_pdf(
+                    content if isinstance(content, str) else json.dumps(content, indent=2),
+                    request.title,
+                    request.filename
+                )
+            elif request.file_type == "pptx":
+                return FileGenerator.generate_pptx(
+                    content if isinstance(content, str) else json.dumps(content, indent=2),
+                    request.title,
+                    request.filename
+                )
+            else:
+                raise ValueError("Unsupported file type")
+        
+        # Run synchronous file generation in a thread to avoid blocking the event loop
+        file_id = await asyncio.wait_for(
+            asyncio.to_thread(_generate_sync),
+            timeout=30.0
+        )
         
         file_info = FileGenerator.get_file(file_id)
         
@@ -2530,6 +2564,9 @@ async def generate_file_endpoint(request: FileGenRequest):
             "file_type": request.file_type,
             "download_url": f"/api/v1/download/{file_id}"
         }
+    except asyncio.TimeoutError:
+        logger.error("File generation timed out after 30s")
+        return {"success": False, "error": "File generation timed out"}
     except Exception as e:
         logger.error(f"File generation error: {e}")
         return {"success": False, "error": str(e)}
@@ -2628,4 +2665,10 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8000)),
+        timeout_keep_alive=30,
+        limit_concurrency=20
+    )
