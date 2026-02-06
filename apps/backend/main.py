@@ -2264,7 +2264,8 @@ class KimiEngine:
                 return
             
             # Step 3: Generate the file programmatically
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': f'Creating {file_type_names.get(file_type, "file")}...'}})}\n\n"
+            creating_msg = f"Creating {file_type_names.get(file_type, 'file')}..."
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': creating_msg}})}" + "\n\n"
             
             file_id = None
             filename = None
