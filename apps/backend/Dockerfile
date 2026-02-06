@@ -18,12 +18,9 @@ COPY . .
 # Create temp directories for file generation and sandbox
 RUN mkdir -p /tmp/mcleuker_outputs /tmp/mcleuker_sandbox /tmp/mcleuker_uploads /tmp/mcleuker_files
 
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+# Expose port (Railway assigns dynamic PORT)
+EXPOSE ${PORT:-8000}
 
 # Run the Kimi 2.5 Complete Production Backend
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Use shell form so $PORT env var is expanded at runtime
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}

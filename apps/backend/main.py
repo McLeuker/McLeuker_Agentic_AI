@@ -2437,6 +2437,7 @@ async def multimodal_endpoint(
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+@app.get("/health")
 @app.get("/api/v1/health")
 async def health_check():
     """Health check with capabilities"""
