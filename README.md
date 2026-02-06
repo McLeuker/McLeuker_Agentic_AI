@@ -1,56 +1,40 @@
-# McLeuker Fashion AI Platform V3.1
+# McLeuker AI - Fashion Intelligence Platform
 
 > **The Frontier Agentic AI for Fashion, Beauty, Lifestyle, and Culture**
 
-A next-generation AI platform built to surpass Manus AI with real-time intelligence, professional file generation, and deep industry expertise.
+A next-generation AI platform combining real-time intelligence, professional file generation, and deep industry expertise with a modern monorepo architecture.
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    USER INTERFACE (Lovable)                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   V3.1 ORCHESTRATOR                          │
-│              (Grok - Unified Reasoning Brain)                │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│  SEARCH LAYER │   │  ACTION LAYER │   │ ANALYST LAYER │
-│               │   │               │   │               │
-│ • Google      │   │ • Browserless │   │ • E2B Sandbox │
-│ • Bing        │   │ • Firecrawl   │   │ • Excel Gen   │
-│ • Perplexity  │   │               │   │ • PDF Gen     │
-│ • Exa.ai      │   │               │   │               │
-└───────────────┘   └───────────────┘   └───────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      OUTPUT LAYER                            │
-│                    (Nano Banana Images)                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    DATABASE (Supabase)                       │
-│           Users • Credits • Conversations • Usage            │
-└─────────────────────────────────────────────────────────────┘
+McLeuker AI Platform
+├── Frontend (Next.js 16 + TypeScript + Tailwind)
+│   └── Premium dark theme with Radix UI components
+├── Backend (FastAPI + Python)
+│   ├── V7 Multi-Model Orchestrator
+│   │   ├── Grok (xAI) - Reasoning Brain
+│   │   └── Kimi K2.5 - Execution Engine
+│   ├── Search Layer (Google, Bing, Perplexity, Exa)
+│   ├── Action Layer (Browserless, Firecrawl)
+│   └── Output Layer (Nano Banana Images)
+└── Database (Supabase)
+    └── Users, Credits, Conversations, Memory
 ```
 
 ## 🚀 Features
 
 ### Core Capabilities
-- **Grok-Powered Reasoning**: Real-time X (Twitter) data access for instant trend detection
-- **Parallel Search**: Simultaneous queries across Google, Bing, Perplexity, and Exa.ai
+
+- **Dual-Model AI**: Grok for reasoning + Kimi K2.5 for execution
+- **Real-time Intelligence**: X (Twitter) data access via Grok
+- **Parallel Search**: Simultaneous queries across multiple providers
 - **Web Automation**: Browserless.io integration for live web interaction
 - **Professional Files**: E2B sandbox for Excel, PDF, and data analysis
 - **Image Generation**: Nano Banana for fashion mood boards and visuals
+- **Persistent Memory**: Supabase integration for user context
 
 ### Industry Focus
+
 - Fashion & Catwalks
 - Beauty & Skincare
 - Textile & Sustainability
@@ -59,55 +43,79 @@ A next-generation AI platform built to surpass Manus AI with real-time intellige
 
 ## 📦 Tech Stack
 
-| Layer | Technology | Purpose |
-|-------|------------|---------|
-| **Brain** | Grok (XAI) | Unified reasoning with real-time data |
-| **Search** | Google, Bing, Perplexity, Exa | Parallel information gathering |
-| **Action** | Browserless, Firecrawl | Web automation and extraction |
-| **Analyst** | E2B Sandbox | Code execution and file generation |
-| **Output** | Nano Banana | AI image generation |
-| **Database** | Supabase | Users, credits, conversations |
-| **Backend** | FastAPI | High-performance API |
-| **Deploy** | Railway | Scalable cloud hosting |
+| Component        | Technology                                    | Deployment       |
+| ---------------- | --------------------------------------------- | ---------------- |
+| **Frontend**     | Next.js 16, TypeScript, Tailwind CSS, Zustand | Vercel           |
+| **Backend**      | FastAPI, Python, Grok AI, Kimi AI             | Railway          |
+| **Shared Types** | TypeScript                                    | Internal package |
+| **Build System** | Turborepo, PNPM                               | -                |
+| **Database**     | Supabase                                      | Cloud            |
 
 ## 🛠️ Installation
 
-### Local Development
+### Prerequisites
+
+- Node.js 18+
+- PNPM 9+
+- Python 3.11+
+
+### Quick Start
 
 ```bash
 # Clone the repository
 git clone https://github.com/McLeuker/McLeuker_Agentic_AI.git
 cd McLeuker_Agentic_AI
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Install all dependencies
+pnpm install
 
-# Install dependencies
-pip install -r requirements.txt
+# Set up environment variables
+cp apps/frontend/.env.example apps/frontend/.env.local
+cp apps/backend/.env.example apps/backend/.env
 
-# Copy environment variables
-cp .env.example .env
-# Edit .env with your API keys
-
-# Run the server
-uvicorn src.api.main:app --reload
+# Edit .env files with your API keys
 ```
 
-### Docker Deployment
+### Development
 
 ```bash
-docker build -t mcleuker-ai .
-docker run -p 8000:8000 --env-file .env mcleuker-ai
+# Run frontend only
+pnpm dev:frontend
+
+# Run backend only
+pnpm dev:backend
+
+# Run both (in separate terminals)
+pnpm dev:frontend  # Terminal 1
+pnpm dev:backend   # Terminal 2
+```
+
+### Building
+
+```bash
+# Build all packages
+pnpm build
+
+# Build frontend only
+pnpm build:frontend
 ```
 
 ## 🔑 Environment Variables
 
-See `.env.example` for all required variables:
+### Frontend
+
+| Variable              | Description                          |
+| --------------------- | ------------------------------------ |
+| `NEXT_PUBLIC_API_URL` | Backend API URL (Railway deployment) |
+
+### Backend
+
+See `apps/backend/.env.example` for the complete list:
 
 ```env
-# Core Brain
+# Core AI Models
 XAI_API_KEY=your_grok_key
+MOONSHOT_API_KEY=your_kimi_key
 
 # Search Providers
 PERPLEXITY_API_KEY=your_key
@@ -118,9 +126,6 @@ BING_API_KEY=your_key
 # Action Layer
 BROWSERLESS_API_KEY=your_key
 FIRECRAWL_API_KEY=your_key
-
-# Analyst Layer
-E2B_API_KEY=your_key
 
 # Output Layer
 NANO_BANANA_API_KEY=your_key
@@ -133,6 +138,7 @@ SUPABASE_KEY=your_key
 ## 📡 API Endpoints
 
 ### Chat
+
 ```
 POST /api/chat
 {
@@ -143,6 +149,7 @@ POST /api/chat
 ```
 
 ### Search
+
 ```
 POST /api/search
 {
@@ -151,6 +158,7 @@ POST /api/search
 ```
 
 ### File Generation
+
 ```
 POST /api/generate/file
 {
@@ -161,6 +169,7 @@ POST /api/generate/file
 ```
 
 ### Image Generation
+
 ```
 POST /api/generate/image
 {
@@ -172,34 +181,97 @@ POST /api/generate/image
 ## 💳 Credit System
 
 The platform uses a credit-based model:
+
 - **Free Tier**: 100 credits/month
 - **Pro Tier**: 1000 credits/month
 - **Enterprise**: Unlimited
 
 Credit costs:
+
 - Simple query: 1 credit
 - Deep research: 10 credits
 - File generation: 5 credits
 - Image generation: 10 credits
 
-## 📊 Database Schema
+## 📊 Project Structure
 
-Run the SQL in `src/database/supabase_client.py` to set up:
-- `users` - User accounts and credit balances
-- `credit_transactions` - Credit usage history
-- `conversations` - Chat history
-- `usage_logs` - API usage analytics
+### Frontend (`apps/frontend`)
+
+```
+apps/frontend/
+├── src/
+│   ├── app/              # Next.js App Router pages
+│   ├── components/
+│   │   ├── ui/          # Reusable UI components (40+ components)
+│   │   └── dashboard/   # Dashboard-specific components
+│   ├── hooks/           # Custom React hooks
+│   ├── lib/             # Utilities and API client
+│   ├── stores/          # Zustand state management
+│   └── types/           # TypeScript types
+└── public/              # Static assets
+```
+
+### Backend (`apps/backend`)
+
+```
+apps/backend/
+├── main.py              # FastAPI application entry
+├── orchestrator.py      # V7 Multi-model orchestration
+├── search_layer.py      # Search and research layer
+├── settings.py          # Configuration settings
+├── src/                 # Source modules
+├── Dockerfile           # Container configuration
+└── requirements.txt     # Python dependencies
+```
+
+### Shared Types (`packages/shared-types`)
+
+TypeScript types shared between frontend and backend, including the V5.1 Response Contract.
+
+```typescript
+interface V51Response {
+  success: boolean;
+  response: {
+    answer: string;
+    key_insights?: KeyInsight[];
+    sources?: Source[];
+    follow_up_questions?: string[];
+    metadata?: ResponseMetadata;
+  };
+  error?: string;
+}
+```
+
+## 🚀 Deployment
+
+### Frontend (Vercel)
+
+1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
+2. Import this repository
+3. Set **Root Directory** to `apps/frontend`
+4. Add environment variable: `NEXT_PUBLIC_API_URL`
+5. Deploy
+
+### Backend (Railway)
+
+1. Go to [Railway Dashboard](https://railway.app/dashboard)
+2. Create new project from GitHub
+3. Select this repository
+4. Set **Root Directory** to `apps/backend`
+5. Add environment variables from `.env.example`
+6. Deploy
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## 📄 License
 
-MIT License - See LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 

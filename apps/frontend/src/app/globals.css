@@ -1,0 +1,594 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+
+@import "tailwindcss";
+
+/* McLeuker AI Design System - Premium Dark Theme with Pantone Olive Palette */
+
+/* =============================================================================
+   Pantone Olive Palette (Allowed Accents)
+   #2E3524 - Primary olive
+   #2A3021 - Forest olive
+   #262B1E - Deep olive
+   #21261A - Dark olive
+   #1D2117 - Deeper olive
+   #191C14 - Darkest olive
+   ============================================================================= */
+
+@theme inline {
+  --color-background: hsl(0 0% 0%);
+  --color-foreground: hsl(0 0% 100%);
+  --color-card: hsl(0 0% 4%);
+  --color-card-foreground: hsl(0 0% 100%);
+  --color-popover: hsl(0 0% 4%);
+  --color-popover-foreground: hsl(0 0% 100%);
+  --color-primary: hsl(0 0% 100%);
+  --color-primary-foreground: hsl(0 0% 0%);
+  --color-secondary: hsl(0 0% 10%);
+  --color-secondary-foreground: hsl(0 0% 100%);
+  --color-muted: hsl(0 0% 12%);
+  --color-muted-foreground: hsl(0 0% 65%);
+  --color-accent: hsl(0 0% 14%);
+  --color-accent-foreground: hsl(0 0% 100%);
+  --color-destructive: hsl(0 62% 45%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(0 0% 14%);
+  --color-input: hsl(0 0% 14%);
+  --color-ring: hsl(0 0% 90%);
+  --radius: 0.375rem;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-editorial: 'Cormorant Garamond', Georgia, serif;
+  
+  /* Pantone Olive CSS Variables */
+  --mcleuker-olive-primary: #2E3524;
+  --mcleuker-olive-forest: #2A3021;
+  --mcleuker-olive-deep: #262B1E;
+  --mcleuker-olive-dark: #21261A;
+  --mcleuker-olive-deeper: #1D2117;
+  --mcleuker-olive-darkest: #191C14;
+  
+  /* Foggy olive accent for text/icons */
+  --mcleuker-olive-accent: #4a5240;
+  --mcleuker-olive-accent-light: #5c6652;
+}
+
+/* Base styles */
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  overflow-x: hidden;
+}
+
+/* Minimal scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Editorial serif for headings */
+.font-editorial {
+  font-family: var(--font-editorial);
+  font-weight: 400;
+}
+
+/* Premium ombre background */
+.premium-ombre-bg {
+  background: 
+    radial-gradient(
+      ellipse 80% 60% at 50% 40%,
+      #0C0C0C 0%,
+      #070707 50%,
+      #050505 100%
+    ),
+    #070707;
+}
+
+/* Graphite glass panel effect */
+.graphite-glass {
+  background: linear-gradient(180deg, #0F0F0F 0%, #0A0A0A 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-right-color: rgba(255, 255, 255, 0.03);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.50);
+}
+
+/* Chat panel gradient */
+.chat-panel-gradient {
+  background: 
+    linear-gradient(90deg, #060606 0%, #080808 35%, #0A0A0A 100%),
+    radial-gradient(
+      ellipse 80% 60% at 50% 40%,
+      #0C0C0C 0%,
+      #070707 50%,
+      #050505 100%
+    );
+}
+
+/* Graphite bubble - AI */
+.graphite-bubble-ai {
+  background: linear-gradient(180deg, #232323 0%, #191919 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* =============================================================================
+   Pantone Olive Ombre Styles - User Bubbles
+   Foggy olive surface gradient
+   ============================================================================= */
+
+/* User message bubble - Pantone olive ombre */
+.mcleuker-user-bubble {
+  background: linear-gradient(135deg, 
+    rgba(46, 53, 36, 0.28),
+    rgba(42, 48, 33, 0.18) 40%,
+    rgba(15, 18, 21, 0.92)
+  );
+  border: 1px solid rgba(46, 53, 36, 0.35);
+  box-shadow: 0 14px 40px rgba(46, 53, 36, 0.15);
+}
+
+/* Olive ombre input for State A (empty chat) */
+.mcleuker-olive-input {
+  background: linear-gradient(135deg, 
+    rgba(46, 53, 36, 0.15) 0%, 
+    rgba(42, 48, 33, 0.12) 50%, 
+    rgba(38, 43, 30, 0.10) 100%
+  );
+  border: 1px solid rgba(46, 53, 36, 0.25);
+  box-shadow: 0 4px 20px rgba(46, 53, 36, 0.15);
+}
+
+.mcleuker-olive-input:focus {
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.1), 0 4px 20px rgba(46, 53, 36, 0.2);
+}
+
+/* Legacy class name support - maps to olive */
+.mcleuker-green-input {
+  background: linear-gradient(135deg, 
+    rgba(46, 53, 36, 0.15) 0%, 
+    rgba(42, 48, 33, 0.12) 50%, 
+    rgba(38, 43, 30, 0.10) 100%
+  );
+  border: 1px solid rgba(46, 53, 36, 0.25);
+  box-shadow: 0 4px 20px rgba(46, 53, 36, 0.15);
+}
+
+.mcleuker-green-input:focus {
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.1), 0 4px 20px rgba(46, 53, 36, 0.2);
+}
+
+/* Brain icon olive ombre gradient */
+.mcleuker-brain-gradient {
+  background: linear-gradient(135deg, #2E3524 0%, #2A3021 50%, #262B1E 100%);
+}
+
+/* =============================================================================
+   Bubble Gradient Variation System (Site-wide, excluding workspace chat)
+   Updated to Pantone Olive palette
+   ============================================================================= */
+
+/* Base bubble with underlying gradient effect */
+.mcleuker-bubble {
+  position: relative;
+  background: linear-gradient(180deg, #1A1A1A 0%, #141414 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  transition: all 200ms ease;
+}
+
+.mcleuker-bubble::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(46, 53, 36, 0.08) 0%,
+    rgba(42, 48, 33, 0.05) 50%,
+    rgba(38, 43, 30, 0.03) 100%
+  );
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.mcleuker-bubble:hover::before {
+  opacity: 1;
+}
+
+.mcleuker-bubble:hover {
+  border-color: rgba(46, 53, 36, 0.25);
+}
+
+/* Bubble variation 1 */
+.mcleuker-bubble-v1::before {
+  background: linear-gradient(
+    120deg,
+    rgba(46, 53, 36, 0.1) 0%,
+    rgba(42, 48, 33, 0.06) 100%
+  );
+}
+
+/* Bubble variation 2 */
+.mcleuker-bubble-v2::before {
+  background: linear-gradient(
+    150deg,
+    rgba(42, 48, 33, 0.1) 0%,
+    rgba(38, 43, 30, 0.06) 100%
+  );
+}
+
+/* Bubble variation 3 */
+.mcleuker-bubble-v3::before {
+  background: linear-gradient(
+    180deg,
+    rgba(38, 43, 30, 0.1) 0%,
+    rgba(33, 38, 26, 0.06) 100%
+  );
+}
+
+/* Bubble variation 4 */
+.mcleuker-bubble-v4::before {
+  background: linear-gradient(
+    200deg,
+    rgba(33, 38, 26, 0.1) 0%,
+    rgba(46, 53, 36, 0.06) 100%
+  );
+}
+
+/* =============================================================================
+   Chat Sidebar Styles - Premium bubble items with olive hover
+   ============================================================================= */
+
+.chat-sidebar-item {
+  background: linear-gradient(180deg, #1A1A1A 0%, #141414 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  transition: all 180ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.chat-sidebar-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(46, 53, 36, 0.12) 0%,
+    rgba(42, 48, 33, 0.08) 50%,
+    rgba(38, 43, 30, 0.05) 100%
+  );
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.chat-sidebar-item:hover {
+  border-color: rgba(46, 53, 36, 0.3);
+  box-shadow: 0 4px 16px rgba(46, 53, 36, 0.1);
+}
+
+.chat-sidebar-item:hover::before {
+  opacity: 1;
+}
+
+.chat-sidebar-item-active {
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 4px 20px rgba(46, 53, 36, 0.15);
+}
+
+.chat-sidebar-item-active::before {
+  opacity: 1;
+}
+
+/* =============================================================================
+   Domain Tab Styles - Olive glow underline for active state
+   ============================================================================= */
+
+.domain-tab {
+  position: relative;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 160ms ease;
+  white-space: nowrap;
+}
+
+.domain-tab:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.domain-tab-active {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.domain-tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70%;
+  height: 2px;
+  background: linear-gradient(90deg, #2E3524, #2A3021);
+  border-radius: 1px;
+  box-shadow: 0 0 8px rgba(46, 53, 36, 0.5), 0 0 16px rgba(46, 53, 36, 0.3);
+  filter: blur(0.5px);
+}
+
+/* =============================================================================
+   Keyboard Focus States - Pantone olive focus rings
+   ============================================================================= */
+
+/* Global focus visible styles */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.60), 0 0 0 6px rgba(46, 53, 36, 0.18);
+  border-radius: inherit;
+}
+
+/* Button focus */
+button:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.6), 0 0 8px rgba(46, 53, 36, 0.3);
+}
+
+/* Input focus */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: rgba(46, 53, 36, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.15), 0 0 12px rgba(46, 53, 36, 0.1);
+}
+
+/* Tab focus */
+[role="tab"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.5);
+  border-radius: 6px;
+}
+
+/* Card/item focus */
+[role="button"]:focus-visible,
+[role="listitem"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.5), 0 0 12px rgba(46, 53, 36, 0.2);
+}
+
+/* =============================================================================
+   Premium hover effects
+   ============================================================================= */
+
+.premium-hover {
+  transition: background 160ms ease, 
+              border-color 160ms ease, 
+              box-shadow 160ms ease;
+}
+
+.premium-hover:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Premium input styling */
+.premium-input {
+  background: linear-gradient(180deg, #1B1B1B 0%, #111111 100%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.premium-input:focus {
+  border-color: rgba(46, 53, 36, 0.4);
+  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.1);
+}
+
+/* =============================================================================
+   AI message content styling
+   ============================================================================= */
+
+.ai-message-content {
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.ai-message-content p {
+  margin-bottom: 1rem;
+}
+
+.ai-message-content p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-message-content ul,
+.ai-message-content ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.ai-message-content li {
+  margin-bottom: 0.375rem;
+  line-height: 1.7;
+}
+
+.ai-message-content h1,
+.ai-message-content h2,
+.ai-message-content h3 {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.ai-message-content h1 {
+  font-size: 17px;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ai-message-content h2 {
+  font-size: 16px;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ai-message-content h3 {
+  font-size: 15px;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.ai-message-content h1:first-child,
+.ai-message-content h2:first-child,
+.ai-message-content h3:first-child {
+  margin-top: 0;
+}
+
+/* Code blocks */
+.ai-message-content pre {
+  overflow-x: auto;
+  max-width: 100%;
+  padding: 1rem;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ai-message-content code {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+}
+
+.ai-message-content :not(pre) > code {
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+}
+
+/* Links - Updated to Pantone olive */
+.ai-message-content a {
+  color: #5c6652;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ai-message-content a:hover {
+  color: #7a8a6e;
+}
+
+/* Blockquotes */
+.ai-message-content blockquote {
+  border-left: 2px solid rgba(46, 53, 36, 0.4);
+  padding-left: 1rem;
+  margin: 1rem 0;
+  color: rgba(255, 255, 255, 0.70);
+  font-style: italic;
+}
+
+/* =============================================================================
+   Animations
+   ============================================================================= */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 8px rgba(46, 53, 36, 0.4), 0 0 16px rgba(46, 53, 36, 0.2);
+  }
+  50% { 
+    box-shadow: 0 0 12px rgba(46, 53, 36, 0.6), 0 0 24px rgba(46, 53, 36, 0.3);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out;
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* =============================================================================
+   Olive accent utilities
+   ============================================================================= */
+
+.text-mcleuker-olive {
+  color: #2E3524;
+}
+
+.bg-mcleuker-olive {
+  background-color: #2E3524;
+}
+
+.border-mcleuker-olive {
+  border-color: #2E3524;
+}
+
+/* Legacy green class names - now map to olive */
+.text-mcleuker-green {
+  color: #2E3524;
+}
+
+.bg-mcleuker-green {
+  background-color: #2E3524;
+}
+
+.border-mcleuker-green {
+  border-color: #2E3524;
+}
+
+/* Olive status indicators */
+.status-complete {
+  color: #5c6652;
+}
+
+.status-active {
+  color: #2E3524;
+}

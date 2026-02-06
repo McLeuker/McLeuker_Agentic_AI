@@ -98,9 +98,6 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-.env.local
-.env.*.local
-*.env
 
 # Spyder project settings
 .spyderproject
@@ -120,14 +117,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Node.js / Frontend
-node_modules/
-.pnpm-store/
-
-# Build outputs
-.next/
-.turbo/
-
 # IDE
 .idea/
 .vscode/
@@ -139,19 +128,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Logs
-npm-debug.log*
-pnpm-debug.log*
-
-# Testing
-coverage/
-htmlcov/
-
-# Misc
-*.local
-.vercel
-.railway
-
 # Project specific
 outputs/
 temp/
+*.log
