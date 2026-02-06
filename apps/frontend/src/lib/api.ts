@@ -86,7 +86,7 @@ export function parseV51Response(data: any): V51Response | null {
   }
 }
 
-// Send chat message to backend
+// Send chat message to backend (legacy V5.1 endpoint)
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
   try {
     const response = await api.post('/api/chat', {
@@ -117,7 +117,7 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
   }
 }
 
-// Health check
+// Health check (legacy)
 export async function checkHealth(): Promise<boolean> {
   try {
     const response = await api.get('/health');
@@ -128,7 +128,7 @@ export async function checkHealth(): Promise<boolean> {
 }
 
 // =============================================================================
-// Kimi 2.5 API Client (New Endpoints)
+// Kimi 2.5 Complete API Client
 // =============================================================================
 
 export interface KimiChatMessage {
@@ -137,39 +137,117 @@ export interface KimiChatMessage {
 }
 
 export interface KimiChatOptions {
-  mode?: 'instant' | 'thinking' | 'agent' | 'swarm' | 'vision_code';
+  mode?: 'instant' | 'thinking' | 'agent' | 'swarm' | 'research';
   stream?: boolean;
+  enable_tools?: boolean;
+}
+
+export interface DownloadableFile {
+  filename: string;
+  download_url: string;
+  file_id: string;
+}
+
+export interface SearchResult {
+  type: 'search' | 'file';
+  filename?: string;
+  download_url?: string;
+  file_id?: string;
+  results?: any;
 }
 
 export const kimiApi = {
+  // Main chat with tool execution
   async chat(messages: KimiChatMessage[], options: KimiChatOptions = {}) {
     const response = await api.post('/api/v1/chat', {
       messages,
       mode: options.mode || 'thinking',
-      stream: options.stream || false
+      stream: options.stream || false,
+      enable_tools: options.enable_tools !== false
     });
     return response.data;
   },
 
-  async swarm(masterTask: string, numAgents: number = 5) {
+  // Streaming chat
+  async *chatStream(messages: KimiChatMessage[], options: KimiChatOptions = {}) {
+    const response = await fetch(`${API_BASE_URL}/api/v1/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        mode: options.mode || 'thinking',
+        enable_tools: options.enable_tools !== false
+      })
+    });
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) return;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            yield data;
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    }
+  },
+
+  // Agent swarm for complex tasks
+  async swarm(masterTask: string, numAgents: number = 5, enableSearch: boolean = true) {
     const response = await api.post('/api/v1/swarm', {
       master_task: masterTask,
       context: {},
       num_agents: numAgents,
-      auto_synthesize: true
+      enable_search: enableSearch
     });
     return response.data;
   },
 
-  async visionToCode(imageBase64: string, requirements: string = '', framework: 'html' | 'react' | 'vue' = 'html') {
-    const response = await api.post('/api/v1/vision-to-code', {
-      image_base64: imageBase64,
-      requirements,
-      framework
+  // Direct search across multiple sources
+  async search(query: string, sources: string[] = ['web'], numResults: number = 10) {
+    const response = await api.post('/api/v1/search', {
+      query,
+      sources,
+      num_results: numResults
     });
     return response.data;
   },
 
+  // Deep research with optional report generation
+  async research(query: string, depth: 'quick' | 'deep' | 'exhaustive' = 'deep', generateReport: boolean = false) {
+    const response = await api.post('/api/v1/research', {
+      query,
+      depth,
+      generate_report: generateReport
+    });
+    return response.data;
+  },
+
+  // Generate downloadable file
+  async generateFile(content: string | object, fileType: 'excel' | 'word' | 'pdf' | 'pptx', title?: string, filename?: string) {
+    const response = await api.post('/api/v1/generate-file', {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      file_type: fileType,
+      title,
+      filename
+    });
+    return response.data;
+  },
+
+  // Multimodal (text + image)
   async multimodal(text: string, imageFile?: File, mode: string = 'thinking') {
     const formData = new FormData();
     formData.append('text', text);
@@ -183,10 +261,45 @@ export const kimiApi = {
     return response.json();
   },
 
+  // Download generated file
+  downloadFile(fileId: string, filename: string) {
+    const link = document.createElement('a');
+    link.href = `${API_BASE_URL}/api/v1/download/${fileId}`;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
+
+  // Health check
   async health() {
     const response = await api.get('/api/v1/health');
     return response.data;
   }
 };
+
+// Helper function to handle chat response with downloads
+export function handleChatResponse(response: any) {
+  if (!response.success) {
+    return { error: response.error, answer: null, downloads: [], searchResults: [] };
+  }
+
+  const { answer, reasoning, downloads = [], search_results = [], metadata } = response.response;
+
+  return {
+    answer,
+    reasoning,
+    downloads,
+    searchResults: search_results,
+    metadata
+  };
+}
+
+// Helper to create Excel data from array
+export function createExcelData(items: any[], sheetName: string = 'Data') {
+  return {
+    [sheetName]: items
+  };
+}
 
 export default api;

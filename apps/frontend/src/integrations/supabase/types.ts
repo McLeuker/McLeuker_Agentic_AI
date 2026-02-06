@@ -227,51 +227,54 @@ export type Database = {
       users: {
         Row: {
           id: string
-          user_id: string
           name: string | null
           email: string
+          avatar_url: string | null
           profile_image: string | null
           company: string | null
           role: string | null
-          subscription_plan: string
-          credit_balance: number
+          subscription_tier: string
+          credits_balance: number
           created_at: string
           updated_at: string
-          last_login_at: string | null
+          last_active_at: string | null
+          metadata: Json | null
           auth_provider: string
           preferences: Json | null
           onboarding_completed: boolean
         }
         Insert: {
           id?: string
-          user_id: string
           name?: string | null
           email: string
+          avatar_url?: string | null
           profile_image?: string | null
           company?: string | null
           role?: string | null
-          subscription_plan?: string
-          credit_balance?: number
+          subscription_tier?: string
+          credits_balance?: number
           created_at?: string
           updated_at?: string
-          last_login_at?: string | null
+          last_active_at?: string | null
+          metadata?: Json | null
           auth_provider?: string
           preferences?: Json | null
           onboarding_completed?: boolean
         }
         Update: {
           id?: string
-          user_id?: string
           name?: string | null
           email?: string
+          avatar_url?: string | null
           profile_image?: string | null
           company?: string | null
           role?: string | null
-          subscription_plan?: string
-          credit_balance?: number
+          subscription_tier?: string
+          credits_balance?: number
           created_at?: string
           updated_at?: string
-          last_login_at?: string | null
+          last_active_at?: string | null
+          metadata?: Json | null
           auth_provider?: string
           preferences?: Json | null
           onboarding_completed?: boolean

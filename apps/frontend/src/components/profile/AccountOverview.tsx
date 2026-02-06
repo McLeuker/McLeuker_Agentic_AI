@@ -24,9 +24,9 @@ interface UserData {
   name: string | null;
   email: string;
   profile_image: string | null;
-  subscription_plan: string;
+  subscription_tier: string;
   created_at: string;
-  last_login_at: string | null;
+  last_active_at: string | null;
   auth_provider: string;
   company: string | null;
   role: string | null;
@@ -87,7 +87,7 @@ export function AccountOverview() {
       // First try to get from users table
       const { data: usersData, error: usersError } = await supabase
         .from('users')
-        .select('name, email, profile_image, subscription_plan, created_at, last_login_at, auth_provider, company, role')
+        .select('name, email, profile_image, subscription_tier, created_at, last_active_at, auth_provider, company, role')
         .eq('id', user.id)
         .single();
 
@@ -107,11 +107,10 @@ export function AccountOverview() {
         
         const newUserData = {
           id: user.id,
-          user_id: user.id,
           email: user.email || '',
           name: user.user_metadata?.full_name || user.user_metadata?.name || '',
           auth_provider: user.app_metadata?.provider || 'email',
-          last_login_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString(),
         };
 
         const { data: insertedUser, error: insertError } = await supabase
@@ -127,9 +126,9 @@ export function AccountOverview() {
             name: user.user_metadata?.full_name || user.user_metadata?.name || '',
             email: user.email || '',
             profile_image: null,
-            subscription_plan: 'free',
+            subscription_tier: 'free',
             created_at: user.created_at || new Date().toISOString(),
-            last_login_at: new Date().toISOString(),
+            last_active_at: new Date().toISOString(),
             auth_provider: user.app_metadata?.provider || 'email',
             company: null,
             role: null,
@@ -162,9 +161,9 @@ export function AccountOverview() {
         name: user.user_metadata?.full_name || '',
         email: user.email || '',
         profile_image: null,
-        subscription_plan: 'free',
+        subscription_tier: 'free',
         created_at: user.created_at || new Date().toISOString(),
-        last_login_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString(),
         auth_provider: user.app_metadata?.provider || 'email',
         company: null,
         role: null,
@@ -231,7 +230,6 @@ export function AccountOverview() {
             .from('users')
             .insert({
               id: user.id,
-              user_id: user.id,
               email: user.email || '',
               name: formData.name.trim() || null,
               company: formData.company.trim() || null,
@@ -395,8 +393,8 @@ export function AccountOverview() {
                 {formData.name || 'Unnamed User'}
               </h2>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={getPlanBadgeVariant(userData?.subscription_plan || 'free')}>
-                  {userData?.subscription_plan?.toUpperCase() || 'FREE'}
+                <Badge variant={getPlanBadgeVariant(userData?.subscription_tier || 'free')}>
+                  {userData?.subscription_tier?.toUpperCase() || 'FREE'}
                 </Badge>
                 {userData?.auth_provider && userData.auth_provider !== 'email' && (
                   <Badge variant="outline" className="text-xs">
@@ -492,7 +490,7 @@ export function AccountOverview() {
                 Account Type
               </Label>
               <p className="text-sm font-medium capitalize text-white">
-                {userData?.subscription_plan || 'Free'} Plan
+                {userData?.subscription_tier || 'Free'} Plan
               </p>
             </div>
 
@@ -512,7 +510,7 @@ export function AccountOverview() {
                 Last Login
               </Label>
               <p className="text-sm font-medium text-white">
-                {userData?.last_login_at ? formatDateTime(userData.last_login_at) : '—'}
+                {userData?.last_active_at ? formatDateTime(userData.last_active_at) : '—'}
               </p>
             </div>
           </div>

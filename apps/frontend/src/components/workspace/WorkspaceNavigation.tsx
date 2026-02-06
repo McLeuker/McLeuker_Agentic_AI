@@ -67,13 +67,13 @@ export function WorkspaceNavigation({
       // Fetch subscription info from users table
       const { data: userData } = await supabase
         .from("users")
-        .select("subscription_plan, credit_balance")
+        .select("subscription_tier, credits_balance")
         .eq("id", user.id)
         .single();
 
       if (userData) {
-        setPlan(userData.subscription_plan || "free");
-        setCreditBalance(userData.credit_balance || 50);
+        setPlan(userData.subscription_tier || "free");
+        setCreditBalance(userData.credits_balance || 50);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);

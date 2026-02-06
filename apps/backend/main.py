@@ -1,14 +1,14 @@
 """
-McLeuker AI Backend - Kimi 2.5 Edition
-Replaces Grok with full Kimi 2.5 capabilities
-Maintains backward compatibility with existing frontend
+McLeuker AI Backend - Complete Kimi 2.5 Edition
+Full tool execution, real-time data, agent swarm, file generation
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict, Any, Union
+from typing import List, Optional, Literal, Dict, Any, Union, AsyncGenerator
 import openai
 import os
 import base64
@@ -18,110 +18,657 @@ import httpx
 from datetime import datetime
 from enum import Enum
 import re
+import uuid
+import io
+from pathlib import Path
 
-# ============================================================================
-# INITIALIZATION
-# ============================================================================
+# File generation imports
+import pandas as pd
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 
+# Initialize FastAPI
 app = FastAPI(
-    title="McLeuker AI - Kimi 2.5",
-    description="Advanced Agentic AI Platform with Kimi 2.5",
-    version="2.5.0"
+    title="McLeuker AI - Kimi 2.5 Complete",
+    description="Advanced Agentic AI with full tool execution and real-time data",
+    version="2.5.1"
 )
 
-# CORS - Allow Vercel frontend
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://mcleuker-agentic-ai.vercel.app",
-        "http://localhost:3000",
-        "*"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize Kimi 2.5 Client
-KIMI_API_KEY = os.getenv("KIMI_API_KEY")
+# API Keys
+KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
+EXA_API_KEY = os.getenv("EXA_API_KEY", "")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+
+# Initialize Kimi client
 client = openai.OpenAI(
     api_key=KIMI_API_KEY,
     base_url="https://api.moonshot.cn/v1"
-) if KIMI_API_KEY else None
+)
 
-# Legacy API keys from Railway (for tool integrations)
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-EXA_API_KEY = os.getenv("EXA_API_KEY")
-
-security = HTTPBearer()
+# File storage
+OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ============================================================================
-# DATA MODELS (Backward Compatible + New Features)
+# DATA MODELS
 # ============================================================================
-
-class KeyInsight(BaseModel):
-    title: str
-    description: str
-    confidence: float = Field(ge=0, le=1)
-
-class Source(BaseModel):
-    title: str
-    url: str
-    snippet: Optional[str] = None
-
-class ResponseMetadata(BaseModel):
-    model: str = "kimi-k2.5"
-    mode: str
-    tokens_used: Dict[str, int]
-    latency_ms: Optional[int] = None
-    agents_deployed: Optional[int] = None
-    tool_calls_count: Optional[int] = None
-
-# Legacy V5.1 Response (Maintained for compatibility)
-class V51Response(BaseModel):
-    success: bool
-    response: Dict[str, Any]
-    error: Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     content: Union[str, List[Dict[str, Any]]]
-    name: Optional[str] = None
     tool_calls: Optional[List[Dict]] = None
     tool_call_id: Optional[str] = None
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
-    mode: Literal["instant", "thinking", "agent", "swarm", "vision_code"] = "thinking"
+    mode: Literal["instant", "thinking", "agent", "swarm", "research"] = "thinking"
     stream: bool = False
-    context_id: Optional[str] = None
+    enable_tools: bool = True
 
-class SwarmTaskRequest(BaseModel):
+class SwarmRequest(BaseModel):
     master_task: str
     context: Dict[str, Any] = {}
     num_agents: int = Field(default=5, ge=1, le=20)
-    auto_synthesize: bool = True
+    enable_search: bool = True
 
-class VisionCodeRequest(BaseModel):
-    image_base64: str
-    requirements: str = "Modern, responsive, animated UI"
-    framework: Literal["html", "react", "vue", "svelte"] = "html"
-    include_dependencies: bool = True
+class FileGenRequest(BaseModel):
+    content: str
+    file_type: Literal["excel", "word", "pdf", "pptx"]
+    filename: Optional[str] = None
+    title: Optional[str] = None
+
+class SearchRequest(BaseModel):
+    query: str
+    sources: List[Literal["web", "news", "academic", "youtube"]] = ["web"]
+    num_results: int = 10
 
 class ResearchRequest(BaseModel):
     query: str
     depth: Literal["quick", "deep", "exhaustive"] = "deep"
-    sources: List[Literal["web", "academic", "news", "social"]] = ["web"]
+    sources: List[str] = ["web", "news"]
+    generate_report: bool = False
+
+class V51Response(BaseModel):
+    success: bool
+    response: Dict[str, Any]
+    error: Optional[str] = None
 
 # ============================================================================
-# KIMI 2.5 CORE ENGINE
+# REAL-TIME SEARCH APIs
+# ============================================================================
+
+class SearchAPIs:
+    """Unified search across multiple real-time data sources"""
+    
+    @staticmethod
+    async def perplexity_search(query: str, focus: str = "web") -> Dict:
+        """Deep research with Perplexity AI"""
+        if not PERPLEXITY_API_KEY:
+            return {"error": "Perplexity API key not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    "https://api.perplexity.ai/chat/completions",
+                    headers={"Authorization": f"Bearer {PERPLEXITY_API_KEY}"},
+                    json={
+                        "model": "sonar-pro",
+                        "messages": [{"role": "user", "content": query}],
+                        "temperature": 0.2
+                    }
+                )
+                data = response.json()
+                return {
+                    "source": "perplexity",
+                    "answer": data["choices"][0]["message"]["content"],
+                    "citations": data.get("citations", []),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            return {"error": str(e), "source": "perplexity"}
+    
+    @staticmethod
+    async def exa_search(query: str, num_results: int = 10) -> Dict:
+        """Web search with Exa.ai"""
+        if not EXA_API_KEY:
+            return {"error": "Exa API key not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    "https://api.exa.ai/search",
+                    headers={"Authorization": f"Bearer {EXA_API_KEY}"},
+                    json={
+                        "query": query,
+                        "numResults": num_results,
+                        "useAutoprompt": True
+                    }
+                )
+                data = response.json()
+                return {
+                    "source": "exa",
+                    "results": data.get("results", []),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            return {"error": str(e), "source": "exa"}
+    
+    @staticmethod
+    async def youtube_search(query: str, max_results: int = 5) -> Dict:
+        """Search YouTube videos"""
+        if not YOUTUBE_API_KEY:
+            return {"error": "YouTube API key not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.get(
+                    "https://www.googleapis.com/youtube/v3/search",
+                    params={
+                        "part": "snippet",
+                        "q": query,
+                        "maxResults": max_results,
+                        "type": "video",
+                        "order": "relevance",
+                        "key": YOUTUBE_API_KEY
+                    }
+                )
+                data = response.json()
+                videos = []
+                for item in data.get("items", []):
+                    videos.append({
+                        "title": item["snippet"]["title"],
+                        "description": item["snippet"]["description"],
+                        "video_id": item["id"]["videoId"],
+                        "url": f"https://youtube.com/watch?v={item['id']['videoId']}",
+                        "thumbnail": item["snippet"]["thumbnails"]["high"]["url"],
+                        "published_at": item["snippet"]["publishedAt"],
+                        "channel": item["snippet"]["channelTitle"]
+                    })
+                return {
+                    "source": "youtube",
+                    "videos": videos,
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            return {"error": str(e), "source": "youtube"}
+    
+    @staticmethod
+    async def grok_search(query: str) -> Dict:
+        """Search with Grok/X AI"""
+        if not GROK_API_KEY:
+            return {"error": "Grok API key not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    "https://api.x.ai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {GROK_API_KEY}"},
+                    json={
+                        "model": "grok-beta",
+                        "messages": [{"role": "user", "content": query}],
+                        "stream": False
+                    }
+                )
+                data = response.json()
+                return {
+                    "source": "grok",
+                    "answer": data["choices"][0]["message"]["content"],
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            return {"error": str(e), "source": "grok"}
+    
+    @staticmethod
+    async def multi_search(query: str, sources: List[str] = None) -> Dict:
+        """Search across all available sources"""
+        if sources is None:
+            sources = ["web"]
+        
+        tasks = []
+        source_map = {}
+        
+        if "web" in sources or "news" in sources:
+            tasks.append(SearchAPIs.perplexity_search(query))
+            source_map[len(tasks)-1] = "perplexity"
+        
+        if "web" in sources:
+            tasks.append(SearchAPIs.exa_search(query))
+            source_map[len(tasks)-1] = "exa"
+        
+        if "youtube" in sources:
+            tasks.append(SearchAPIs.youtube_search(query))
+            source_map[len(tasks)-1] = "youtube"
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        combined = {
+            "query": query,
+            "timestamp": datetime.now().isoformat(),
+            "sources": {}
+        }
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                combined["sources"][source_map[i]] = {"error": str(result)}
+            else:
+                combined["sources"][result.get("source", source_map[i])] = result
+        
+        return combined
+
+# ============================================================================
+# FILE GENERATION SYSTEM
+# ============================================================================
+
+class FileGenerator:
+    """Generate downloadable files (Excel, Word, PDF, PPTX)"""
+    
+    @staticmethod
+    def generate_excel(data: Dict, filename: str = None) -> str:
+        """Generate Excel file from data"""
+        if filename is None:
+            filename = f"output_{uuid.uuid4().hex[:8]}.xlsx"
+        
+        filepath = OUTPUT_DIR / filename
+        
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            # Handle different data formats
+            if isinstance(data, dict):
+                for sheet_name, sheet_data in data.items():
+                    if isinstance(sheet_data, list):
+                        df = pd.DataFrame(sheet_data)
+                    elif isinstance(sheet_data, dict):
+                        df = pd.DataFrame([sheet_data])
+                    else:
+                        df = pd.DataFrame({"content": [str(sheet_data)]})
+                    df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False)
+            elif isinstance(data, list):
+                df = pd.DataFrame(data)
+                df.to_excel(writer, sheet_name="Data", index=False)
+            else:
+                df = pd.DataFrame({"content": [str(data)]})
+                df.to_excel(writer, sheet_name="Data", index=False)
+        
+        return str(filepath)
+    
+    @staticmethod
+    def generate_word(content: str, title: str = None, filename: str = None) -> str:
+        """Generate Word document"""
+        if filename is None:
+            filename = f"report_{uuid.uuid4().hex[:8]}.docx"
+        
+        filepath = OUTPUT_DIR / filename
+        doc = Document()
+        
+        # Add title
+        if title:
+            title_para = doc.add_heading(title, 0)
+            title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Add content
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            if para.strip().startswith('#'):
+                # Markdown-style headers
+                level = len(para.split()[0])
+                doc.add_heading(para.lstrip('#').strip(), level=min(level, 3))
+            elif para.strip().startswith('- ') or para.strip().startswith('* '):
+                # Bullet points
+                doc.add_paragraph(para.strip()[2:], style='List Bullet')
+            elif re.match(r'^\d+\.', para.strip()):
+                # Numbered list
+                doc.add_paragraph(re.sub(r'^\d+\.', '', para.strip()).strip(), style='List Number')
+            else:
+                doc.add_paragraph(para.strip())
+        
+        # Add footer
+        doc.add_paragraph()
+        footer = doc.add_paragraph()
+        footer_run = footer.add_run(f"Generated by McLeuker AI on {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        footer_run.font.size = Pt(8)
+        footer_run.font.color.rgb = RGBColor(128, 128, 128)
+        
+        doc.save(filepath)
+        return str(filepath)
+    
+    @staticmethod
+    def generate_pdf(content: str, title: str = None, filename: str = None) -> str:
+        """Generate PDF using matplotlib (lightweight solution)"""
+        if filename is None:
+            filename = f"report_{uuid.uuid4().hex[:8]}.pdf"
+        
+        filepath = OUTPUT_DIR / filename
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(8.5, 11))
+        ax.axis('off')
+        
+        # Title
+        y_pos = 0.95
+        if title:
+            ax.text(0.5, y_pos, title, fontsize=18, weight='bold', 
+                   ha='center', transform=ax.transAxes)
+            y_pos -= 0.08
+        
+        # Content
+        lines = content.split('\n')
+        text_content = []
+        for line in lines:
+            if len(line) > 100:
+                # Wrap long lines
+                words = line.split()
+                current = ""
+                for word in words:
+                    if len(current) + len(word) < 95:
+                        current += word + " "
+                    else:
+                        text_content.append(current.strip())
+                        current = word + " "
+                if current:
+                    text_content.append(current.strip())
+            else:
+                text_content.append(line)
+        
+        # Display content
+        display_text = '\n'.join(text_content[:60])  # Limit pages
+        ax.text(0.1, y_pos, display_text, fontsize=10, va='top',
+               transform=ax.transAxes, family='monospace')
+        
+        # Footer
+        ax.text(0.5, 0.02, f"Generated by McLeuker AI - {datetime.now().strftime('%Y-%m-%d')}",
+               fontsize=8, ha='center', transform=ax.transAxes, style='italic')
+        
+        plt.savefig(filepath, format='pdf', bbox_inches='tight')
+        plt.close()
+        
+        return str(filepath)
+    
+    @staticmethod
+    def generate_pptx(content: str, title: str = None, filename: str = None) -> str:
+        """Generate PowerPoint presentation"""
+        if filename is None:
+            filename = f"presentation_{uuid.uuid4().hex[:8]}.pptx"
+        
+        filepath = OUTPUT_DIR / filename
+        
+        # Use python-pptx if available, otherwise create a simple HTML-based solution
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches, Pt
+            
+            prs = Presentation()
+            
+            # Title slide
+            title_slide = prs.slides.add_slide(prs.slide_layouts[0])
+            title_slide.shapes.title.text = title or "McLeuker AI Presentation"
+            title_slide.placeholders[1].text = f"Generated on {datetime.now().strftime('%Y-%m-%d')}"
+            
+            # Content slides
+            sections = content.split('\n\n')
+            for section in sections[:10]:  # Limit slides
+                if len(section.strip()) < 10:
+                    continue
+                    
+                slide = prs.slides.add_slide(prs.slide_layouts[1])
+                lines = section.split('\n')
+                
+                if lines:
+                    slide.shapes.title.text = lines[0][:50]
+                    body = '\n'.join(lines[1:])[:500]
+                    slide.placeholders[1].text = body
+            
+            prs.save(filepath)
+        except ImportError:
+            # Fallback: create a Word doc with .pptx extension (will need conversion)
+            filepath = FileGenerator.generate_word(content, title, filename.replace('.pptx', '.docx'))
+        
+        return str(filepath)
+
+# ============================================================================
+# TOOL DEFINITIONS FOR KIMI
+# ============================================================================
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "realtime_search",
+            "description": "Search for real-time information from web, news, YouTube. Use this for ANY question about current events, recent news, or time-sensitive information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["web", "news", "youtube"]},
+                        "default": ["web"]
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_excel",
+            "description": "Generate an Excel file with data. Use for lists, tables, comparisons, or any structured data the user wants to download.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "object", "description": "Data to include in Excel - can be a list of objects or dict of sheets"},
+                    "filename": {"type": "string", "description": "Optional filename"},
+                    "sheet_name": {"type": "string", "default": "Data"}
+                },
+                "required": ["data"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_word",
+            "description": "Generate a Word document (.docx) with formatted content. Use for reports, summaries, or documents the user wants to download.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Document content"},
+                    "title": {"type": "string", "description": "Document title"},
+                    "filename": {"type": "string", "description": "Optional filename"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_pdf",
+            "description": "Generate a PDF document. Use for professional reports or documents the user wants to download.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Document content"},
+                    "title": {"type": "string", "description": "Document title"},
+                    "filename": {"type": "string", "description": "Optional filename"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "deep_research",
+            "description": "Conduct deep research on a topic using multiple sources. Use for comprehensive analysis or when the user asks for detailed research.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Research topic"},
+                    "depth": {"type": "string", "enum": ["quick", "deep", "exhaustive"], "default": "deep"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_image",
+            "description": "Analyze an image and provide detailed description. Use when user uploads an image.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_url": {"type": "string", "description": "Base64 or URL of image"}
+                },
+                "required": ["image_url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_code",
+            "description": "Generate code in any programming language. Use when user asks for code examples or implementations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string", "description": "What the code should do"},
+                    "language": {"type": "string", "default": "python"},
+                    "framework": {"type": "string", "description": "Optional framework"}
+                },
+                "required": ["description"]
+            }
+        }
+    }
+]
+
+# ============================================================================
+# TOOL EXECUTOR
+# ============================================================================
+
+class ToolExecutor:
+    """Execute tools and return results"""
+    
+    generated_files: Dict[str, str] = {}
+    
+    @classmethod
+    async def execute(cls, tool_calls: List[Any]) -> List[Dict]:
+        """Execute multiple tool calls"""
+        results = []
+        
+        for call in tool_calls:
+            try:
+                result = await cls.execute_single(call)
+                results.append(result)
+            except Exception as e:
+                results.append({
+                    "tool_call_id": call.id,
+                    "role": "tool",
+                    "content": json.dumps({"error": str(e)}),
+                    "name": call.function.name
+                })
+        
+        return results
+    
+    @classmethod
+    async def execute_single(cls, call: Any) -> Dict:
+        """Execute a single tool call"""
+        function_name = call.function.name
+        arguments = json.loads(call.function.arguments)
+        
+        result_data = {"tool": function_name}
+        
+        if function_name == "realtime_search":
+            search_result = await SearchAPIs.multi_search(
+                arguments["query"],
+                arguments.get("sources", ["web"])
+            )
+            result_data["search_results"] = search_result
+            
+        elif function_name == "deep_research":
+            # Use agent swarm for deep research
+            swarm = AgentSwarm()
+            research_result = await swarm.execute(
+                master_task=arguments["query"],
+                context={"depth": arguments.get("depth", "deep")},
+                num_agents=5,
+                enable_search=True
+            )
+            result_data["research"] = research_result
+            
+        elif function_name == "generate_excel":
+            filepath = FileGenerator.generate_excel(
+                arguments["data"],
+                arguments.get("filename")
+            )
+            file_id = uuid.uuid4().hex[:12]
+            cls.generated_files[file_id] = filepath
+            result_data["file_id"] = file_id
+            result_data["filename"] = Path(filepath).name
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "generate_word":
+            filepath = FileGenerator.generate_word(
+                arguments["content"],
+                arguments.get("title"),
+                arguments.get("filename")
+            )
+            file_id = uuid.uuid4().hex[:12]
+            cls.generated_files[file_id] = filepath
+            result_data["file_id"] = file_id
+            result_data["filename"] = Path(filepath).name
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "generate_pdf":
+            filepath = FileGenerator.generate_pdf(
+                arguments["content"],
+                arguments.get("title"),
+                arguments.get("filename")
+            )
+            file_id = uuid.uuid4().hex[:12]
+            cls.generated_files[file_id] = filepath
+            result_data["file_id"] = file_id
+            result_data["filename"] = Path(filepath).name
+            result_data["download_url"] = f"/api/v1/download/{file_id}"
+            
+        elif function_name == "generate_code":
+            # Code generation is handled by Kimi itself
+            result_data["status"] = "Code generation ready"
+            
+        elif function_name == "analyze_image":
+            result_data["status"] = "Image analysis ready"
+            
+        else:
+            result_data["error"] = f"Unknown tool: {function_name}"
+        
+        return {
+            "tool_call_id": call.id,
+            "role": "tool",
+            "content": json.dumps(result_data),
+            "name": function_name
+        }
+
+# ============================================================================
+# KIMI ENGINE
 # ============================================================================
 
 class KimiEngine:
-    """
-    Unified interface for all Kimi 2.5 capabilities
-    Handles: Instant, Thinking, Agent, Swarm, Vision modes
-    """
+    """Main Kimi 2.5 interface"""
     
     CONFIGS = {
         "instant": {
@@ -142,86 +689,25 @@ class KimiEngine:
                 "parallel_tool_calls": True
             }
         },
-        "vision_code": {
-            "temperature": 0.6,
-            "max_tokens": 16384,
-            "extra_body": {"thinking": {"type": "enabled"}}
+        "research": {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "extra_body": {
+                "thinking": {"type": "enabled"},
+                "parallel_tool_calls": True
+            }
         }
     }
-    
-    TOOLS = [
-        {
-            "type": "function",
-            "function": {
-                "name": "web_search",
-                "description": "Search the internet for current information, news, and facts",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "num_results": {"type": "integer", "default": 5}
-                    },
-                    "required": ["query"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "perplexity_search",
-                "description": "Deep research using Perplexity AI for comprehensive answers",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string"},
-                        "focus": {"type": "string", "enum": ["web", "academic", "news"], "default": "web"}
-                    },
-                    "required": ["query"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "generate_code",
-                "description": "Generate code in any programming language",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "description": {"type": "string", "description": "What the code should do"},
-                        "language": {"type": "string", "default": "python"},
-                        "framework": {"type": "string", "default": "none"}
-                    },
-                    "required": ["description"]
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "analyze_data",
-                "description": "Analyze structured data and provide insights",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "data": {"type": "string", "description": "JSON or CSV data string"},
-                        "analysis_type": {"type": "string", "enum": ["summary", "trends", "anomalies", "correlation"]}
-                    },
-                    "required": ["data", "analysis_type"]
-                }
-            }
-        }
-    ]
     
     @classmethod
     async def chat(
         cls,
         messages: List[Dict],
         mode: str = "thinking",
-        use_tools: bool = False,
+        enable_tools: bool = True,
         stream: bool = False
     ) -> Dict[str, Any]:
-        """Execute chat with specified mode"""
+        """Execute chat with optional tools"""
         
         config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
         params = {
@@ -231,85 +717,45 @@ class KimiEngine:
             **config
         }
         
-        # Add tools for agent mode
-        if use_tools and mode == "agent":
-            params["tools"] = cls.TOOLS
+        # Add tools for agent/research modes
+        if enable_tools and mode in ["agent", "research"]:
+            params["tools"] = TOOLS
             params["tool_choice"] = "auto"
         
-        try:
-            start_time = datetime.now()
-            response = client.chat.completions.create(**params)
-            latency = int((datetime.now() - start_time).total_seconds() * 1000)
-            
-            if stream:
-                return response
-            
-            message = response.choices[0].message
-            
-            result = {
-                "content": message.content,
-                "reasoning_content": getattr(message, 'reasoning_content', None),
-                "tool_calls": getattr(message, 'tool_calls', None),
-                "mode": mode,
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "reasoning_tokens": getattr(response.usage, 'reasoning_tokens', 0),
-                    "total_tokens": response.usage.total_tokens
-                },
-                "latency_ms": latency
-            }
-            
-            # Execute tools if present
-            if result["tool_calls"]:
-                tool_results = await cls.execute_tools(result["tool_calls"])
-                result["tool_results"] = tool_results
-                
-                # Continue conversation with tool results
-                continued = await cls.continue_with_tools(messages, message, tool_results)
-                result["content"] = continued["content"]
-                result["usage"]["total_tokens"] += continued["usage"]["total_tokens"]
-            
-            return result
-            
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Kimi API Error: {str(e)}")
-    
-    @classmethod
-    async def execute_tools(cls, tool_calls: List[Any]) -> List[Dict]:
-        """Execute actual tool calls"""
-        results = []
+        start_time = datetime.now()
+        response = client.chat.completions.create(**params)
+        latency = int((datetime.now() - start_time).total_seconds() * 1000)
         
-        for call in tool_calls:
-            function_name = call.function.name
-            arguments = json.loads(call.function.arguments)
-            
-            try:
-                if function_name == "web_search":
-                    result = await Tools.web_search(**arguments)
-                elif function_name == "perplexity_search":
-                    result = await Tools.perplexity_search(**arguments)
-                elif function_name == "generate_code":
-                    result = {"generated_code": f"// Code generation simulated for: {arguments['description']}"}
-                elif function_name == "analyze_data":
-                    result = {"analysis": f"Data analysis simulated for {arguments['analysis_type']}"}
-                else:
-                    result = {"error": f"Unknown tool: {function_name}"}
-                
-                results.append({
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "name": function_name,
-                    "content": json.dumps(result)
-                })
-            except Exception as e:
-                results.append({
-                    "tool_call_id": call.id,
-                    "role": "tool",
-                    "content": json.dumps({"error": str(e)})
-                })
+        if stream:
+            return response
         
-        return results
+        message = response.choices[0].message
+        
+        result = {
+            "content": message.content,
+            "reasoning_content": getattr(message, 'reasoning_content', None),
+            "tool_calls": getattr(message, 'tool_calls', None),
+            "mode": mode,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            },
+            "latency_ms": latency
+        }
+        
+        # Execute tools if present
+        if result["tool_calls"]:
+            tool_results = await ToolExecutor.execute(result["tool_calls"])
+            result["tool_results"] = tool_results
+            
+            # Continue conversation with tool results
+            continued = await cls.continue_with_tools(messages, message, tool_results)
+            result["content"] = continued["content"]
+            result["tool_outputs"] = continued.get("tool_outputs", [])
+            result["usage"]["total_tokens"] += continued["usage"]["total_tokens"]
+        
+        return result
     
     @classmethod
     async def continue_with_tools(
@@ -320,7 +766,6 @@ class KimiEngine:
     ) -> Dict[str, Any]:
         """Continue conversation after tool execution"""
         
-        # Build message history with reasoning preservation
         messages = original_messages.copy()
         messages.append({
             "role": "assistant",
@@ -328,17 +773,38 @@ class KimiEngine:
             "reasoning_content": getattr(assistant_message, 'reasoning_content', None),
             "tool_calls": [tc.model_dump() for tc in assistant_message.tool_calls]
         })
-        messages.extend(tool_results)
+        messages.extend([{"role": r["role"], "content": r["content"], "tool_call_id": r["tool_call_id"]} for r in tool_results])
         
         response = client.chat.completions.create(
             model="kimi-k2.5",
             messages=messages,
             temperature=0.6,
-            extra_body={"thinking": {"type": "disabled"}}  # Fast follow-up
+            extra_body={"thinking": {"type": "disabled"}}
         )
+        
+        # Extract file info from tool results
+        tool_outputs = []
+        for tr in tool_results:
+            try:
+                content = json.loads(tr["content"])
+                if "download_url" in content:
+                    tool_outputs.append({
+                        "type": "file",
+                        "filename": content.get("filename"),
+                        "download_url": content.get("download_url"),
+                        "file_id": content.get("file_id")
+                    })
+                elif "search_results" in content:
+                    tool_outputs.append({
+                        "type": "search",
+                        "results": content["search_results"]
+                    })
+            except:
+                pass
         
         return {
             "content": response.choices[0].message.content,
+            "tool_outputs": tool_outputs,
             "usage": {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
@@ -347,159 +813,49 @@ class KimiEngine:
         }
     
     @classmethod
-    async def vision_to_code(
+    async def stream_chat(
         cls,
-        image_base64: str,
-        requirements: str,
-        framework: str
-    ) -> Dict[str, Any]:
-        """Convert UI image to complete code"""
+        messages: List[Dict],
+        mode: str = "thinking",
+        enable_tools: bool = True
+    ) -> AsyncGenerator[str, None]:
+        """Stream chat responses"""
         
-        framework_prompts = {
-            "html": "Create a single, complete HTML file with embedded CSS (Tailwind-style) and JavaScript. Include scroll animations, hover effects, and responsive design.",
-            "react": "Create a complete React functional component with hooks, TypeScript, and Tailwind CSS styling.",
-            "vue": "Create a complete Vue 3 Composition API component with TypeScript and scoped styles.",
-            "svelte": "Create a complete Svelte component with animations and reactive statements."
+        config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
+        params = {
+            "model": "kimi-k2.5",
+            "messages": messages,
+            "stream": True,
+            **config
         }
         
-        prompt = f"""Analyze this UI design and generate production-ready {framework.upper()} code.
-
-Requirements: {requirements}
-Style: {framework_prompts.get(framework, framework_prompts['html'])}
-
-Output ONLY the complete, runnable code."""
-
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/png;base64,{image_base64}",
-                            "detail": "high"
-                        }
-                    }
-                ]
-            }
-        ]
+        if enable_tools and mode in ["agent", "research"]:
+            params["tools"] = TOOLS
+            params["tool_choice"] = "auto"
         
-        response = client.chat.completions.create(
-            model="kimi-k2.5",
-            messages=messages,
-            max_tokens=16384,
-            temperature=0.6,
-            extra_body={"thinking": {"type": "enabled"}}
-        )
+        response = client.chat.completions.create(**params)
         
-        content = response.choices[0].message.content
+        for chunk in response:
+            if chunk.choices[0].delta.content:
+                yield f"data: {json.dumps({'type': 'content', 'data': chunk.choices[0].delta.content})}\n\n"
+            elif chunk.choices[0].delta.reasoning_content:
+                yield f"data: {json.dumps({'type': 'reasoning', 'data': chunk.choices[0].delta.reasoning_content})}\n\n"
         
-        # Extract code blocks
-        code_blocks = cls.extract_code_blocks(content)
-        
-        return {
-            "raw_response": content,
-            "code_blocks": code_blocks,
-            "framework": framework,
-            "tokens_used": response.usage.total_tokens,
-            "reasoning": getattr(response.choices[0].message, 'reasoning_content', None)
-        }
-    
-    @staticmethod
-    def extract_code_blocks(content: str) -> List[Dict]:
-        """Extract code blocks from markdown"""
-        blocks = []
-        pattern = r'```(\w+)?\n(.*?)```'
-        matches = re.findall(pattern, content, re.DOTALL)
-        
-        for lang, code in matches:
-            blocks.append({
-                "language": lang or "text",
-                "code": code.strip(),
-                "lines": len(code.strip().split('\n'))
-            })
-        
-        # If no code blocks found, treat entire response as code
-        if not blocks and content.strip():
-            blocks.append({
-                "language": "html",
-                "code": content.strip(),
-                "lines": len(content.strip().split('\n'))
-            })
-        
-        return blocks
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 # ============================================================================
-# TOOL IMPLEMENTATIONS (Real API Integrations)
-# ============================================================================
-
-class Tools:
-    """Real tool implementations using your Railway env vars"""
-    
-    @staticmethod
-    async def web_search(query: str, num_results: int = 5) -> Dict:
-        """Web search using Exa.ai (if available) or simulated"""
-        if not EXA_API_KEY:
-            return {
-                "results": [
-                    {"title": "Simulated Result", "url": "https://example.com", "snippet": f"Results for: {query}"}
-                ],
-                "note": "EXA_API_KEY not configured in Railway"
-            }
-        
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://api.exa.ai/search",
-                    headers={"Authorization": f"Bearer {EXA_API_KEY}"},
-                    json={"query": query, "numResults": num_results}
-                )
-                return response.json()
-        except Exception as e:
-            return {"error": str(e), "results": []}
-    
-    @staticmethod
-    async def perplexity_search(query: str, focus: str = "web") -> Dict:
-        """Deep research using Perplexity"""
-        if not PERPLEXITY_API_KEY:
-            return {"answer": f"Perplexity not configured. Query: {query}", "sources": []}
-        
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://api.perplexity.ai/chat/completions",
-                    headers={"Authorization": f"Bearer {PERPLEXITY_API_KEY}"},
-                    json={
-                        "model": "sonar-pro",
-                        "messages": [{"role": "user", "content": query}]
-                    }
-                )
-                data = response.json()
-                return {
-                    "answer": data["choices"][0]["message"]["content"],
-                    "sources": [c.get("url") for c in data.get("citations", [])]
-                }
-        except Exception as e:
-            return {"error": str(e)}
-
-# ============================================================================
-# AGENT SWARM ORCHESTRATOR
+# AGENT SWARM
 # ============================================================================
 
 class AgentSwarm:
-    """
-    Parallel agent execution for complex tasks
-    Scales up to 20 agents (practical limit for Railway)
-    """
+    """Multi-agent orchestration for complex tasks"""
     
-    AGENT_ROLES = {
-        "researcher": "Expert at gathering and verifying information",
-        "analyst": "Expert at data analysis and pattern recognition", 
-        "strategist": "Expert at planning and strategic thinking",
-        "creative": "Expert at creative solutions and innovation",
+    ROLES = {
+        "researcher": "Expert at finding and verifying real-time information",
+        "analyst": "Expert at data analysis and pattern recognition",
+        "writer": "Expert at creating clear, engaging content",
         "critic": "Expert at reviewing and identifying issues",
-        "implementer": "Expert at execution and practical implementation"
+        "synthesizer": "Expert at combining multiple perspectives into coherent output"
     }
     
     async def execute(
@@ -507,32 +863,26 @@ class AgentSwarm:
         master_task: str,
         context: Dict,
         num_agents: int = 5,
-        auto_synthesize: bool = True
-    ) -> Dict[str, Any]:
+        enable_search: bool = True
+    ) -> Dict:
         """Execute swarm task"""
         
         start_time = datetime.now()
         
-        # Step 1: Planning - Kimi breaks down the task
-        subtasks = await self._create_subtasks(master_task, context, num_agents)
+        # Step 1: Decompose task
+        subtasks = await self._decompose_task(master_task, num_agents)
         
-        # Step 2: Parallel execution
-        semaphore = asyncio.Semaphore(10)  # Max 10 concurrent
+        # Step 2: Execute in parallel
+        semaphore = asyncio.Semaphore(10)
         
-        async def run_with_limit(agent_def):
+        async def run_agent(agent_def):
             async with semaphore:
-                return await self._execute_agent(agent_def, context)
+                return await self._execute_agent(agent_def, context, enable_search)
         
-        agent_results = await asyncio.gather(
-            *[run_with_limit(task) for task in subtasks]
-        )
+        results = await asyncio.gather(*[run_agent(t) for t in subtasks])
         
-        # Step 3: Synthesis (if enabled)
-        final_output = None
-        if auto_synthesize:
-            final_output = await self._synthesize_results(
-                agent_results, master_task
-            )
+        # Step 3: Synthesize
+        synthesis = await self._synthesize(results, master_task)
         
         latency = int((datetime.now() - start_time).total_seconds() * 1000)
         
@@ -540,32 +890,21 @@ class AgentSwarm:
             "master_task": master_task,
             "agents_deployed": len(subtasks),
             "subtasks": subtasks,
-            "agent_outputs": agent_results,
-            "synthesized_output": final_output,
-            "total_tokens": sum(r.get("tokens_used", 0) for r in agent_results),
+            "agent_results": results,
+            "synthesis": synthesis,
             "latency_ms": latency,
             "timestamp": datetime.now().isoformat()
         }
     
-    async def _create_subtasks(
-        self,
-        task: str,
-        context: Dict,
-        num_agents: int
-    ) -> List[Dict]:
-        """Use Kimi to intelligently decompose task"""
+    async def _decompose_task(self, task: str, num_agents: int) -> List[Dict]:
+        """Decompose task into subtasks"""
         
-        prompt = f"""As a task decomposition expert, break down this complex task into {num_agents} parallel subtasks.
+        prompt = f"""Break this task into {num_agents} parallel subtasks for specialized agents.
 
-Master Task: {task}
-Context: {json.dumps(context, indent=2)}
+Task: {task}
+Available roles: {list(self.ROLES.keys())}
 
-Available roles: {list(self.AGENT_ROLES.keys())}
-
-Return ONLY a JSON array:
-[
-  {{"role": "researcher/analyst/etc", "task": "specific description", "priority": 1-10}}
-]"""
+Return JSON: {{"subtasks": [{{"role": "role_name", "task": "specific task", "priority": 1-10}}]}}"""
 
         try:
             response = client.chat.completions.create(
@@ -576,109 +915,67 @@ Return ONLY a JSON array:
                 extra_body={"thinking": {"type": "enabled"}}
             )
             
-            content = response.choices[0].message.content
-            data = json.loads(content)
-            tasks = data.get("subtasks", data.get("tasks", []))
+            data = json.loads(response.choices[0].message.content)
+            tasks = data.get("subtasks", [])
             
-            # Validate and limit
-            valid_tasks = []
+            valid = []
             for t in tasks[:num_agents]:
-                if isinstance(t, dict) and "role" in t and "task" in t:
-                    valid_tasks.append({
-                        "id": f"agent_{len(valid_tasks)}",
-                        "role": t["role"] if t["role"] in self.AGENT_ROLES else "researcher",
-                        "task": t["task"],
-                        "priority": t.get("priority", 5)
-                    })
-            
-            return valid_tasks if valid_tasks else self._fallback_subtasks(task, num_agents)
-            
-        except Exception as e:
-            print(f"Task decomposition error: {e}")
-            return self._fallback_subtasks(task, num_agents)
+                valid.append({
+                    "id": f"agent_{len(valid)}",
+                    "role": t.get("role", "researcher"),
+                    "task": t.get("task", "Analyze"),
+                    "priority": t.get("priority", 5)
+                })
+            return valid
+        except:
+            return [{"id": f"agent_{i}", "role": "researcher", "task": f"Analyze: {task}", "priority": 5} for i in range(num_agents)]
     
-    def _fallback_subtasks(self, task: str, num: int) -> List[Dict]:
-        """Fallback if decomposition fails"""
-        roles = list(self.AGENT_ROLES.keys())[:num]
-        return [
-            {
-                "id": f"agent_{i}",
-                "role": role,
-                "task": f"Analyze aspect {i+1} of: {task[:100]}",
-                "priority": 5
-            }
-            for i, role in enumerate(roles)
-        ]
-    
-    async def _execute_agent(self, agent_def: Dict, context: Dict) -> Dict:
-        """Execute single agent task"""
+    async def _execute_agent(self, agent_def: Dict, context: Dict, enable_search: bool) -> Dict:
+        """Execute single agent"""
         
-        role_desc = self.AGENT_ROLES.get(agent_def["role"], "AI Assistant")
+        role_desc = self.ROLES.get(agent_def["role"], "AI Assistant")
         
         messages = [
-            {
-                "role": "system",
-                "content": f"You are a {agent_def['role']}. {role_desc}. Be concise and specific."
-            },
-            {
-                "role": "user",
-                "content": f"""Task: {agent_def['task']}
-Context: {json.dumps(context, indent=2)}
-
-Provide your analysis/output:"""
-            }
+            {"role": "system", "content": f"You are a {agent_def['role']}. {role_desc}. Be concise."},
+            {"role": "user", "content": f"Task: {agent_def['task']}\nContext: {json.dumps(context)}"}
         ]
         
         try:
-            response = client.chat.completions.create(
-                model="kimi-k2.5",
+            result = await KimiEngine.chat(
                 messages=messages,
-                temperature=0.7,
-                max_tokens=2048,
-                extra_body={"thinking": {"type": "disabled"}}  # Fast mode
+                mode="agent" if enable_search else "thinking",
+                enable_tools=enable_search
             )
             
             return {
                 "agent_id": agent_def["id"],
                 "role": agent_def["role"],
-                "task": agent_def["task"],
-                "output": response.choices[0].message.content,
-                "tokens_used": response.usage.total_tokens,
+                "output": result["content"],
+                "tool_results": result.get("tool_results", []),
+                "tokens": result["usage"]["total_tokens"],
                 "success": True
             }
         except Exception as e:
             return {
                 "agent_id": agent_def["id"],
                 "role": agent_def["role"],
-                "task": agent_def["task"],
-                "output": f"Error: {str(e)}",
-                "tokens_used": 0,
+                "output": str(e),
                 "success": False
             }
     
-    async def _synthesize_results(
-        self,
-        results: List[Dict],
-        master_task: str
-    ) -> str:
-        """Synthesize all agent outputs into coherent response"""
+    async def _synthesize(self, results: List[Dict], master_task: str) -> str:
+        """Synthesize agent outputs"""
         
-        # Sort by priority/success
         successful = [r for r in results if r.get("success")]
         
-        synthesis_input = "\n\n".join([
-            f"### {r['role'].upper()} (Agent {r['agent_id']})\n{r['output'][:800]}"
-            for r in successful[:6]  # Top 6 results
-        ])
-        
-        prompt = f"""Synthesize these expert analyses into a comprehensive final answer.
+        prompt = f"""Synthesize these agent outputs into a comprehensive answer.
 
-Master Task: {master_task}
+Task: {master_task}
 
-Agent Analyses:
-{synthesis_input}
+Agent Outputs:
+{json.dumps([{"role": r['role'], "output": r['output'][:500]} for r in successful], indent=2)}
 
-Provide a well-structured, actionable final response:"""
+Provide a well-structured final response:"""
 
         response = client.chat.completions.create(
             model="kimi-k2.5",
@@ -694,112 +991,208 @@ Provide a well-structured, actionable final response:"""
 # API ENDPOINTS
 # ============================================================================
 
-@app.post("/api/v5/chat", response_model=V51Response)
-@app.post("/api/v1/chat", response_model=V51Response)
+@app.post("/api/v1/chat")
 async def chat_endpoint(request: ChatRequest):
-    """
-    Main chat endpoint - supports all Kimi 2.5 modes
-    Backward compatible with existing frontend
-    """
+    """Main chat endpoint with tool execution"""
     try:
-        # Convert messages to dict format
         messages = [m.model_dump(exclude_none=True) for m in request.messages]
-        
-        # Determine if tools should be used
-        use_tools = request.mode == "agent"
         
         result = await KimiEngine.chat(
             messages=messages,
             mode=request.mode,
-            use_tools=use_tools,
+            enable_tools=request.enable_tools,
             stream=request.stream
         )
         
-        # Build V5.1 compatible response
-        response_data = {
-            "answer": result["content"],
-            "mode": result["mode"],
-            "reasoning": result.get("reasoning_content"),
-            "sources": result.get("tool_results", []),
-            "metadata": {
-                "model": "kimi-k2.5",
+        # Extract downloadable files
+        downloads = []
+        for output in result.get("tool_outputs", []):
+            if output.get("type") == "file":
+                downloads.append({
+                    "filename": output["filename"],
+                    "download_url": output["download_url"],
+                    "file_id": output["file_id"]
+                })
+        
+        return {
+            "success": True,
+            "response": {
+                "answer": result["content"],
+                "reasoning": result.get("reasoning_content"),
                 "mode": result["mode"],
-                "tokens_used": result["usage"],
-                "latency_ms": result.get("latency_ms"),
-                "tool_calls_count": len(result.get("tool_calls", []))
+                "downloads": downloads,
+                "search_results": [o for o in result.get("tool_outputs", []) if o.get("type") == "search"],
+                "metadata": {
+                    "tokens": result["usage"],
+                    "latency_ms": result["latency_ms"],
+                    "tool_calls": len(result.get("tool_calls", []))
+                }
             }
         }
-        
-        return V51Response(
-            success=True,
-            response=response_data
-        )
-        
     except Exception as e:
-        return V51Response(
-            success=False,
-            response={},
-            error=str(e)
-        )
+        return {"success": False, "error": str(e)}
 
-@app.post("/api/v1/swarm", response_model=V51Response)
-async def swarm_endpoint(request: SwarmTaskRequest):
-    """Agent Swarm endpoint for complex multi-agent tasks"""
+@app.post("/api/v1/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Streaming chat endpoint"""
+    messages = [m.model_dump(exclude_none=True) for m in request.messages]
+    
+    async def generate():
+        async for chunk in KimiEngine.stream_chat(
+            messages=messages,
+            mode=request.mode,
+            enable_tools=request.enable_tools
+        ):
+            yield chunk
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+@app.post("/api/v1/swarm")
+async def swarm_endpoint(request: SwarmRequest):
+    """Agent swarm for complex tasks"""
     try:
         swarm = AgentSwarm()
         result = await swarm.execute(
             master_task=request.master_task,
             context=request.context,
             num_agents=request.num_agents,
-            auto_synthesize=request.auto_synthesize
+            enable_search=request.enable_search
         )
         
-        return V51Response(
-            success=True,
-            response={
-                "answer": result.get("synthesized_output") or json.dumps(result["agent_outputs"]),
+        return {
+            "success": True,
+            "response": {
+                "answer": result["synthesis"],
                 "mode": "swarm",
+                "agents": result["agents_deployed"],
+                "subtasks": result["subtasks"],
+                "agent_results": result["agent_results"],
+                "latency_ms": result["latency_ms"],
                 "metadata": {
-                    "model": "kimi-k2.5",
-                    "mode": "swarm",
-                    "agents_deployed": result["agents_deployed"],
-                    "tokens_used": {"total": result["total_tokens"]},
-                    "latency_ms": result["latency_ms"],
-                    "subtasks": result["subtasks"]
-                },
-                "raw_results": result
-            }
-        )
-    except Exception as e:
-        return V51Response(success=False, response={}, error=str(e))
-
-@app.post("/api/v1/vision-to-code", response_model=V51Response)
-async def vision_to_code_endpoint(request: VisionCodeRequest):
-    """Convert UI images to complete code"""
-    try:
-        result = await KimiEngine.vision_to_code(
-            image_base64=request.image_base64,
-            requirements=request.requirements,
-            framework=request.framework
-        )
-        
-        return V51Response(
-            success=True,
-            response={
-                "answer": result["raw_response"],
-                "code_blocks": result["code_blocks"],
-                "mode": "vision_code",
-                "metadata": {
-                    "model": "kimi-k2.5",
-                    "mode": "vision_code",
-                    "framework": request.framework,
-                    "tokens_used": {"total": result["tokens_used"]},
-                    "reasoning": result.get("reasoning")
+                    "total_tokens": sum(r.get("tokens", 0) for r in result["agent_results"])
                 }
             }
-        )
+        }
     except Exception as e:
-        return V51Response(success=False, response={}, error=str(e))
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/search")
+async def search_endpoint(request: SearchRequest):
+    """Direct search endpoint"""
+    try:
+        results = await SearchAPIs.multi_search(request.query, request.sources)
+        return {"success": True, "results": results}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/research")
+async def research_endpoint(request: ResearchRequest):
+    """Deep research with report generation"""
+    try:
+        # Use swarm for comprehensive research
+        swarm = AgentSwarm()
+        result = await swarm.execute(
+            master_task=f"Research: {request.query}",
+            context={"depth": request.depth, "sources": request.sources},
+            num_agents=5 if request.depth == "deep" else 3,
+            enable_search=True
+        )
+        
+        response_data = {
+            "success": True,
+            "response": {
+                "answer": result["synthesis"],
+                "research_data": result,
+                "mode": "research"
+            }
+        }
+        
+        # Generate report file if requested
+        if request.generate_report:
+            report_content = f"""# Research Report: {request.query}
+
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+## Executive Summary
+
+{result["synthesis"][:2000]}
+
+## Detailed Findings
+
+"""
+            for agent_result in result["agent_results"]:
+                report_content += f"\n### {agent_result['role'].upper()} Analysis\n\n"
+                report_content += agent_result['output'][:1000] + "\n"
+            
+            filepath = FileGenerator.generate_word(
+                report_content,
+                title=f"Research: {request.query[:50]}"
+            )
+            file_id = uuid.uuid4().hex[:12]
+            ToolExecutor.generated_files[file_id] = filepath
+            
+            response_data["response"]["report_download"] = {
+                "file_id": file_id,
+                "filename": Path(filepath).name,
+                "download_url": f"/api/v1/download/{file_id}"
+            }
+        
+        return response_data
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/generate-file")
+async def generate_file_endpoint(request: FileGenRequest):
+    """Generate downloadable file"""
+    try:
+        if request.file_type == "excel":
+            filepath = FileGenerator.generate_excel(
+                json.loads(request.content) if isinstance(request.content, str) else request.content,
+                request.filename
+            )
+        elif request.file_type == "word":
+            filepath = FileGenerator.generate_word(
+                request.content,
+                request.title,
+                request.filename
+            )
+        elif request.file_type == "pdf":
+            filepath = FileGenerator.generate_pdf(
+                request.content,
+                request.title,
+                request.filename
+            )
+        else:
+            return {"success": False, "error": "Unsupported file type"}
+        
+        file_id = uuid.uuid4().hex[:12]
+        ToolExecutor.generated_files[file_id] = filepath
+        
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": Path(filepath).name,
+            "download_url": f"/api/v1/download/{file_id}"
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/v1/download/{file_id}")
+async def download_file(file_id: str):
+    """Download generated file"""
+    filepath = ToolExecutor.generated_files.get(file_id)
+    if not filepath or not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return FileResponse(
+        filepath,
+        filename=Path(filepath).name,
+        media_type="application/octet-stream"
+    )
 
 @app.post("/api/v1/multimodal")
 async def multimodal_endpoint(
@@ -807,7 +1200,7 @@ async def multimodal_endpoint(
     mode: str = Form("thinking"),
     image: Optional[UploadFile] = File(None)
 ):
-    """Handle text + image inputs"""
+    """Multimodal input (text + image)"""
     try:
         content = [{"type": "text", "text": text}]
         
@@ -816,10 +1209,7 @@ async def multimodal_endpoint(
             image_b64 = base64.b64encode(image_bytes).decode()
             content.append({
                 "type": "image_url",
-                "image_url": {
-                    "url": f"data:{image.content_type};base64,{image_b64}",
-                    "detail": "high"
-                }
+                "image_url": {"url": f"data:{image.content_type};base64,{image_b64}", "detail": "high"}
             })
         
         messages = [{"role": "user", "content": content}]
@@ -837,75 +1227,33 @@ async def multimodal_endpoint(
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@app.post("/api/v1/research")
-async def research_endpoint(request: ResearchRequest):
-    """Deep research endpoint using multiple sources"""
-    try:
-        # Use agent mode with search tools
-        messages = [{
-            "role": "user",
-            "content": f"Conduct {request.depth} research on: {request.query}. Focus on sources: {', '.join(request.sources)}"
-        }]
-        
-        result = await KimiEngine.chat(
-            messages=messages,
-            mode="agent",
-            use_tools=True
-        )
-        
-        return V51Response(
-            success=True,
-            response={
-                "answer": result["content"],
-                "sources": result.get("tool_results", []),
-                "mode": "research",
-                "metadata": {
-                    "tokens_used": result["usage"],
-                    "tool_calls": len(result.get("tool_calls", []))
-                }
-            }
-        )
-    except Exception as e:
-        return V51Response(success=False, response={}, error=str(e))
-
 @app.get("/api/v1/health")
 async def health_check():
-    """Health check with model info"""
+    """Health check"""
     return {
         "status": "healthy",
-        "version": "2.5.0",
+        "version": "2.5.1",
         "model": "kimi-k2.5",
         "capabilities": [
-            "instant_mode",
-            "thinking_mode", 
-            "agent_mode",
-            "swarm_mode",
-            "vision_code",
-            "multimodal",
-            "web_search",
-            "code_generation"
+            "instant_mode", "thinking_mode", "agent_mode", "swarm_mode", "research_mode",
+            "realtime_search", "file_generation", "multimodal", "streaming"
         ],
+        "apis_configured": {
+            "kimi": bool(KIMI_API_KEY),
+            "perplexity": bool(PERPLEXITY_API_KEY),
+            "exa": bool(EXA_API_KEY),
+            "youtube": bool(YOUTUBE_API_KEY),
+            "grok": bool(GROK_API_KEY)
+        },
         "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/")
 async def root():
     return {
-        "message": "McLeuker AI - Kimi 2.5 Backend",
+        "message": "McLeuker AI - Kimi 2.5 Complete",
         "docs": "/docs",
         "health": "/api/v1/health"
-    }
-
-# ============================================================================
-# ERROR HANDLING
-# ============================================================================
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    return {
-        "success": False,
-        "error": str(exc),
-        "timestamp": datetime.now().isoformat()
     }
 
 if __name__ == "__main__":

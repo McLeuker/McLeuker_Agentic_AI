@@ -966,14 +966,14 @@ function ProfileDropdown() {
     if (!user) return;
     const { data } = await supabase
       .from("users")
-      .select("name, profile_image, credit_balance, subscription_plan")
+      .select("name, profile_image, credits_balance, subscription_tier")
       .eq("id", user.id)
       .single();
     
     if (data) {
       setUserProfile({ name: data.name, profile_image: data.profile_image });
-      setCreditBalance(data.credit_balance || 50);
-      setPlan(data.subscription_plan || 'free');
+      setCreditBalance(data.credits_balance || 50);
+      setPlan(data.subscription_tier || 'free');
     }
   }, [user]);
 
