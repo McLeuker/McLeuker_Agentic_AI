@@ -282,7 +282,21 @@ function MessageContent({
     }
   };
 
-  // Enhanced markdown rendering with bullet points, numbered lists, and emojis
+  // Helper to validate and fix URLs
+  const ensureValidUrl = (url: string): string => {
+    if (!url || typeof url !== 'string') return '#';
+    const trimmed = url.trim();
+    // Already a valid absolute URL
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    // Protocol-relative URL
+    if (trimmed.startsWith('//')) return `https:${trimmed}`;
+    // Looks like a domain (e.g. "example.com/path")
+    if (/^[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}/.test(trimmed)) return `https://${trimmed}`;
+    // Relative path or malformed - return as-is with hash fallback
+    return trimmed.startsWith('/') ? trimmed : '#';
+  };
+
+  // Enhanced markdown rendering with bullet points, numbered lists, links, and emojis
   const renderContent = (text: string) => {
     const lines = text.split('\n');
     const elements: React.ReactNode[] = [];
@@ -290,12 +304,48 @@ function MessageContent({
     let listType: 'ul' | 'ol' | null = null;
     
     const processInlineFormatting = (line: string) => {
-      // Bold text
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      const parts = line.split(boldRegex);
-      return parts.map((part, j) => 
-        j % 2 === 1 ? <strong key={j} className="text-white font-medium">{part}</strong> : part
-      );
+      // Process markdown links [text](url) and bold **text** together
+      const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\*\*(.*?)\*\*/g;
+      const result: React.ReactNode[] = [];
+      let lastIndex = 0;
+      let match;
+      let keyIdx = 0;
+
+      while ((match = combinedRegex.exec(line)) !== null) {
+        // Add text before this match
+        if (match.index > lastIndex) {
+          result.push(line.slice(lastIndex, match.index));
+        }
+
+        if (match[1] && match[2]) {
+          // Markdown link: [text](url)
+          const href = ensureValidUrl(match[2]);
+          result.push(
+            <a
+              key={`link-${keyIdx++}`}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#7a8a6e] hover:text-[#9aaa8e] underline underline-offset-2 inline-flex items-center gap-0.5"
+            >
+              {match[1]}
+              <ExternalLink className="h-3 w-3 inline-block" />
+            </a>
+          );
+        } else if (match[3]) {
+          // Bold text: **text**
+          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-medium">{match[3]}</strong>);
+        }
+
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Add remaining text
+      if (lastIndex < line.length) {
+        result.push(line.slice(lastIndex));
+      }
+
+      return result.length > 0 ? result : [line];
     };
     
     const flushList = () => {
@@ -473,19 +523,32 @@ function MessageContent({
         <div className="mt-4 pt-4 border-t border-white/10">
           <p className="text-xs font-medium text-white/50 mb-2">Sources ({sources.length})</p>
           <div className="flex flex-wrap gap-2">
-            {sources.map((source, i) => (
-              <a
-                key={i}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
-              >
-                <Globe className="h-3 w-3" />
-                <span className="truncate max-w-[150px]">{source.title}</span>
-                <ExternalLink className="h-3 w-3 flex-shrink-0" />
-              </a>
-            ))}
+            {sources.map((source, i) => {
+              const validUrl = ensureValidUrl(source.url);
+              const isClickable = validUrl !== '#';
+              return isClickable ? (
+                <a
+                  key={i}
+                  href={validUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
+                >
+                  <Globe className="h-3 w-3" />
+                  <span className="truncate max-w-[150px]">{source.title || 'Source'}</span>
+                  <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                </a>
+              ) : (
+                <span
+                  key={i}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/50 cursor-default"
+                  title={source.url || 'No URL available'}
+                >
+                  <Globe className="h-3 w-3" />
+                  <span className="truncate max-w-[150px]">{source.title || 'Source'}</span>
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -534,13 +597,83 @@ function ChatSidebar({
   onDeleteConversation,
   onNewConversation,
 }: ChatSidebarProps) {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(new Set());
+  const [messageSnippets, setMessageSnippets] = useState<Record<string, string>>({});
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const filteredConversations = conversations.filter((conv) =>
-    conv.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Debounced search across chat_messages content
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (!searchQuery.trim() || !user) {
+      setMessageMatchIds(new Set());
+      setMessageSnippets({});
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('chat_messages')
+          .select('conversation_id, content, role')
+          .eq('user_id', user.id)
+          .ilike('content', `%${searchQuery.trim()}%`)
+          .limit(200);
+
+        if (!error && data) {
+          const ids = new Set<string>();
+          const snippets: Record<string, string> = {};
+          data.forEach((msg: any) => {
+            ids.add(msg.conversation_id);
+            // Keep first matching snippet per conversation
+            if (!snippets[msg.conversation_id]) {
+              const idx = msg.content.toLowerCase().indexOf(searchQuery.toLowerCase());
+              const start = Math.max(0, idx - 30);
+              const end = Math.min(msg.content.length, idx + searchQuery.length + 30);
+              snippets[msg.conversation_id] = (start > 0 ? '...' : '') + msg.content.slice(start, end) + (end < msg.content.length ? '...' : '');
+            }
+          });
+          setMessageMatchIds(ids);
+          setMessageSnippets(snippets);
+        }
+      } catch (e) {
+        console.error('Search error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchQuery, user]);
+
+  // Filter conversations by title match OR message content match
+  const filteredConversations = conversations.filter((conv) => {
+    if (!searchQuery.trim()) return true;
+    const titleMatch = conv.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const messageMatch = messageMatchIds.has(conv.id);
+    return titleMatch || messageMatch;
+  });
+
+  // Helper to highlight matching text
+  const highlightMatch = (text: string, query: string) => {
+    if (!query.trim()) return text;
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part)
+        ? <span key={i} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</span>
+        : part
+    );
+  };
 
   const handleDeleteClick = (e: React.MouseEvent, conversationId: string) => {
     e.stopPropagation();
@@ -625,6 +758,9 @@ function ChatSidebar({
                 "transition-all"
               )}
             />
+            {isSearching && (
+              <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40 animate-spin" />
+            )}
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
@@ -670,8 +806,13 @@ function ChatSidebar({
                   <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
                   <div className="flex-1 min-w-0 pr-6">
                     <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
-                      {conv.title}
+                      {searchQuery ? highlightMatch(conv.title, searchQuery) : conv.title}
                     </p>
+                    {searchQuery && messageSnippets[conv.id] && (
+                      <p className="text-[10px] text-white/50 mt-1 line-clamp-2 leading-relaxed">
+                        {highlightMatch(messageSnippets[conv.id], searchQuery)}
+                      </p>
+                    )}
                     <p className="text-[10px] text-white/45 mt-1.5">
                       {formatDistanceToNow(conv.updatedAt, { addSuffix: true })}
                     </p>
@@ -781,25 +922,31 @@ function ProfileDropdown() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
+  const fetchUserData = useCallback(async () => {
     if (!user) return;
+    const { data } = await supabase
+      .from("users")
+      .select("name, profile_image, credit_balance, subscription_plan")
+      .eq("id", user.id)
+      .single();
     
-    const fetchUserData = async () => {
-      const { data } = await supabase
-        .from("users")
-        .select("name, profile_image, credit_balance, subscription_plan")
-        .eq("id", user.id)
-        .single();
-      
-      if (data) {
-        setUserProfile({ name: data.name, profile_image: data.profile_image });
-        setCreditBalance(data.credit_balance || 50);
-        setPlan(data.subscription_plan || 'free');
-      }
-    };
-    
-    fetchUserData();
+    if (data) {
+      setUserProfile({ name: data.name, profile_image: data.profile_image });
+      setCreditBalance(data.credit_balance || 50);
+      setPlan(data.subscription_plan || 'free');
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchUserData();
+    
+    // Listen for profile updates from AccountOverview
+    const handleProfileUpdate = () => {
+      fetchUserData();
+    };
+    window.addEventListener('profile-updated', handleProfileUpdate);
+    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
+  }, [fetchUserData]);
 
   const handleSignOut = async () => {
     await signOut();

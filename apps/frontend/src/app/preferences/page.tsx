@@ -1,32 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import {
   Settings,
   FileText,
   Globe,
   Sparkles,
-  Clock,
   Check,
   ChevronLeft,
   LogOut,
+  Loader2,
 } from 'lucide-react';
 
 // Sectors configuration
@@ -39,30 +33,139 @@ const SECTORS = [
   { id: 'sustainability', label: 'Sustainability' },
 ];
 
+// Default preferences
+const DEFAULT_PREFERENCES = {
+  default_sector: 'fashion',
+  export_format: 'pdf',
+  output_style: 'strategic',
+  ai_detail: 'detailed',
+};
+
+interface UserPreferences {
+  default_sector: string;
+  export_format: string;
+  output_style: string;
+  ai_detail: string;
+}
+
 function PreferencesContent() {
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const { toast } = useToast();
 
-  const [currentSector, setCurrentSector] = useState('fashion');
-  const [exportFormat, setExportFormat] = useState('pdf');
-  const [outputStyle, setOutputStyle] = useState('strategic');
-  const [language, setLanguage] = useState('en');
-  const [timezone, setTimezone] = useState('Europe/Paris');
-  const [aiDetail, setAiDetail] = useState('detailed');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const [originalPreferences, setOriginalPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+
+  const hasChanges =
+    preferences.default_sector !== originalPreferences.default_sector ||
+    preferences.export_format !== originalPreferences.export_format ||
+    preferences.output_style !== originalPreferences.output_style ||
+    preferences.ai_detail !== originalPreferences.ai_detail;
+
+  // Load preferences from Supabase
+  const loadPreferences = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('preferences')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error loading preferences:', error);
+        return;
+      }
+
+      if (data?.preferences) {
+        const saved = typeof data.preferences === 'string'
+          ? JSON.parse(data.preferences)
+          : data.preferences;
+
+        const merged: UserPreferences = {
+          default_sector: saved.default_sector || DEFAULT_PREFERENCES.default_sector,
+          export_format: saved.export_format || DEFAULT_PREFERENCES.export_format,
+          output_style: saved.output_style || DEFAULT_PREFERENCES.output_style,
+          ai_detail: saved.ai_detail || DEFAULT_PREFERENCES.ai_detail,
+        };
+
+        setPreferences(merged);
+        setOriginalPreferences(merged);
+      }
+    } catch (error) {
+      console.error('Error loading preferences:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadPreferences();
+  }, [loadPreferences]);
 
   const handleSignOut = async () => {
     await signOut();
     router.push('/login');
   };
 
-  const handleSave = () => {
-    // In production, this would save to the database
-    toast({
-      title: 'Preferences saved',
-      description: 'Your workspace preferences have been updated.',
-    });
+  const handleSave = async () => {
+    if (!user || !hasChanges) return;
+
+    setSaving(true);
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          preferences: preferences,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      if (error) {
+        console.error('Error saving preferences:', error);
+        toast({
+          title: 'Save failed',
+          description: `Failed to save preferences: ${error.message}`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setOriginalPreferences({ ...preferences });
+
+      toast({
+        title: 'Preferences saved',
+        description: 'Your workspace preferences have been updated and will apply across sessions.',
+      });
+
+      // Dispatch event so other components can react to preference changes
+      window.dispatchEvent(new CustomEvent('preferences-updated', { detail: preferences }));
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+      toast({
+        title: 'Save failed',
+        description: 'An unexpected error occurred. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
+        <div className="flex items-center gap-3 text-white/60">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Loading preferences...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
@@ -114,8 +217,10 @@ function PreferencesContent() {
               </CardHeader>
               <CardContent>
                 <RadioGroup
-                  value={currentSector}
-                  onValueChange={setCurrentSector}
+                  value={preferences.default_sector}
+                  onValueChange={(value) =>
+                    setPreferences((prev) => ({ ...prev, default_sector: value }))
+                  }
                   className="grid grid-cols-2 sm:grid-cols-3 gap-3"
                 >
                   {SECTORS.map((sector) => (
@@ -123,14 +228,16 @@ function PreferencesContent() {
                       key={sector.id}
                       className={cn(
                         'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors',
-                        currentSector === sector.id
+                        preferences.default_sector === sector.id
                           ? 'border-white bg-white/[0.05]'
                           : 'border-white/[0.08] hover:border-white/30'
                       )}
                     >
                       <RadioGroupItem value={sector.id} className="sr-only" />
                       <span className="text-sm font-medium text-white">{sector.label}</span>
-                      {currentSector === sector.id && <Check className="h-4 w-4 ml-auto text-white" />}
+                      {preferences.default_sector === sector.id && (
+                        <Check className="h-4 w-4 ml-auto text-white" />
+                      )}
                     </Label>
                   ))}
                 </RadioGroup>
@@ -148,14 +255,16 @@ function PreferencesContent() {
               </CardHeader>
               <CardContent>
                 <RadioGroup
-                  value={exportFormat}
-                  onValueChange={setExportFormat}
+                  value={preferences.export_format}
+                  onValueChange={(value) =>
+                    setPreferences((prev) => ({ ...prev, export_format: value }))
+                  }
                   className="flex gap-4"
                 >
                   <Label
                     className={cn(
                       'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors flex-1',
-                      exportFormat === 'pdf'
+                      preferences.export_format === 'pdf'
                         ? 'border-white bg-white/[0.05]'
                         : 'border-white/[0.08] hover:border-white/30'
                     )}
@@ -165,12 +274,14 @@ function PreferencesContent() {
                       <span className="text-sm font-medium text-white">PDF</span>
                       <p className="text-xs text-white/60">Best for sharing</p>
                     </div>
-                    {exportFormat === 'pdf' && <Check className="h-4 w-4 ml-auto text-white" />}
+                    {preferences.export_format === 'pdf' && (
+                      <Check className="h-4 w-4 ml-auto text-white" />
+                    )}
                   </Label>
                   <Label
                     className={cn(
                       'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors flex-1',
-                      exportFormat === 'excel'
+                      preferences.export_format === 'excel'
                         ? 'border-white bg-white/[0.05]'
                         : 'border-white/[0.08] hover:border-white/30'
                     )}
@@ -180,7 +291,9 @@ function PreferencesContent() {
                       <span className="text-sm font-medium text-white">Excel</span>
                       <p className="text-xs text-white/60">Best for analysis</p>
                     </div>
-                    {exportFormat === 'excel' && <Check className="h-4 w-4 ml-auto text-white" />}
+                    {preferences.export_format === 'excel' && (
+                      <Check className="h-4 w-4 ml-auto text-white" />
+                    )}
                   </Label>
                 </RadioGroup>
               </CardContent>
@@ -199,14 +312,16 @@ function PreferencesContent() {
                 <div className="space-y-3">
                   <Label className="text-sm text-white/60">Response Tone</Label>
                   <RadioGroup
-                    value={outputStyle}
-                    onValueChange={setOutputStyle}
+                    value={preferences.output_style}
+                    onValueChange={(value) =>
+                      setPreferences((prev) => ({ ...prev, output_style: value }))
+                    }
                     className="flex gap-4"
                   >
                     <Label
                       className={cn(
                         'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors flex-1',
-                        outputStyle === 'strategic'
+                        preferences.output_style === 'strategic'
                           ? 'border-white bg-white/[0.05]'
                           : 'border-white/[0.08] hover:border-white/30'
                       )}
@@ -216,12 +331,14 @@ function PreferencesContent() {
                         <span className="text-sm font-medium text-white">Strategic</span>
                         <p className="text-xs text-white/60">High-level insights</p>
                       </div>
-                      {outputStyle === 'strategic' && <Check className="h-4 w-4 ml-auto text-white" />}
+                      {preferences.output_style === 'strategic' && (
+                        <Check className="h-4 w-4 ml-auto text-white" />
+                      )}
                     </Label>
                     <Label
                       className={cn(
                         'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors flex-1',
-                        outputStyle === 'operational'
+                        preferences.output_style === 'operational'
                           ? 'border-white bg-white/[0.05]'
                           : 'border-white/[0.08] hover:border-white/30'
                       )}
@@ -231,18 +348,26 @@ function PreferencesContent() {
                         <span className="text-sm font-medium text-white">Operational</span>
                         <p className="text-xs text-white/60">Actionable details</p>
                       </div>
-                      {outputStyle === 'operational' && <Check className="h-4 w-4 ml-auto text-white" />}
+                      {preferences.output_style === 'operational' && (
+                        <Check className="h-4 w-4 ml-auto text-white" />
+                      )}
                     </Label>
                   </RadioGroup>
                 </div>
 
                 <div className="space-y-3">
                   <Label className="text-sm text-white/60">Response Length</Label>
-                  <RadioGroup value={aiDetail} onValueChange={setAiDetail} className="flex gap-4">
+                  <RadioGroup
+                    value={preferences.ai_detail}
+                    onValueChange={(value) =>
+                      setPreferences((prev) => ({ ...prev, ai_detail: value }))
+                    }
+                    className="flex gap-4"
+                  >
                     <Label
                       className={cn(
                         'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors flex-1',
-                        aiDetail === 'concise'
+                        preferences.ai_detail === 'concise'
                           ? 'border-white bg-white/[0.05]'
                           : 'border-white/[0.08] hover:border-white/30'
                       )}
@@ -252,12 +377,14 @@ function PreferencesContent() {
                         <span className="text-sm font-medium text-white">Concise</span>
                         <p className="text-xs text-white/60">Quick answers</p>
                       </div>
-                      {aiDetail === 'concise' && <Check className="h-4 w-4 ml-auto text-white" />}
+                      {preferences.ai_detail === 'concise' && (
+                        <Check className="h-4 w-4 ml-auto text-white" />
+                      )}
                     </Label>
                     <Label
                       className={cn(
                         'flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors flex-1',
-                        aiDetail === 'detailed'
+                        preferences.ai_detail === 'detailed'
                           ? 'border-white bg-white/[0.05]'
                           : 'border-white/[0.08] hover:border-white/30'
                       )}
@@ -267,55 +394,11 @@ function PreferencesContent() {
                         <span className="text-sm font-medium text-white">Detailed</span>
                         <p className="text-xs text-white/60">Comprehensive analysis</p>
                       </div>
-                      {aiDetail === 'detailed' && <Check className="h-4 w-4 ml-auto text-white" />}
+                      {preferences.ai_detail === 'detailed' && (
+                        <Check className="h-4 w-4 ml-auto text-white" />
+                      )}
                     </Label>
                   </RadioGroup>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Language & Timezone */}
-            <Card className="border-white/[0.08] bg-[#1A1A1A]">
-              <CardHeader>
-                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
-                  <Clock className="h-5 w-5" />
-                  Language & Region
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-6 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label className="text-sm text-white/60">Language</Label>
-                    <Select value={language} onValueChange={setLanguage}>
-                      <SelectTrigger className="bg-[#0F0F0F] border-white/[0.08] text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="en">English</SelectItem>
-                        <SelectItem value="fr">Français</SelectItem>
-                        <SelectItem value="de">Deutsch</SelectItem>
-                        <SelectItem value="es">Español</SelectItem>
-                        <SelectItem value="it">Italiano</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm text-white/60">Timezone</Label>
-                    <Select value={timezone} onValueChange={setTimezone}>
-                      <SelectTrigger className="bg-[#0F0F0F] border-white/[0.08] text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Europe/Paris">Paris (CET)</SelectItem>
-                        <SelectItem value="Europe/London">London (GMT)</SelectItem>
-                        <SelectItem value="America/New_York">New York (EST)</SelectItem>
-                        <SelectItem value="America/Los_Angeles">Los Angeles (PST)</SelectItem>
-                        <SelectItem value="Asia/Tokyo">Tokyo (JST)</SelectItem>
-                        <SelectItem value="Asia/Shanghai">Shanghai (CST)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -324,10 +407,18 @@ function PreferencesContent() {
             <div className="flex justify-end">
               <Button
                 onClick={handleSave}
+                disabled={!hasChanges || saving}
                 size="lg"
-                className="bg-white text-black hover:bg-white/90"
+                className="bg-white text-black hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Save Preferences
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Preferences'
+                )}
               </Button>
             </div>
           </div>
