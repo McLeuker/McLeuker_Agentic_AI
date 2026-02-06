@@ -210,12 +210,14 @@ function MessageContent({
   content, 
   sources, 
   followUpQuestions,
-  onFollowUpClick 
+  onFollowUpClick,
+  searchQuery = ''
 }: { 
   content: string; 
   sources: Source[]; 
   followUpQuestions: string[];
   onFollowUpClick: (question: string) => void;
+  searchQuery?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(true);
@@ -296,12 +298,26 @@ function MessageContent({
     return trimmed.startsWith('/') ? trimmed : '#';
   };
 
+  // Helper: highlight search matches in a text string
+  const highlightSearchInText = (text: string, query: string): React.ReactNode[] => {
+    if (!query || !query.trim()) return [text];
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part)
+        ? <mark key={`hl-${i}`} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</mark>
+        : part
+    );
+  };
+
   // Enhanced markdown rendering with bullet points, numbered lists, links, and emojis
   const renderContent = (text: string) => {
     const lines = text.split('\n');
     const elements: React.ReactNode[] = [];
     let listItems: string[] = [];
     let listType: 'ul' | 'ol' | null = null;
+    let inCodeBlock = false;
     
     const processInlineFormatting = (line: string) => {
       // Process markdown links [text](url) and bold **text** together
@@ -312,13 +328,14 @@ function MessageContent({
       let keyIdx = 0;
 
       while ((match = combinedRegex.exec(line)) !== null) {
-        // Add text before this match
+        // Add text before this match (apply search highlighting to plain text)
         if (match.index > lastIndex) {
-          result.push(line.slice(lastIndex, match.index));
+          const plainText = line.slice(lastIndex, match.index);
+          result.push(...highlightSearchInText(plainText, searchQuery));
         }
 
         if (match[1] && match[2]) {
-          // Markdown link: [text](url)
+          // Markdown link: [text](url) - highlight inside link text
           const href = ensureValidUrl(match[2]);
           result.push(
             <a
@@ -328,24 +345,25 @@ function MessageContent({
               rel="noopener noreferrer"
               className="text-[#7a8a6e] hover:text-[#9aaa8e] underline underline-offset-2 inline-flex items-center gap-0.5"
             >
-              {match[1]}
+              {highlightSearchInText(match[1], searchQuery)}
               <ExternalLink className="h-3 w-3 inline-block" />
             </a>
           );
         } else if (match[3]) {
-          // Bold text: **text**
-          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-medium">{match[3]}</strong>);
+          // Bold text: **text** - highlight inside bold
+          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-medium">{highlightSearchInText(match[3], searchQuery)}</strong>);
         }
 
         lastIndex = match.index + match[0].length;
       }
 
-      // Add remaining text
+      // Add remaining text (apply search highlighting)
       if (lastIndex < line.length) {
-        result.push(line.slice(lastIndex));
+        const remaining = line.slice(lastIndex);
+        result.push(...highlightSearchInText(remaining, searchQuery));
       }
 
-      return result.length > 0 ? result : [line];
+      return result.length > 0 ? result : highlightSearchInText(line, searchQuery);
     };
     
     const flushList = () => {
@@ -366,6 +384,24 @@ function MessageContent({
     };
     
     lines.forEach((line, i) => {
+      // Code block toggle (``` fences) - skip highlighting inside code blocks
+      if (line.trim().startsWith('```')) {
+        flushList();
+        inCodeBlock = !inCodeBlock;
+        elements.push(
+          <div key={i} className="text-xs text-white/30 font-mono">{line}</div>
+        );
+        return;
+      }
+
+      // Inside code block - render as-is without search highlighting
+      if (inCodeBlock) {
+        elements.push(
+          <pre key={i} className="text-sm text-white/70 font-mono bg-white/5 px-3 py-0.5 leading-relaxed">{line}</pre>
+        );
+        return;
+      }
+
       // Empty line
       if (!line.trim()) {
         flushList();
@@ -373,20 +409,20 @@ function MessageContent({
         return;
       }
       
-      // Headers
+      // Headers (apply search highlighting)
       if (line.startsWith('### ')) {
         flushList();
-        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{line.slice(4)}</h3>);
+        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{highlightSearchInText(line.slice(4), searchQuery)}</h3>);
         return;
       }
       if (line.startsWith('## ')) {
         flushList();
-        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{line.slice(3)}</h2>);
+        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{highlightSearchInText(line.slice(3), searchQuery)}</h2>);
         return;
       }
       if (line.startsWith('# ')) {
         flushList();
-        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{line.slice(2)}</h1>);
+        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{highlightSearchInText(line.slice(2), searchQuery)}</h1>);
         return;
       }
       
@@ -586,6 +622,8 @@ interface ChatSidebarProps {
   onSelectConversation: (conv: Conversation) => void;
   onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
 }
 
 function ChatSidebar({
@@ -596,9 +634,11 @@ function ChatSidebar({
   onSelectConversation,
   onDeleteConversation,
   onNewConversation,
+  searchQuery,
+  onSearchQueryChange,
 }: ChatSidebarProps) {
   const { user } = useAuth();
-  const [searchQuery, setSearchQuery] = useState("");
+  const setSearchQuery = onSearchQueryChange;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
   const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(new Set());
@@ -1456,6 +1496,7 @@ function DashboardContent() {
   const [creditBalance, setCreditBalance] = useState(50);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1987,6 +2028,8 @@ function DashboardContent() {
         onSelectConversation={handleSelectConversation}
         onDeleteConversation={deleteConversation}
         onNewConversation={handleNewChat}
+        searchQuery={sidebarSearchQuery}
+        onSearchQueryChange={setSidebarSearchQuery}
       />
 
       {/* Main Content */}
@@ -2121,7 +2164,16 @@ function DashboardContent() {
                               ))}
                             </div>
                           )}
-                          <p className="text-white text-sm leading-relaxed">{message.content}</p>
+                          <p className="text-white text-sm leading-relaxed">{sidebarSearchQuery ? (() => {
+                            const escaped = sidebarSearchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const regex = new RegExp(`(${escaped})`, 'gi');
+                            const parts = message.content.split(regex);
+                            return parts.map((part: string, idx: number) =>
+                              regex.test(part)
+                                ? <mark key={idx} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</mark>
+                                : part
+                            );
+                          })() : message.content}</p>
                         </div>
                       )}
                       
@@ -2158,6 +2210,7 @@ function DashboardContent() {
                               sources={message.sources}
                               followUpQuestions={message.follow_up_questions}
                               onFollowUpClick={handleSendMessage}
+                              searchQuery={sidebarSearchQuery}
                             />
                           )}
                         </div>

@@ -107,6 +107,7 @@ export function AccountOverview() {
         
         const newUserData = {
           id: user.id,
+          user_id: user.id,
           email: user.email || '',
           name: user.user_metadata?.full_name || user.user_metadata?.name || '',
           auth_provider: user.app_metadata?.provider || 'email',
@@ -212,10 +213,14 @@ export function AccountOverview() {
       console.log('Saving profile updates:', updates);
 
       // Update users table
-      const { error: usersError } = await supabase
+      const { data: updatedData, error: usersError } = await supabase
         .from('users')
         .update(updates)
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select('profile_image, name, company, role')
+        .single();
+
+      console.log('Supabase update result:', { updatedData, usersError });
 
       if (usersError) {
         console.error('Users table update failed:', usersError);
@@ -226,6 +231,7 @@ export function AccountOverview() {
             .from('users')
             .insert({
               id: user.id,
+              user_id: user.id,
               email: user.email || '',
               name: formData.name.trim() || null,
               company: formData.company.trim() || null,
@@ -260,33 +266,38 @@ export function AccountOverview() {
         }
       }
 
-      // Update local state
+      // Update local state using the confirmed data from Supabase
+      const confirmedImage = updatedData?.profile_image ?? pendingImage ?? originalData.profile_image;
+      const confirmedName = updatedData?.name ?? formData.name.trim();
+      const confirmedCompany = updatedData?.company ?? formData.company.trim();
+      const confirmedRole = updatedData?.role ?? formData.role;
+
       setUserData((prev) =>
         prev
           ? {
               ...prev,
-              name: formData.name.trim(),
-              company: formData.company.trim(),
-              role: formData.role,
-              profile_image: pendingImage || prev.profile_image,
+              name: confirmedName,
+              company: confirmedCompany,
+              role: confirmedRole,
+              profile_image: confirmedImage,
             }
           : null
       );
 
       const newOriginalData = {
-        name: formData.name.trim(),
-        company: formData.company.trim(),
-        role: formData.role,
-        profile_image: pendingImage || originalData.profile_image,
+        name: confirmedName,
+        company: confirmedCompany,
+        role: confirmedRole,
+        profile_image: confirmedImage,
       };
 
       setOriginalData(newOriginalData);
-      setFormData((prev) => ({ 
-        ...prev, 
-        name: formData.name.trim(),
-        company: formData.company.trim(),
-        profile_image: pendingImage || prev.profile_image 
-      }));
+      setFormData({
+        name: confirmedName,
+        company: confirmedCompany,
+        role: confirmedRole,
+        profile_image: confirmedImage,
+      });
       setPendingImage(null);
 
       toast({
@@ -375,6 +386,7 @@ export function AccountOverview() {
               currentImage={pendingImage || formData.profile_image}
               name={formData.name}
               onImageSelect={(base64) => setPendingImage(base64)}
+              onError={(msg) => toast({ title: 'Image Error', description: msg, variant: 'destructive' })}
               disabled={saving}
             />
 

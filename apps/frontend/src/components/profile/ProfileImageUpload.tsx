@@ -8,13 +8,74 @@ interface ProfileImageUploadProps {
   currentImage: string | null;
   name: string;
   onImageSelect: (base64: string) => void;
+  onError?: (message: string) => void;
   disabled?: boolean;
+}
+
+/**
+ * Compress and resize an image to fit within maxSize x maxSize pixels
+ * and return a JPEG data URL with the specified quality.
+ * This keeps the base64 string small enough for Supabase text columns (~30-80KB).
+ */
+function compressImage(
+  file: File,
+  maxSize: number = 256,
+  quality: number = 0.75
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+
+      // Calculate new dimensions (maintain aspect ratio, fit within maxSize)
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxSize) {
+          height = Math.round(height * (maxSize / width));
+          width = maxSize;
+        }
+      } else {
+        if (height > maxSize) {
+          width = Math.round(width * (maxSize / height));
+          height = maxSize;
+        }
+      }
+
+      // Draw to canvas at reduced size
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Failed to get canvas context'));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Export as JPEG with quality setting
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(dataUrl);
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image'));
+    };
+
+    img.src = url;
+  });
 }
 
 export function ProfileImageUpload({
   currentImage,
   name,
   onImageSelect,
+  onError,
   disabled = false,
 }: ProfileImageUploadProps) {
   const [isHovering, setIsHovering] = useState(false);
@@ -36,36 +97,31 @@ export function ProfileImageUpload({
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
+      onError?.('Please select an image file (JPEG, PNG, GIF, WebP).');
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
+    // Validate file size (max 10MB raw - will be compressed)
+    if (file.size > 10 * 1024 * 1024) {
+      onError?.('Image is too large. Please select an image under 10MB.');
       return;
     }
 
     setIsProcessing(true);
 
     try {
-      // Convert to base64
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const base64 = e.target?.result as string;
-        onImageSelect(base64);
-        setIsProcessing(false);
-      };
-      reader.onerror = () => {
-        setIsProcessing(false);
-      };
-      reader.readAsDataURL(file);
+      // Compress and resize the image to keep base64 small (~30-80KB)
+      const compressedBase64 = await compressImage(file, 256, 0.75);
+      onImageSelect(compressedBase64);
     } catch (error) {
       console.error('Error processing image:', error);
+      onError?.('Failed to process image. Please try a different file.');
+    } finally {
       setIsProcessing(false);
-    }
-
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      // Reset input so the same file can be re-selected
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -74,7 +130,7 @@ export function ProfileImageUpload({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/gif,image/webp"
         onChange={handleFileSelect}
         className="hidden"
         disabled={disabled || isProcessing}
