@@ -10,7 +10,7 @@ const plans = [
   {
     name: "Starter",
     price: "Free",
-    description: "Perfect for exploring McLeuker AI capabilities",
+    description: "Explore fashion, beauty & lifestyle intelligence",
     features: [
       "5 research queries per month",
       "Basic trend reports",
@@ -25,14 +25,14 @@ const plans = [
     name: "Professional",
     price: "$99",
     period: "/month",
-    description: "For fashion professionals who need reliable insights",
+    description: "For professionals who need structured, source-backed research",
     features: [
       "100 research queries per month",
       "Advanced trend forecasting",
       "Supplier intelligence reports",
       "Market analysis",
       "Priority support",
-      "Export to PDF & Excel"
+      "Structured output formatting"
     ],
     cta: "Start Free Trial",
     href: "/signup",
@@ -41,7 +41,7 @@ const plans = [
   {
     name: "Enterprise",
     price: "Custom",
-    description: "Tailored solutions for large teams and organizations",
+    description: "Tailored intelligence workflows for large teams",
     features: [
       "Unlimited research queries",
       "Custom AI model training",
@@ -92,10 +92,10 @@ export default function PricingPage() {
               Pricing
             </p>
             <h1 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.92] mb-6 leading-[1.1]">
-              Simple, Transparent Pricing
+              Pricing
             </h1>
             <p className="text-white/65 text-lg lg:text-xl max-w-2xl mx-auto">
-              Choose the plan that fits your needs. Start free, upgrade when you're ready.
+              Built for fashion, beauty &amp; lifestyle research workflows. Start free and upgrade anytime.
             </p>
           </div>
         </div>
