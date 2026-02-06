@@ -31,7 +31,7 @@ class Settings:
     # Kimi K2.5 (Moonshot AI) - Execution Model
     KIMI_API_KEY: str = os.getenv("KIMI_API_KEY", "")
     KIMI_MODEL: str = os.getenv("KIMI_MODEL", "kimi-k2.5")
-    KIMI_API_BASE: str = os.getenv("KIMI_API_BASE", "https://api.moonshot.cn/v1")
+    KIMI_API_BASE: str = os.getenv("KIMI_API_BASE", "https://api.moonshot.ai/v1")
     KIMI_THINKING_ENABLED: bool = os.getenv("KIMI_THINKING_ENABLED", "true").lower() == "true"
     KIMI_MAX_TOKENS: int = int(os.getenv("KIMI_MAX_TOKENS", "32768"))
     

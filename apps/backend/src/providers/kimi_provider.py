@@ -86,7 +86,7 @@ class KimiProvider:
         self,
         api_key: Optional[str] = None,
         model: str = "kimi-k2.5",
-        base_url: str = "https://api.moonshot.cn/v1",
+        base_url: str = "https://api.moonshot.ai/v1",
         thinking_enabled: bool = True
     ):
         self.api_key = api_key or os.getenv("KIMI_API_KEY")

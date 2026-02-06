@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 GROK_API_KEY = os.getenv("GROK_API_KEY", "") or os.getenv("XAI_API_KEY", "")
 KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 GROK_BASE_URL = "https://api.x.ai/v1"
-KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 
 
 class ResponseStyle(Enum):

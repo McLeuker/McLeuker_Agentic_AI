@@ -106,7 +106,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 # Initialize Kimi client
 client = openai.OpenAI(
     api_key=KIMI_API_KEY,
-    base_url="https://api.moonshot.cn/v1"
+    base_url="https://api.moonshot.ai/v1"
 )
 
 # Directories

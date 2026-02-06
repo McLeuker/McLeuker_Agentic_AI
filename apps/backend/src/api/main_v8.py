@@ -48,7 +48,7 @@ EXA_API_KEY = os.getenv("EXA_API_KEY")
 
 kimi_client = openai.OpenAI(
     api_key=KIMI_API_KEY,
-    base_url="https://api.moonshot.cn/v1"
+    base_url="https://api.moonshot.ai/v1"
 ) if KIMI_API_KEY else None
 
 # =============================================================================
