@@ -1899,17 +1899,27 @@ class KimiEngine:
         
         response = client.chat.completions.create(**params)
         
+        full_content = ''
+        full_reasoning = ''
+        
         for chunk in response:
             delta = chunk.choices[0].delta
             
-            if delta.content:
-                yield f"data: {json.dumps({'type': 'content', 'data': delta.content})}\n\n"
-            elif delta.reasoning_content:
-                yield f"data: {json.dumps({'type': 'reasoning', 'data': delta.reasoning_content})}\n\n"
-            elif delta.tool_calls:
-                yield f"data: {json.dumps({'type': 'tool_call', 'data': 'Using tools...'})}\n\n"
+            content = getattr(delta, 'content', None)
+            reasoning = getattr(delta, 'reasoning_content', None)
+            tool_calls = getattr(delta, 'tool_calls', None)
+            
+            if content:
+                full_content += content
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': content}})}\n\n"
+            elif reasoning:
+                full_reasoning += reasoning
+                yield f"data: {json.dumps({'type': 'reasoning', 'data': {'chunk': reasoning}})}\n\n"
+            elif tool_calls:
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Using tools...'}})}\n\n"
         
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        # Send complete event with full content
+        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning}})}\n\n"
 
 # ============================================================================
 # AGENT SWARM
@@ -2191,7 +2201,7 @@ async def chat_endpoint(request: ChatRequest):
                 "metadata": {
                     "tokens": result["usage"],
                     "latency_ms": result["latency_ms"],
-                    "tool_calls": len(result.get("tool_calls", []))
+                    "tool_calls": len(result.get("tool_calls") or [])
                 }
             }
         }
