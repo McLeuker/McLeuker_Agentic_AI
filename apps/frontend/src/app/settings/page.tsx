@@ -49,9 +49,9 @@ function SettingsContent() {
               <span className="hidden sm:inline">Back to Dashboard</span>
             </Link>
           </div>
-          <Link href="/" className="flex items-center">
-            <span className="font-editorial text-xl lg:text-2xl text-white tracking-[0.02em]">
-              McLeuker
+          <Link href="/" className="flex items-center justify-center">
+            <span className="font-editorial text-xl lg:text-[22px] text-white tracking-[0.02em]">
+              McLeuker<span className="text-white/30">.ai</span>
             </span>
           </Link>
           <button
