@@ -611,28 +611,49 @@ class KimiContentGenerator:
 
     @staticmethod
     async def generate_excel_structure(prompt: str) -> Dict:
-        system_prompt = """You are an Excel data expert. Generate a JSON structure for an Excel spreadsheet.
+        # Extract the user's actual request vs search data
+        user_request = prompt
+        search_data = ""
+        if "--- REAL-TIME DATA FROM SEARCH ---" in prompt:
+            parts = prompt.split("--- REAL-TIME DATA FROM SEARCH ---")
+            user_request = parts[0].strip()
+            search_rest = parts[1] if len(parts) > 1 else ""
+            if "--- END SEARCH DATA ---" in search_rest:
+                search_data = search_rest.split("--- END SEARCH DATA ---")[0].strip()
+        
+        system_prompt = f"""You are a data extraction expert. Your job is to create an Excel spreadsheet JSON structure.
 
-You MUST return ONLY valid JSON (no markdown, no explanation, no ```). The JSON structure:
-{"sheets":[{"name":"Sheet1","title":"Title","headers":["Col1","Col2"],"rows":[["val1","val2"],["val3","val4"]],"formulas":[],"charts":[],"formatting":{"column_widths":{"A":25,"B":20}}}]}
+The user wants: {user_request}
+
+You MUST:
+1. Read the SEARCH DATA below carefully
+2. Extract REAL data points (names, numbers, URLs, dates) from the search results
+3. Create rows using ONLY real data from the search - NOT made-up data
+4. If the user asks for "influencers", give influencer names/handles/followers - NOT brand revenue
+5. If the user asks for "companies", give company data - NOT generic segments
+6. Match the data to EXACTLY what the user asked for
+
+Return ONLY valid JSON (no markdown, no ```, no explanation before or after):
+{{"sheets":[{{"name":"Sheet1","title":"Title","headers":["Col1","Col2"],"rows":[["val1","val2"]],"formulas":[],"charts":[],"formatting":{{"column_widths":{{"A":25,"B":20}}}}}}]}}
 
 RULES:
-- Return ONLY the JSON object, nothing else
-- Include 15-30 rows of realistic data with real names, numbers, dates
-- Use specific data from any search context provided
+- 15-30 rows of REAL data extracted from the search results
 - Every cell must have a value (no null/empty)
-- Numbers should be actual numbers, not strings
-- Dates should be strings like "2026-01-15"
+- Numbers should be actual numbers not strings
+- Headers must match what the user asked for
 """
+        
+        user_content = f"Create the Excel spreadsheet. Here is the search data to extract from:\n\n{search_data}" if search_data else f"Create the Excel spreadsheet for: {user_request}"
+        
         try:
             response = client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Create detailed Excel spreadsheet for: {prompt}"}
+                    {"role": "user", "content": user_content}
                 ],
-                temperature=0.5,
-                max_tokens=8000,
+                temperature=0.4,
+                max_tokens=10000,
                 extra_body={"thinking": {"type": "disabled"}}
             )
             raw = response.choices[0].message.content or ""
@@ -696,63 +717,36 @@ RULES:
         except Exception as e:
             logger.error(f"Excel structure generation error: {e}")
         
-        # Rich fallback with meaningful data based on prompt keywords
-        prompt_lower = prompt.lower()
-        if any(w in prompt_lower for w in ['fashion', 'brand', 'luxury', 'retail', 'clothing']):
-            return {"sheets": [{"name": "Fashion Market Data", "title": "Fashion Industry Analysis 2025-2026", "headers": ["Brand", "Category", "Revenue ($B)", "Growth %", "Market Share %", "Key Market", "Founded", "Employees"], "rows": [
-                ["LVMH", "Luxury Conglomerate", 86.2, 8.3, 12.1, "Europe", 1987, 213000],
-                ["Nike", "Athletic Wear", 51.2, 5.7, 7.2, "North America", 1964, 79400],
-                ["Inditex (Zara)", "Fast Fashion", 36.5, 10.4, 5.1, "Europe", 1985, 165000],
-                ["Kering (Gucci)", "Luxury", 19.6, -2.1, 2.8, "Europe", 1963, 49000],
-                ["Hermes", "Ultra Luxury", 15.2, 15.7, 2.1, "Global", 1837, 22000],
-                ["Adidas", "Athletic Wear", 24.1, 3.2, 3.4, "Europe", 1949, 59000],
-                ["H&M", "Fast Fashion", 22.8, 1.5, 3.2, "Europe", 1947, 143000],
-                ["Chanel", "Luxury", 19.4, 12.3, 2.7, "Global", 1910, 32000],
-                ["Prada Group", "Luxury", 5.1, 17.2, 0.7, "Europe", 1913, 14000],
-                ["Shein", "Ultra Fast Fashion", 32.5, 25.1, 4.6, "Global", 2008, 16000],
-                ["Uniqlo (Fast Retailing)", "Casual Wear", 21.3, 8.9, 3.0, "Asia", 1984, 57000],
-                ["Ralph Lauren", "Premium", 6.6, 3.1, 0.9, "North America", 1967, 26000],
-                ["Burberry", "Luxury", 3.9, -4.2, 0.5, "Europe", 1856, 9000],
-                ["Lululemon", "Athleisure", 9.8, 12.6, 1.4, "North America", 1998, 38000],
-                ["Tapestry (Coach)", "Accessible Luxury", 6.7, 2.0, 0.9, "North America", 1941, 18900],
-            ], "formulas": [], "charts": [{"type": "bar", "title": "Revenue by Brand", "data_range": "A1:C16", "position": "J2"}], "formatting": {"column_widths": {"A": 28, "B": 22, "C": 15, "D": 12, "E": 15, "F": 16, "G": 12, "H": 14}}}]}
-        elif any(w in prompt_lower for w in ['tech', 'software', 'ai', 'company', 'startup']):
-            return {"sheets": [{"name": "Tech Companies", "title": "Technology Industry Overview 2025-2026", "headers": ["Company", "Sector", "Revenue ($B)", "Market Cap ($B)", "Employees", "YoY Growth %", "HQ", "CEO"], "rows": [
-                ["Apple", "Consumer Electronics", 394.3, 3450, 164000, 4.2, "Cupertino, CA", "Tim Cook"],
-                ["Microsoft", "Software/Cloud", 245.1, 3200, 228000, 15.7, "Redmond, WA", "Satya Nadella"],
-                ["Alphabet", "Search/Cloud/AI", 339.9, 2100, 182000, 13.6, "Mountain View, CA", "Sundar Pichai"],
-                ["Amazon", "E-commerce/Cloud", 637.5, 2050, 1540000, 11.8, "Seattle, WA", "Andy Jassy"],
-                ["NVIDIA", "Semiconductors/AI", 130.5, 3100, 32000, 122.4, "Santa Clara, CA", "Jensen Huang"],
-                ["Meta", "Social Media/AI", 164.5, 1500, 72000, 21.9, "Menlo Park, CA", "Mark Zuckerberg"],
-                ["Tesla", "EV/Energy/AI", 97.7, 1200, 140000, 1.3, "Austin, TX", "Elon Musk"],
-                ["Samsung", "Electronics", 211.2, 380, 267000, 5.4, "Seoul, Korea", "Jong-Hee Han"],
-                ["TSMC", "Semiconductor Fab", 89.4, 850, 76000, 33.9, "Hsinchu, Taiwan", "C.C. Wei"],
-                ["Oracle", "Enterprise Software", 62.8, 420, 164000, 18.2, "Austin, TX", "Safra Catz"],
-                ["Salesforce", "CRM/Cloud", 37.9, 280, 73000, 10.3, "San Francisco, CA", "Marc Benioff"],
-                ["Adobe", "Creative Software", 21.5, 230, 30000, 11.1, "San Jose, CA", "Shantanu Narayen"],
-                ["Intel", "Semiconductors", 54.2, 110, 124800, -8.7, "Santa Clara, CA", "Lip-Bu Tan"],
-                ["IBM", "Enterprise IT", 62.8, 210, 288000, 3.5, "Armonk, NY", "Arvind Krishna"],
-                ["Broadcom", "Semiconductors", 51.6, 780, 20000, 44.2, "San Jose, CA", "Hock Tan"],
-            ], "formulas": [], "charts": [{"type": "bar", "title": "Revenue Comparison", "data_range": "A1:C16", "position": "J2"}], "formatting": {"column_widths": {"A": 20, "B": 22, "C": 15, "D": 16, "E": 14, "F": 14, "G": 20, "H": 20}}}]}
+        # Dynamic fallback - use user_request to create appropriate structure
+        logger.warning(f"Using dynamic fallback for: {user_request[:100]}")
+        req_lower = user_request.lower()
+        
+        # Try to create a relevant fallback based on what the user actually asked for
+        if 'influencer' in req_lower:
+            title = f"Influencer Data: {user_request[:50]}"
+            headers = ["Name", "Instagram Handle", "Followers", "Engagement Rate %", "Niche", "Location", "Avg Likes", "Contact/Agency"]
+            rows = [
+                ["Data unavailable", "@unknown", 0, 0, "Fashion", "Unknown", 0, "N/A"],
+                ["Please try again", "@retry", 0, 0, "Fashion", "Unknown", 0, "Search may have timed out"],
+            ]
+        elif any(w in req_lower for w in ['company', 'brand', 'business']):
+            title = f"Company Data: {user_request[:50]}"
+            headers = ["Company", "Industry", "Revenue", "Employees", "Location", "Founded", "Website"]
+            rows = [
+                ["Data unavailable", "Unknown", 0, 0, "Unknown", 0, "N/A"],
+                ["Please try again", "Unknown", 0, 0, "Unknown", 0, "Search may have timed out"],
+            ]
         else:
-            return {"sheets": [{"name": "Analysis", "title": f"Data Analysis: {prompt[:60]}", "headers": ["Category", "Item", "Value", "Percentage", "Trend", "Status", "Notes"], "rows": [
-                ["Market Overview", "Total Market Size", 450.5, 100.0, "Growing", "Active", "Based on latest data"],
-                ["Market Overview", "YoY Growth Rate", 8.3, 8.3, "Accelerating", "Positive", "Above industry average"],
-                ["Segment A", "Revenue", 125.2, 27.8, "Growing", "Strong", "Leading segment"],
-                ["Segment A", "Market Share", 34.5, 34.5, "Stable", "Dominant", "Top 3 position"],
-                ["Segment B", "Revenue", 98.7, 21.9, "Growing", "Moderate", "Emerging growth"],
-                ["Segment B", "Market Share", 22.1, 22.1, "Increasing", "Positive", "Gaining traction"],
-                ["Segment C", "Revenue", 76.3, 16.9, "Stable", "Neutral", "Mature segment"],
-                ["Segment C", "Market Share", 18.7, 18.7, "Stable", "Neutral", "Consistent performance"],
-                ["Segment D", "Revenue", 62.1, 13.8, "Declining", "Warning", "Needs attention"],
-                ["Segment D", "Market Share", 12.3, 12.3, "Decreasing", "At Risk", "Competitive pressure"],
-                ["Segment E", "Revenue", 45.8, 10.2, "Growing", "Emerging", "New opportunity"],
-                ["Segment E", "Market Share", 8.9, 8.9, "Increasing", "Positive", "Early stage growth"],
-                ["Region: North America", "Revenue", 180.2, 40.0, "Stable", "Strong", "Largest market"],
-                ["Region: Europe", "Revenue", 135.1, 30.0, "Growing", "Moderate", "Second largest"],
-                ["Region: Asia Pacific", "Revenue", 90.1, 20.0, "Fast Growing", "Strong", "Highest growth rate"],
-                ["Region: Rest of World", "Revenue", 45.1, 10.0, "Growing", "Emerging", "Developing markets"],
-            ], "formulas": [], "charts": [{"type": "bar", "title": "Revenue by Segment", "data_range": "A1:C17", "position": "I2"}], "formatting": {"column_widths": {"A": 25, "B": 20, "C": 12, "D": 14, "E": 14, "F": 12, "G": 25}}}]}
+            title = f"Data: {user_request[:50]}"
+            headers = ["Item", "Category", "Value", "Details", "Source", "Notes"]
+            rows = [
+                ["Data unavailable", "N/A", 0, "Search data could not be parsed", "N/A", "Please try again"],
+                ["Retry suggested", "N/A", 0, "The AI could not generate structured data", "N/A", "Try rephrasing your request"],
+            ]
+        
+        col_letters = [chr(65 + i) for i in range(len(headers))]
+        col_widths = {col_letters[i]: max(20, len(str(h)) + 5) for i, h in enumerate(headers)}
+        return {"sheets": [{"name": "Data", "title": title, "headers": headers, "rows": rows, "formulas": [], "charts": [], "formatting": {"column_widths": col_widths}}]}
 
     @staticmethod
     async def generate_presentation_structure(prompt: str) -> Dict:
@@ -2792,37 +2786,64 @@ class KimiEngine:
         search_sources_data = []
         
         if not is_trivial and user_msg_original:
-            # Dynamic Manus-style task breakdown - analyze the query to create meaningful steps
-            task_steps = []
-            try:
-                # Quick task decomposition using lightweight LLM call
-                decomp_response = client.chat.completions.create(
-                    model="kimi-k2.5",
-                    messages=[{"role": "user", "content": f"""Break this user question into 3-5 research steps. Return ONLY a JSON array of objects with 'title' and 'detail' fields. Keep titles under 8 words, details under 15 words. Be specific to the actual question.
-
-Question: {user_msg_original[:200]}
-
-Example: [{"title":"Analyzing Tesla Q4 earnings data","detail":"Reviewing revenue, margins, and delivery numbers"},{"title":"Comparing with industry benchmarks","detail":"Cross-referencing competitor performance"}]"""}],
-                    temperature=0.3,
-                    max_tokens=300,
-                    extra_body={"thinking": {"type": "disabled"}}
-                )
-                decomp_text = decomp_response.choices[0].message.content.strip()
-                arr_match = re.search(r'\[.*\]', decomp_text, re.DOTALL)
-                if arr_match:
-                    task_steps = json.loads(arr_match.group())
-            except Exception as decomp_err:
-                logger.warning(f"Task decomposition failed: {decomp_err}")
+            # Fast keyword-based task decomposition (no LLM call - instant)
+            topic = user_msg_original[:60].strip()
+            topic_short = user_msg_original[:30].strip()
             
-            # Fallback if decomposition failed
-            if not task_steps or len(task_steps) < 2:
-                # Create context-aware fallback steps
-                topic = user_msg_original[:60]
+            # Detect query type for specific steps
+            q = user_msg.lower()
+            is_comparison = any(w in q for w in ['compare', 'vs', 'versus', 'difference', 'better'])
+            is_list = any(w in q for w in ['list', 'top', 'best', 'ranking', 'influencer', 'who are'])
+            is_how = any(w in q for w in ['how to', 'how do', 'guide', 'tutorial', 'steps'])
+            is_analysis = any(w in q for w in ['analyze', 'analysis', 'trend', 'market', 'forecast', 'predict'])
+            is_news = any(w in q for w in ['latest', 'recent', 'news', 'update', '2025', '2026', 'today'])
+            
+            if is_comparison:
                 task_steps = [
-                    {"title": f"Analyzing request about {topic[:30]}...", "detail": "Breaking down the key aspects of your question"},
-                    {"title": "Searching across multiple sources", "detail": "Querying Perplexity, Google, and Exa for current data"},
-                    {"title": "Cross-referencing and verifying data", "detail": "Checking facts across different sources"},
-                    {"title": "Synthesizing comprehensive response", "detail": "Combining findings into a structured answer"}
+                    {"title": f"Understanding comparison: {topic_short}", "detail": "Identifying the key entities and criteria to compare"},
+                    {"title": "Searching for current data on each entity", "detail": "Querying Perplexity, Google, and Exa"},
+                    {"title": "Building comparison matrix", "detail": "Organizing data points side by side"},
+                    {"title": "Analyzing strengths and weaknesses", "detail": "Evaluating each entity across criteria"},
+                    {"title": "Generating structured comparison", "detail": "Creating clear, actionable summary"}
+                ]
+            elif is_list:
+                task_steps = [
+                    {"title": f"Parsing request: {topic_short}", "detail": "Identifying what items to find and rank"},
+                    {"title": "Searching across multiple databases", "detail": "Querying Perplexity, Google, Exa for current lists"},
+                    {"title": "Extracting names, stats, and details", "detail": "Pulling real data from search results"},
+                    {"title": "Ranking and organizing results", "detail": "Sorting by relevance and metrics"},
+                    {"title": "Compiling final list with details", "detail": "Adding context and verification"}
+                ]
+            elif is_how:
+                task_steps = [
+                    {"title": f"Understanding: {topic_short}", "detail": "Breaking down the task into components"},
+                    {"title": "Searching for expert guides", "detail": "Finding authoritative how-to sources"},
+                    {"title": "Extracting step-by-step instructions", "detail": "Compiling actionable steps"},
+                    {"title": "Adding tips and best practices", "detail": "Including expert recommendations"},
+                    {"title": "Structuring comprehensive guide", "detail": "Organizing into clear sections"}
+                ]
+            elif is_analysis:
+                task_steps = [
+                    {"title": f"Scoping analysis: {topic_short}", "detail": "Defining key metrics and dimensions"},
+                    {"title": "Gathering market data and statistics", "detail": "Searching multiple data sources"},
+                    {"title": "Identifying patterns and trends", "detail": "Analyzing data for insights"},
+                    {"title": "Cross-referencing with industry reports", "detail": "Validating findings"},
+                    {"title": "Synthesizing analytical summary", "detail": "Creating actionable conclusions"}
+                ]
+            elif is_news:
+                task_steps = [
+                    {"title": f"Identifying topic: {topic_short}", "detail": "Parsing your question for key subjects"},
+                    {"title": "Searching latest news and updates", "detail": "Querying real-time news sources"},
+                    {"title": "Verifying across multiple sources", "detail": "Cross-checking facts and dates"},
+                    {"title": "Compiling timeline of developments", "detail": "Organizing by recency"},
+                    {"title": "Generating current briefing", "detail": "Summarizing key developments"}
+                ]
+            else:
+                task_steps = [
+                    {"title": f"Analyzing: {topic_short}", "detail": "Understanding the key aspects of your question"},
+                    {"title": "Searching real-time sources", "detail": "Querying Perplexity, Google, and Exa"},
+                    {"title": "Cross-referencing and verifying", "detail": "Checking facts across sources"},
+                    {"title": "Synthesizing comprehensive answer", "detail": "Combining findings into structured response"}
                 ]
             
             # Send first step as complete (understanding)
@@ -2964,9 +2985,12 @@ IMPORTANT INSTRUCTIONS:
             params["tool_choice"] = "auto"
         
         try:
-            # For thinking mode, set a reasonable timeout and add max_tokens
-            if mode == 'thinking' and 'max_tokens' not in params:
-                params['max_tokens'] = 4096
+            # Set max_tokens for all modes to prevent infinite generation
+            if 'max_tokens' not in params:
+                params['max_tokens'] = 4096 if mode == 'thinking' else 2048
+            
+            # Add timeout for thinking mode (it can take very long)
+            logger.info(f"Starting LLM call with mode={mode}, max_tokens={params.get('max_tokens')}")
             response = client.chat.completions.create(**params)
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
@@ -2980,7 +3004,13 @@ IMPORTANT INSTRUCTIONS:
         collected_tool_calls = {}  # index -> {id, function: {name, arguments}}
         downloads = []
         
-        for chunk in response:
+        # Mark the generating step as active
+        if not is_trivial and task_steps:
+            last_idx = len(task_steps) - 1
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': f'step_{last_idx}', 'title': task_steps[last_idx].get('title', 'Generating response'), 'status': 'active', 'detail': 'AI model is composing the response...'}})}\n\n"
+        
+        try:
+          for chunk in response:
             delta = chunk.choices[0].delta
             finish_reason = chunk.choices[0].finish_reason
             
@@ -3215,6 +3245,16 @@ IMPORTANT INSTRUCTIONS:
                         full_content += error_msg
                         yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
                         break
+        except Exception as stream_err:
+          logger.error(f"Streaming error: {stream_err}")
+          if not full_content:
+              full_content = f"I encountered an error while generating the response. Please try again."
+              yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': full_content}})}\n\n"
+        
+        # Mark all task steps as complete
+        if not is_trivial and task_steps:
+            for i in range(len(task_steps)):
+                yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': f'step_{i}', 'title': task_steps[i].get('title', ''), 'status': 'complete'}})}\n\n"
         
         # Send sources as individual source events for frontend
         if search_sources_data:
@@ -3403,31 +3443,29 @@ Response summary: {full_content[:300]}"""}],
             
             # Step 4: Generate a rich conclusion/analysis using Kimi
             ft_name = file_type_names.get(file_type, 'file')
-            search_summary = search_context[:500] if search_context else 'general knowledge'
             
-            conclusion_prompt = f"""I just created a {ft_name} for the user about: {user_msg}
-
-The file was populated using real-time search data. Here's a summary of the data used:
-{search_summary}
-
-Write a comprehensive conclusion that:
-1. Summarizes what the {ft_name} contains (specific data points, number of entries, key metrics)
-2. Highlights 3-5 key findings or insights from the data
-3. Mentions any notable trends or patterns
-4. Suggests how the user can use this data
-
-Format with markdown headings, bullet points, and bold text. Be specific - reference actual data points from the search results. Write 150-250 words."""
+            # Build a specific conclusion prompt with actual search data
+            source_titles = [s.get('title', '') for s in search_sources_data[:5] if s.get('title')]
+            source_list_str = ', '.join(source_titles) if source_titles else 'multiple web sources'
+            search_snippet = search_context[:800] if search_context else ''
             
+            conclusion_prompt = f"""Write a brief analysis (150 words max) about a {ft_name} I created for: \"{user_msg}\"
+
+Data sources used: {source_list_str}
+Search data snippet: {search_snippet[:400]}
+
+Format: Start with ## heading, then 3-4 bullet points of key findings, then a brief recommendation. Use **bold** for emphasis. Be specific to the topic."""
+            
+            full_summary = ""
             try:
                 summary_response = client.chat.completions.create(
                     model="kimi-k2.5",
                     messages=[{"role": "user", "content": conclusion_prompt}],
                     temperature=0.5,
-                    max_tokens=600,
+                    max_tokens=400,
                     stream=True,
                     extra_body={"thinking": {"type": "disabled"}}
                 )
-                full_summary = ""
                 for s_chunk in summary_response:
                     s_delta = s_chunk.choices[0].delta
                     s_content = getattr(s_delta, 'content', None)
@@ -3436,7 +3474,10 @@ Format with markdown headings, bullet points, and bold text. Be specific - refer
                         yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': s_content}})}\n\n"
             except Exception as sum_err:
                 logger.warning(f"Conclusion generation failed: {sum_err}")
-                full_summary = f"## {ft_name.title()} Generated Successfully\n\nYour **{ft_name}** has been created with real-time data from {len(search_sources_data)} sources. The file contains detailed analysis based on the latest available information about your query. Click the download button above to save it.\n\n**Key highlights:**\n- Data sourced from multiple real-time search engines\n- Formatted with professional styling and charts\n- Ready for immediate use in presentations or reports"
+            
+            # If conclusion failed or is empty, generate a specific fallback
+            if not full_summary or len(full_summary) < 30:
+                full_summary = f"## {ft_name.title()} Generated\n\nYour **{ft_name}** about *{user_msg[:80]}* has been created using data from **{len(search_sources_data)} real-time sources** including {source_list_str[:100]}.\n\n**What's inside:**\n- Real-time data extracted from search results\n- Professional formatting with styled headers and data validation\n- Ready for immediate use in presentations or analysis\n\n**Recommendation:** Review the data and cross-reference with your own sources for the most accurate insights."
                 yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': full_summary}})}\n\n"
             
             # Generate follow-up questions for file generation too
