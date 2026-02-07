@@ -28,17 +28,17 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://web-production-29f3c.up.railway.app";
 
-// Domain images for the side panel
+// Domain images for the Research Modules side panel (different from Weekly Intelligence)
 const domainImages: Record<string, string> = {
-  fashion: "/images/domains/fashion.jpg",
-  beauty: "/images/domains/beauty.jpg",
-  skincare: "/images/domains/skincare.jpg",
-  sustainability: "/images/domains/sustainability.jpg",
-  "fashion-tech": "/images/domains/fashion-tech.jpg",
-  catwalks: "/images/domains/catwalks.jpg",
-  culture: "/images/domains/culture.jpg",
-  textile: "/images/domains/textile.jpg",
-  lifestyle: "/images/domains/lifestyle.jpg",
+  fashion: "/images/domains/modules/fashion.jpg",
+  beauty: "/images/domains/modules/beauty.jpg",
+  skincare: "/images/domains/modules/skincare.jpg",
+  sustainability: "/images/domains/modules/sustainability.jpg",
+  "fashion-tech": "/images/domains/modules/fashion-tech.jpg",
+  catwalks: "/images/domains/modules/catwalks.jpg",
+  culture: "/images/domains/modules/culture.jpg",
+  textile: "/images/domains/modules/textile.jpg",
+  lifestyle: "/images/domains/modules/lifestyle.jpg",
 };
 
 // Icon mapping for modules
@@ -212,7 +212,7 @@ export function DomainModules({ sector, onModuleClick }: DomainModulesProps) {
             </span>
           </div>
           <h2 className="font-serif text-3xl md:text-4xl text-white/[0.95] tracking-tight">
-            Intelligence Modules
+            Research Modules
           </h2>
           <p className="text-[15px] text-white/40 max-w-lg leading-relaxed mt-1">
             Explore specialized research tracks with live data previews.
@@ -321,7 +321,7 @@ export function DomainModules({ sector, onModuleClick }: DomainModulesProps) {
               <div className="relative aspect-[3/4] rounded-2xl overflow-hidden">
                 <Image
                   src={domainImage}
-                  alt={`${sector} intelligence modules`}
+                  alt={`${sector} research modules`}
                   fill
                   className="object-cover grayscale"
                   sizes="33vw"

@@ -100,7 +100,7 @@ export default function DomainLandingPage() {
           onInsightClick={handlePromptClick}
         />
 
-        {/* Intelligence Modules - Deep dive research tracks */}
+        {/* Research Modules - Deep dive research tracks */}
         <DomainModules
           sector={currentSector}
           onModuleClick={handlePromptClick}

@@ -9,17 +9,17 @@ import Image from "next/image";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://web-production-29f3c.up.railway.app";
 
-// Domain-specific images (black & white)
+// Domain-specific images for Weekly Intelligence (black & white, no text)
 const domainImages: Record<string, string> = {
-  fashion: "/images/domains/fashion.jpg",
-  beauty: "/images/domains/beauty.jpg",
-  skincare: "/images/domains/skincare.jpg",
-  sustainability: "/images/domains/sustainability.jpg",
-  "fashion-tech": "/images/domains/fashion-tech.jpg",
-  catwalks: "/images/domains/catwalks.jpg",
-  culture: "/images/domains/culture.jpg",
-  textile: "/images/domains/textile.jpg",
-  lifestyle: "/images/domains/lifestyle.jpg",
+  fashion: "/images/domains/weekly/fashion.jpg",
+  beauty: "/images/domains/weekly/beauty.jpg",
+  skincare: "/images/domains/weekly/skincare.jpg",
+  sustainability: "/images/domains/weekly/sustainability.jpg",
+  "fashion-tech": "/images/domains/weekly/fashion-tech.jpg",
+  catwalks: "/images/domains/weekly/catwalks.jpg",
+  culture: "/images/domains/weekly/culture.jpg",
+  textile: "/images/domains/weekly/textile.jpg",
+  lifestyle: "/images/domains/weekly/lifestyle.jpg",
 };
 
 // Category color accents (subtle, on-brand)
