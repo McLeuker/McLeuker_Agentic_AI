@@ -3340,6 +3340,242 @@ async def multimodal_endpoint(
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# ============================================================================
+# WEEKLY INSIGHTS - Real-time domain intelligence
+# ============================================================================
+
+# In-memory cache for weekly insights (domain -> {data, timestamp})
+_weekly_insights_cache: Dict[str, Dict[str, Any]] = {}
+WEEKLY_INSIGHTS_CACHE_TTL = 3600  # 1 hour cache
+
+DOMAIN_INSIGHT_PROMPTS: Dict[str, str] = {
+    "fashion": """You are a fashion industry intelligence analyst. Research and provide 8 of the most significant fashion industry developments from the PAST 7 DAYS (the week ending today). Focus on:
+- Major runway shows, fashion week highlights (NYFW, Milan, Paris, London, Berlin)
+- Designer appointments, creative director changes
+- Luxury brand business moves (acquisitions, IPOs, earnings)
+- Emerging trend signals from street style and social media
+- Celebrity fashion moments that drove conversation
+- Retail and e-commerce shifts
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "beauty": """You are a beauty industry intelligence analyst. Research and provide 8 of the most significant beauty industry developments from the PAST 7 DAYS. Focus on:
+- New product launches and brand collaborations
+- Beauty brand earnings and business news
+- Backstage beauty trends from fashion weeks
+- Viral beauty moments on social media (TikTok, Instagram)
+- K-beauty and J-beauty innovations
+- Clean beauty and ingredient science news
+- Celebrity beauty brand updates
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "skincare": """You are a skincare and dermatology intelligence analyst. Research and provide 8 of the most significant skincare developments from the PAST 7 DAYS. Focus on:
+- Clinical skincare breakthroughs and ingredient innovations
+- Dermatologist-backed trend analysis
+- Regulatory changes affecting skincare products
+- Viral skincare routines and product reviews
+- PDRN, peptide, and active ingredient news
+- Brand launches targeting specific skin concerns
+- Sunscreen and anti-aging research updates
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "sustainability": """You are a sustainable fashion intelligence analyst. Research and provide 8 of the most significant sustainability developments in fashion from the PAST 7 DAYS. Focus on:
+- Circular fashion initiatives and resale market news
+- Brand sustainability commitments and greenwashing exposés
+- Textile recycling technology breakthroughs
+- EU and global regulatory changes (EPR, DPP, due diligence)
+- Copenhagen Fashion Week sustainability highlights
+- Supply chain transparency developments
+- Carbon footprint and water usage reduction news
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "fashion-tech": """You are a fashion technology intelligence analyst. Research and provide 8 of the most significant fashion-tech developments from the PAST 7 DAYS. Focus on:
+- AI in fashion design, merchandising, and forecasting
+- Virtual try-on and AR/VR shopping experiences
+- Generative AI tools for designers (ASOS, Fermat, etc.)
+- AI-powered shoppable runways and retail tech
+- Digital fashion and NFT developments
+- Supply chain technology and automation
+- Fashion data analytics and personalization
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "catwalks": """You are a runway and catwalk intelligence analyst. Research and provide 8 of the most significant runway and catwalk developments from the PAST 7 DAYS. Focus on:
+- Fashion week show reviews and standout collections
+- Designer debuts and farewell collections
+- Backstage moments and model casting news
+- Runway styling trends (hair, makeup, accessories)
+- Show production and venue innovations
+- Front row celebrity and influencer moments
+- Emerging designers showing at fashion weeks
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "culture": """You are a cultural intelligence analyst focused on fashion and lifestyle. Research and provide 8 of the most significant cultural developments affecting fashion from the PAST 7 DAYS. Focus on:
+- Art exhibitions and museum shows influencing fashion
+- Film, music, and entertainment crossovers with fashion
+- Social media cultural moments and viral trends
+- Diversity, equity, and inclusion news in fashion
+- Fashion photography and editorial highlights
+- Subculture movements gaining mainstream attention
+- Fashion heritage and archival moments
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "textile": """You are a textile industry intelligence analyst. Research and provide 8 of the most significant textile industry developments from the PAST 7 DAYS. Focus on:
+- New fiber and fabric innovations
+- Textile mill acquisitions and closures
+- Raw material price movements (cotton, silk, wool)
+- Sustainable textile technology breakthroughs
+- Trade policy changes affecting textiles (tariffs, AGOA)
+- Textile manufacturing shifts (nearshoring, automation)
+- Hemp, linen, and alternative fiber developments
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "lifestyle": """You are a lifestyle intelligence analyst. Research and provide 8 of the most significant lifestyle developments from the PAST 7 DAYS. Focus on:
+- Wellness and self-care trend shifts
+- Home and interior design crossovers with fashion
+- Travel and hospitality luxury experiences
+- Food and beverage lifestyle trends
+- Fitness and athleisure market movements
+- Consumer behavior and spending pattern changes
+- Social media lifestyle influencer moments
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+}
+
+async def _fetch_weekly_insights(domain: str) -> List[Dict[str, Any]]:
+    """Fetch real-time weekly insights using Gemini Flash via OpenAI-compatible API"""
+    prompt = DOMAIN_INSIGHT_PROMPTS.get(domain, DOMAIN_INSIGHT_PROMPTS.get("fashion", ""))
+    
+    today = datetime.now().strftime("%B %d, %Y")
+    week_ago = (datetime.now() - timedelta(days=7)).strftime("%B %d, %Y")
+    
+    system_msg = f"""You are a real-time intelligence analyst. Today is {today}. You must provide insights from the period {week_ago} to {today}.
+
+Return your response as a valid JSON array of objects. Each object must have exactly these fields:
+- "title": string (compelling headline, max 80 chars)
+- "summary": string (1-2 sentence description, max 200 chars)
+- "source": string (publication name like "Vogue", "BoF", "WWD", "Reuters", etc.)
+- "category": string (short tag like "Runway", "Business", "Trend", "Innovation", etc.)
+- "date": string (ISO date format, within the last 7 days)
+
+Return ONLY the JSON array, no markdown formatting, no code blocks, no explanation."""
+
+    # Try Grok first, then Gemini Flash, then Kimi as fallback
+    providers = []
+    if GROK_API_KEY:
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+    providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
+    if KIMI_API_KEY:
+        providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
+    
+    for provider_name, base_url, api_key, model in providers:
+        if not api_key:
+            continue
+        try:
+            logger.info(f"Fetching weekly insights for {domain} via {provider_name}")
+            provider_client = openai.AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url
+            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
+            
+            response = await provider_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=3000
+            )
+            
+            raw = response.choices[0].message.content.strip()
+            # Clean markdown code blocks if present
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"):
+                    raw = raw[:-3]
+                raw = raw.strip()
+            
+            insights = json.loads(raw)
+            if isinstance(insights, list) and len(insights) >= 3:
+                logger.info(f"Got {len(insights)} insights for {domain} via {provider_name}")
+                return insights[:10]  # Cap at 10
+        except Exception as e:
+            logger.warning(f"Failed to fetch insights via {provider_name}: {e}")
+            continue
+    
+    return []
+
+
+class WeeklyInsightsRequest(BaseModel):
+    domain: str = Field(..., description="Domain slug e.g. fashion, beauty, skincare")
+    force_refresh: bool = Field(False, description="Force refresh bypassing cache")
+
+
+@app.post("/api/v1/weekly-insights")
+async def weekly_insights_endpoint(request: WeeklyInsightsRequest):
+    """Get real-time weekly insights for a specific domain"""
+    domain = request.domain.lower().strip()
+    
+    valid_domains = list(DOMAIN_INSIGHT_PROMPTS.keys())
+    if domain not in valid_domains:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Valid: {valid_domains}")
+    
+    # Check cache
+    now = time.time()
+    if not request.force_refresh and domain in _weekly_insights_cache:
+        cached = _weekly_insights_cache[domain]
+        if now - cached["timestamp"] < WEEKLY_INSIGHTS_CACHE_TTL:
+            return {
+                "success": True,
+                "domain": domain,
+                "insights": cached["data"],
+                "source": cached.get("source", "cache"),
+                "cached": True,
+                "cache_age_seconds": int(now - cached["timestamp"])
+            }
+    
+    # Fetch fresh insights
+    try:
+        insights = await _fetch_weekly_insights(domain)
+        if insights:
+            _weekly_insights_cache[domain] = {
+                "data": insights,
+                "timestamp": now,
+                "source": "ai"
+            }
+            return {
+                "success": True,
+                "domain": domain,
+                "insights": insights,
+                "source": "ai",
+                "cached": False
+            }
+        else:
+            return {
+                "success": False,
+                "domain": domain,
+                "insights": [],
+                "error": "No insights could be generated. Try again later."
+            }
+    except Exception as e:
+        logger.error(f"Weekly insights error for {domain}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/weekly-insights/{domain}")
+async def weekly_insights_get(domain: str, refresh: bool = False):
+    """GET endpoint for weekly insights (convenience)"""
+    req = WeeklyInsightsRequest(domain=domain, force_refresh=refresh)
+    return await weekly_insights_endpoint(req)
+
+
 @app.get("/health")
 @app.get("/api/v1/health")
 async def health_check():

@@ -6,6 +6,7 @@ import { useSector, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
 import { DomainHero } from "@/components/domain/DomainHero";
 import { DomainInsights, IntelligenceItem } from "@/components/domain/DomainInsights";
 import { DomainModules } from "@/components/domain/DomainModules";
+import { WeeklyInsights } from "@/components/domain/WeeklyInsights";
 import { WorkspaceNavigation } from "@/components/workspace/WorkspaceNavigation";
 
 // Map URL slugs to sector IDs
@@ -150,6 +151,12 @@ export default function DomainLandingPage() {
           source="fallback"
           seasonContext="SS26"
           onRefresh={handleRefresh}
+        />
+
+        {/* Last Week's Insights - AI-curated weekly intelligence */}
+        <WeeklyInsights
+          sector={currentSector}
+          onInsightClick={handleModuleClick}
         />
 
         {/* Intelligence Modules */}
