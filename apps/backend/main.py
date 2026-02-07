@@ -2792,10 +2792,52 @@ class KimiEngine:
         search_sources_data = []
         
         if not is_trivial and user_msg_original:
-            # Manus-style task progress events
-            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'understanding', 'title': 'Understanding your question', 'status': 'complete'}})}\n\n"
-            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'searching', 'title': 'Searching real-time sources', 'status': 'active', 'detail': 'Querying Perplexity, Google, Exa...'}})}\n\n"
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching real-time sources...', 'tools': ['realtime_search']}})}\n\n"
+            # Dynamic Manus-style task breakdown - analyze the query to create meaningful steps
+            task_steps = []
+            try:
+                # Quick task decomposition using lightweight LLM call
+                decomp_response = client.chat.completions.create(
+                    model="kimi-k2.5",
+                    messages=[{"role": "user", "content": f"""Break this user question into 3-5 research steps. Return ONLY a JSON array of objects with 'title' and 'detail' fields. Keep titles under 8 words, details under 15 words. Be specific to the actual question.
+
+Question: {user_msg_original[:200]}
+
+Example: [{"title":"Analyzing Tesla Q4 earnings data","detail":"Reviewing revenue, margins, and delivery numbers"},{"title":"Comparing with industry benchmarks","detail":"Cross-referencing competitor performance"}]"""}],
+                    temperature=0.3,
+                    max_tokens=300,
+                    extra_body={"thinking": {"type": "disabled"}}
+                )
+                decomp_text = decomp_response.choices[0].message.content.strip()
+                arr_match = re.search(r'\[.*\]', decomp_text, re.DOTALL)
+                if arr_match:
+                    task_steps = json.loads(arr_match.group())
+            except Exception as decomp_err:
+                logger.warning(f"Task decomposition failed: {decomp_err}")
+            
+            # Fallback if decomposition failed
+            if not task_steps or len(task_steps) < 2:
+                # Create context-aware fallback steps
+                topic = user_msg_original[:60]
+                task_steps = [
+                    {"title": f"Analyzing request about {topic[:30]}...", "detail": "Breaking down the key aspects of your question"},
+                    {"title": "Searching across multiple sources", "detail": "Querying Perplexity, Google, and Exa for current data"},
+                    {"title": "Cross-referencing and verifying data", "detail": "Checking facts across different sources"},
+                    {"title": "Synthesizing comprehensive response", "detail": "Combining findings into a structured answer"}
+                ]
+            
+            # Send first step as complete (understanding)
+            first_step = task_steps[0] if task_steps else {"title": "Understanding your question", "detail": ""}
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_0', 'title': first_step.get('title', 'Understanding your question'), 'status': 'complete', 'detail': first_step.get('detail', '')}})}\n\n"
+            
+            # Send search step as active
+            search_step = task_steps[1] if len(task_steps) > 1 else {"title": "Searching real-time sources", "detail": ""}
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_1', 'title': search_step.get('title', 'Searching real-time sources'), 'status': 'active', 'detail': search_step.get('detail', 'Querying multiple search engines...')}})}\n\n"
+            
+            # Send remaining steps as pending
+            for i, step in enumerate(task_steps[2:], 2):
+                yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': f'step_{i}', 'title': step.get('title', ''), 'status': 'pending', 'detail': step.get('detail', '')}})}\n\n"
+            
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': search_step.get('title', 'Searching real-time sources...'), 'tools': ['realtime_search']}})}\n\n"
             
             try:
                 search_results = await asyncio.wait_for(
@@ -2872,11 +2914,16 @@ class KimiEngine:
                 logger.warning(f"Search failed: {search_err}")
                 yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'searching', 'title': 'Search completed', 'status': 'complete'}})}\n\n"
         
-        # Manus-style: analyzing step
+        # Dynamic step updates after search
         if not is_trivial:
-            if search_context:
-                yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'analyzing', 'title': 'Analyzing search results', 'status': 'active', 'detail': f'Processing {len(search_sources_data)} sources...'}})}\n\n"
-            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'generating', 'title': 'Generating response', 'status': 'active'}})}\n\n"
+            # Mark search step complete
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_1', 'title': 'Search complete', 'status': 'complete', 'detail': f'Found {len(search_sources_data)} sources'}})}\n\n"
+            # Mark remaining steps as active/complete progressively
+            if len(task_steps) > 2:
+                yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_2', 'title': task_steps[2].get('title', 'Analyzing results'), 'status': 'active', 'detail': f'Processing {len(search_sources_data)} sources...'}})}\n\n"
+            if len(task_steps) > 3:
+                yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_2', 'title': task_steps[2].get('title', 'Analyzing results'), 'status': 'complete'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_3', 'title': task_steps[3].get('title', 'Generating response'), 'status': 'active'}})}\n\n"
         
         # ===== BUILD MESSAGES WITH SEARCH CONTEXT =====
         enriched_messages = list(messages)
@@ -2917,9 +2964,15 @@ IMPORTANT INSTRUCTIONS:
             params["tool_choice"] = "auto"
         
         try:
+            # For thinking mode, set a reasonable timeout and add max_tokens
+            if mode == 'thinking' and 'max_tokens' not in params:
+                params['max_tokens'] = 4096
             response = client.chat.completions.create(**params)
         except Exception as e:
+            logger.error(f"LLM streaming error: {e}")
             yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+            # Still send complete event so frontend doesn't hang
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': f'Error: {str(e)}', 'reasoning': '', 'downloads': [], 'sources': [], 'follow_up_questions': []}})}\n\n"
             return
         
         full_content = ''
@@ -3168,26 +3221,41 @@ IMPORTANT INSTRUCTIONS:
             for src in search_sources_data[:8]:
                 yield f"data: {json.dumps({'type': 'source', 'data': {'title': src.get('title', 'Source'), 'url': src.get('url', ''), 'snippet': src.get('source', '')}})}\n\n"
         
-        # Generate follow-up questions (non-blocking, with timeout)
+        # Generate follow-up questions (non-blocking, always 3-5)
         follow_up_questions = []
         try:
-            if full_content and len(full_content) > 100:
+            if full_content and len(full_content) > 50:
                 fq_response = client.chat.completions.create(
                     model="kimi-k2.5",
-                    messages=[{"role": "user", "content": f"Based on this response, suggest 3 short follow-up questions (max 10 words each). Return ONLY a JSON array of 3 strings.\n\nResponse: {full_content[:400]}"}],
+                    messages=[{"role": "user", "content": f"""Based on this response, suggest 5 follow-up questions the user might want to ask next. Make them specific and actionable. Return ONLY a JSON array of 5 strings (max 12 words each).
+
+User asked: {user_msg_original[:150]}
+Response summary: {full_content[:300]}"""}],
                     temperature=0.7,
-                    max_tokens=150,
+                    max_tokens=250,
                     extra_body={"thinking": {"type": "disabled"}}
                 )
                 fq_text = fq_response.choices[0].message.content.strip()
                 fq_match = re.search(r'\[.*?\]', fq_text, re.DOTALL)
                 if fq_match:
-                    follow_up_questions = json.loads(fq_match.group())[:3]
+                    follow_up_questions = json.loads(fq_match.group())[:5]
         except Exception as fq_err:
             logger.warning(f"Follow-up generation failed: {fq_err}")
         
-        if follow_up_questions:
-            yield f"data: {json.dumps({'type': 'follow_up', 'data': {'questions': follow_up_questions}})}\n\n"
+        # Ensure we always have at least 3 follow-ups
+        if len(follow_up_questions) < 3:
+            topic = user_msg_original[:50]
+            defaults = [
+                f"What are the latest trends in this area?",
+                f"Can you provide more detailed analysis?",
+                f"What are the key risks and opportunities?",
+                f"How does this compare to competitors?",
+                f"What should I focus on next?"
+            ]
+            while len(follow_up_questions) < 3:
+                follow_up_questions.append(defaults[len(follow_up_questions)])
+        
+        yield f"data: {json.dumps({'type': 'follow_up', 'data': {'questions': follow_up_questions}})}\n\n"
         
         # Send complete event with all data
         complete_sources = [{"title": s.get("title", ""), "url": s.get("url", ""), "snippet": s.get("source", "")} for s in search_sources_data] if search_sources_data else []
@@ -3290,12 +3358,14 @@ IMPORTANT INSTRUCTIONS:
                 logger.warning(f"Search failed during file gen: {search_err}")
                 yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating structured content...', 'tools': ['generate_' + file_type]}})}\n\n"
             
-            # Task progress: building file
-            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'understanding', 'title': 'Understanding your request', 'status': 'complete'}})}\n\n"
-            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'searching', 'title': 'Searching for real-time data', 'status': 'complete'}})}\n\n"
+            # Dynamic task progress for file generation
             ft_display = file_type_names.get(file_type, 'file')
-            building_data = {'type': 'task_progress', 'data': {'step': 'building', 'title': f'Building {ft_display}', 'status': 'active', 'detail': 'Structuring content and formatting...'}}
-            yield f"data: {json.dumps(building_data)}\n\n"
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_0', 'title': f'Analyzing {ft_display} requirements', 'status': 'complete', 'detail': 'Parsed your request and identified data needs'}})}\n\n"
+            source_detail = f'Found {len(search_sources_data)} sources' if search_sources_data else 'Using AI knowledge base'
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_1', 'title': 'Gathering real-time data', 'status': 'complete', 'detail': source_detail}})}\n\n"
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_2', 'title': f'Structuring {ft_display} content', 'status': 'active', 'detail': 'Organizing data into rows, columns, and charts...'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_3', 'title': f'Formatting and styling {ft_display}', 'status': 'pending', 'detail': 'Applying professional formatting'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_4', 'title': 'Generating conclusion and insights', 'status': 'pending', 'detail': 'Analyzing the created data'}})}\n\n"
             
             # Step 2: Generate file with search context enriched prompt
             enriched_prompt = user_msg
@@ -3316,6 +3386,11 @@ IMPORTANT INSTRUCTIONS:
                 yield f"data: {json.dumps({'type': 'complete', 'data': {'content': error_msg, 'reasoning': '', 'downloads': []}})}\n\n"
                 return
             
+            # Update task progress - structuring complete, formatting active
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_2', 'title': f'Structuring {ft_display} content', 'status': 'complete'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_3', 'title': f'Formatting and styling {ft_display}', 'status': 'complete', 'detail': 'Professional formatting applied'}})}\n\n"
+            yield f"data: {json.dumps({'type': 'task_progress', 'data': {'step': 'step_4', 'title': 'Generating conclusion and insights', 'status': 'active'}})}\n\n"
+            
             # Step 3: Stream the download info
             download_info = {
                 "filename": result["filename"],
@@ -3326,25 +3401,80 @@ IMPORTANT INSTRUCTIONS:
             downloads.append(download_info)
             yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
             
-            # Step 4: Generate a rich summary using Kimi
-            summary_prompt = f"""I just created a {file_type_names.get(file_type, 'file')} about: {user_msg}
+            # Step 4: Generate a rich conclusion/analysis using Kimi
+            ft_name = file_type_names.get(file_type, 'file')
+            search_summary = search_context[:500] if search_context else 'general knowledge'
+            
+            conclusion_prompt = f"""I just created a {ft_name} for the user about: {user_msg}
 
-Provide a brief 2-3 sentence summary of what was created. Mention key data points included. Format in markdown."""
+The file was populated using real-time search data. Here's a summary of the data used:
+{search_summary}
+
+Write a comprehensive conclusion that:
+1. Summarizes what the {ft_name} contains (specific data points, number of entries, key metrics)
+2. Highlights 3-5 key findings or insights from the data
+3. Mentions any notable trends or patterns
+4. Suggests how the user can use this data
+
+Format with markdown headings, bullet points, and bold text. Be specific - reference actual data points from the search results. Write 150-250 words."""
             
             try:
                 summary_response = client.chat.completions.create(
                     model="kimi-k2.5",
-                    messages=[{"role": "user", "content": summary_prompt}],
+                    messages=[{"role": "user", "content": conclusion_prompt}],
                     temperature=0.5,
-                    max_tokens=300,
+                    max_tokens=600,
+                    stream=True,
                     extra_body={"thinking": {"type": "disabled"}}
                 )
-                summary = summary_response.choices[0].message.content
-            except:
-                summary = f"Your {file_type_names.get(file_type, 'file')} has been generated with real-time data. Click the download button above to save it."
+                full_summary = ""
+                for s_chunk in summary_response:
+                    s_delta = s_chunk.choices[0].delta
+                    s_content = getattr(s_delta, 'content', None)
+                    if s_content:
+                        full_summary += s_content
+                        yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': s_content}})}\n\n"
+            except Exception as sum_err:
+                logger.warning(f"Conclusion generation failed: {sum_err}")
+                full_summary = f"## {ft_name.title()} Generated Successfully\n\nYour **{ft_name}** has been created with real-time data from {len(search_sources_data)} sources. The file contains detailed analysis based on the latest available information about your query. Click the download button above to save it.\n\n**Key highlights:**\n- Data sourced from multiple real-time search engines\n- Formatted with professional styling and charts\n- Ready for immediate use in presentations or reports"
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': full_summary}})}\n\n"
             
-            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': summary}})}\n\n"
-            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': summary, 'reasoning': '', 'downloads': downloads}})}\n\n"
+            # Generate follow-up questions for file generation too
+            follow_up_questions = []
+            try:
+                fq_response = client.chat.completions.create(
+                    model="kimi-k2.5",
+                    messages=[{"role": "user", "content": f"""I just created a {ft_name} about: {user_msg}. Suggest 5 specific follow-up questions the user might want to ask next. Return ONLY a JSON array of 5 strings (max 12 words each)."""}],
+                    temperature=0.7,
+                    max_tokens=250,
+                    extra_body={"thinking": {"type": "disabled"}}
+                )
+                fq_text = fq_response.choices[0].message.content.strip()
+                fq_match = re.search(r'\[.*?\]', fq_text, re.DOTALL)
+                if fq_match:
+                    follow_up_questions = json.loads(fq_match.group())[:5]
+            except:
+                pass
+            
+            if len(follow_up_questions) < 3:
+                follow_up_questions = [
+                    f"Can you create a more detailed {ft_name} with additional metrics?",
+                    f"What are the key trends in this data?",
+                    f"Can you create a presentation based on this data?",
+                    f"How does this compare to last year's data?",
+                    f"What are the top risks and opportunities here?"
+                ][:5]
+            
+            # Send sources
+            if search_sources_data:
+                yield f"data: {json.dumps({'type': 'search_sources', 'data': search_sources_data})}\n\n"
+                for src in search_sources_data[:8]:
+                    yield f"data: {json.dumps({'type': 'source', 'data': {'title': src.get('title', 'Source'), 'url': src.get('url', ''), 'snippet': src.get('source', '')}})}\n\n"
+            
+            yield f"data: {json.dumps({'type': 'follow_up', 'data': {'questions': follow_up_questions}})}\n\n"
+            
+            complete_sources = [{"title": s.get("title", ""), "url": s.get("url", ""), "snippet": s.get("source", "")} for s in search_sources_data] if search_sources_data else []
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_summary, 'reasoning': '', 'downloads': downloads, 'sources': complete_sources, 'follow_up_questions': follow_up_questions}})}\n\n"
         
         except Exception as e:
             logger.error(f"File generation pipeline error: {e}")

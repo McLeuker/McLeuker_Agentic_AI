@@ -2306,7 +2306,7 @@ function DashboardContent() {
                     </button>
                   </div>
                   
-                  {/* Quick/Deep Mode Toggle - Under search bar */}
+                  {/* Instant/Thinking Mode Toggle - Under search bar */}
                   <div className="flex justify-center mt-3">
                     <div className="flex items-center gap-0.5 p-1 bg-white/[0.03] rounded-xl border border-white/[0.06]">
                       <button
@@ -2320,8 +2320,8 @@ function DashboardContent() {
                       >
                         <Zap className="h-3.5 w-3.5" />
                         <div className="text-left">
-                          <span className="block">Quick</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Fast response</span>
+                          <span className="block">Instant</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Search + fast answer</span>
                         </div>
                       </button>
                       <button
@@ -2335,8 +2335,8 @@ function DashboardContent() {
                       >
                         <Brain className="h-3.5 w-3.5" />
                         <div className="text-left">
-                          <span className="block">Deep</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Thinking + search</span>
+                          <span className="block">Thinking</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Deep reasoning + search</span>
                         </div>
                       </button>
                     </div>
@@ -2412,37 +2412,58 @@ function DashboardContent() {
                         <div className="space-y-0">
                           {/* ===== MANUS AI-STYLE TASK PROGRESS TIMELINE ===== */}
                           {(message.taskSteps && message.taskSteps.length > 0) && (
-                            <div className="mb-4">
-                              <div className="relative pl-6">
-                                {/* Vertical line */}
-                                <div className="absolute left-[9px] top-2 bottom-2 w-[2px] bg-gradient-to-b from-[#5c6652]/60 to-[#5c6652]/10" />
+                            <div className="mb-5 rounded-xl bg-white/[0.02] border border-white/[0.05] p-4">
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="w-5 h-5 rounded-md bg-[#2E3524]/50 flex items-center justify-center">
+                                  <Loader2 className={cn("h-3 w-3 text-[#8a9a7e]", message.isStreaming && "animate-spin")} />
+                                </div>
+                                <span className="text-[11px] text-white/40 uppercase tracking-wider font-medium">Task Progress</span>
+                              </div>
+                              <div className="relative pl-5">
+                                {/* Vertical connector line */}
+                                <div className="absolute left-[7px] top-1 bottom-1 w-[1.5px] bg-gradient-to-b from-[#5c6652]/40 via-[#5c6652]/20 to-transparent" />
                                 
                                 {message.taskSteps.map((step, stepIdx) => (
-                                  <div key={step.step} className="relative flex items-start gap-3 pb-3 last:pb-0">
-                                    {/* Step dot */}
-                                    <div className="absolute -left-6 mt-0.5">
+                                  <div key={step.step} className={cn(
+                                    "relative flex items-start gap-3 pb-3 last:pb-0 transition-all duration-300",
+                                    step.status === 'active' && "pb-4"
+                                  )}>
+                                    {/* Step indicator */}
+                                    <div className="absolute -left-5 mt-[3px] z-10">
                                       {step.status === 'complete' ? (
-                                        <div className="w-[20px] h-[20px] rounded-full bg-[#2E3524] flex items-center justify-center">
-                                          <CheckCircle2 className="h-3 w-3 text-[#8a9a7e]" />
+                                        <div className="w-[16px] h-[16px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#2E3524]/20">
+                                          <Check className="h-2.5 w-2.5 text-[#8a9a7e]" />
                                         </div>
                                       ) : step.status === 'active' ? (
-                                        <div className="w-[20px] h-[20px] rounded-full bg-[#2E3524] flex items-center justify-center">
-                                          <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
+                                        <div className="w-[16px] h-[16px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#5c6652]/30 animate-pulse">
+                                          <div className="w-1.5 h-1.5 rounded-full bg-[#8a9a7e]" />
                                         </div>
                                       ) : (
-                                        <div className="w-[20px] h-[20px] rounded-full bg-white/[0.06] border border-white/[0.12]" />
+                                        <div className="w-[16px] h-[16px] rounded-full bg-white/[0.04] border border-white/[0.08]" />
                                       )}
                                     </div>
                                     {/* Step content */}
-                                    <div className="flex-1 min-w-0 pt-0.5">
-                                      <p className={cn(
-                                        "text-xs font-medium",
-                                        step.status === 'active' ? "text-white/80" : step.status === 'complete' ? "text-white/50" : "text-white/30"
-                                      )}>
-                                        {step.title}
-                                      </p>
-                                      {step.detail && step.status === 'active' && (
-                                        <p className="text-[10px] text-white/30 mt-0.5">{step.detail}</p>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className={cn(
+                                          "text-[12px] leading-tight",
+                                          step.status === 'active' ? "text-white/90 font-medium" : step.status === 'complete' ? "text-white/50" : "text-white/25"
+                                        )}>
+                                          {step.title}
+                                        </p>
+                                        {step.status === 'active' && message.isStreaming && (
+                                          <span className="flex gap-0.5">
+                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
+                                          </span>
+                                        )}
+                                      </div>
+                                      {step.detail && (step.status === 'active' || step.status === 'complete') && (
+                                        <p className={cn(
+                                          "text-[10px] mt-0.5 leading-relaxed",
+                                          step.status === 'active' ? "text-white/35" : "text-white/20"
+                                        )}>{step.detail}</p>
                                       )}
                                     </div>
                                   </div>
@@ -2487,22 +2508,19 @@ function DashboardContent() {
                           {message.isStreaming && !message.content && !message.taskSteps?.length && !message.reasoning_layers.length && (
                             <div className="flex items-center gap-2 text-white/50 py-2">
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm">Processing...</span>
+                              <span className="text-sm">Connecting...</span>
                             </div>
                           )}
                           
-                          {/* ===== MAIN CONTENT ===== */}
-                          {message.content && (
-                            <MessageContent
-                              content={message.content}
-                              sources={message.sources}
-                              followUpQuestions={message.follow_up_questions}
-                              onFollowUpClick={handleSendMessage}
-                              searchQuery={sidebarSearchQuery}
-                            />
+                          {/* Streaming content indicator when task steps are showing but content is being generated */}
+                          {message.isStreaming && message.content && (
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-pulse" />
+                              <span className="text-[10px] text-white/30">Generating response...</span>
+                            </div>
                           )}
                           
-                          {/* ===== DOWNLOAD FILES ===== */}
+                          {/* ===== DOWNLOAD FILES (shown above content for file generation) ===== */}
                           {message.downloads && message.downloads.length > 0 && (
                             <div className="mt-4 space-y-2">
                               <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Generated Files</p>
@@ -2545,6 +2563,17 @@ function DashboardContent() {
                               })}
                             </div>
                           )}
+                          
+                          {/* ===== MAIN CONTENT (conclusion/analysis) ===== */}
+                          {message.content && (
+                            <MessageContent
+                              content={message.content}
+                              sources={message.sources}
+                              followUpQuestions={message.follow_up_questions}
+                              onFollowUpClick={handleSendMessage}
+                              searchQuery={sidebarSearchQuery}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
@@ -2566,7 +2595,7 @@ function DashboardContent() {
                 onRemove={handleRemoveFile} 
               />
               
-              {/* Quick/Deep Mode Toggle - Centered */}
+              {/* Instant/Thinking Mode Toggle - Centered */}
               <div className="flex justify-center mb-3">
                 <div className="flex items-center gap-0.5 p-0.5 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                   <button
@@ -2579,7 +2608,7 @@ function DashboardContent() {
                     )}
                   >
                     <Zap className="h-3 w-3" />
-                    Quick
+                    Instant
                   </button>
                   <button
                     onClick={() => setSearchMode('deep')}
@@ -2591,7 +2620,7 @@ function DashboardContent() {
                     )}
                   >
                     <Brain className="h-3 w-3" />
-                    Deep
+                    Thinking
                   </button>
                 </div>
               </div>
