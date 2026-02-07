@@ -24,9 +24,9 @@ const architectureLayers = [
     icon: Brain,
     title: "LLM Layer",
     subtitle: "Multi-model intelligence",
-    description: "The best AI model is selected per sub-task — GPT-4 for synthesis, Grok for real-time data, Gemini for speed, Kimi for long documents.",
-    detail: "GPT-4, Grok, Gemini Flash, Kimi — routed by task type",
-    example: "Trend synthesis → GPT-4 | Live signals → Grok | Quick facts → Gemini Flash",
+    description: "Each sub-task is routed to the most capable model — one optimized for deep synthesis, another for real-time data retrieval, a third for rapid factual lookups, and a fourth for long-document comprehension.",
+    detail: "Specialized models selected per task — synthesis, retrieval, speed, comprehension",
+    example: "Trend synthesis → Deep reasoning model | Live signals → Real-time model | Quick facts → Speed-optimized model",
   },
   {
     id: 3,
@@ -34,7 +34,7 @@ const architectureLayers = [
     title: "Real-Time Web Research",
     subtitle: "Live intelligence gathering",
     description: "AI agents search the web in real-time, pulling data from fashion weeks, trade publications, social media, and industry databases.",
-    detail: "Perplexity, Grok Search, curated industry sources",
+    detail: "AI-powered search, curated industry sources, live feeds",
     example: "47 runway shows analyzed, 2,300 social posts scanned, 15 trade reports cross-referenced",
   },
   {

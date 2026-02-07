@@ -272,13 +272,13 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 2 — The Future of Fashion Intelligence (GREEN SHADES ONLY) */}
+      {/* SECTION 2 — The Future of Fashion Intelligence (MONOCHROMATIC) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="relative py-28 lg:py-36 overflow-hidden" style={{ background: 'linear-gradient(180deg, #070707 0%, #0a0f08 30%, #0d120a 50%, #0a0f08 70%, #070707 100%)' }}>
+      <section className="relative py-28 lg:py-36 overflow-hidden" style={{ background: 'linear-gradient(180deg, #070707 0%, #0a0a0a 30%, #0d0d0d 50%, #0a0a0a 70%, #070707 100%)' }}>
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
           <div className="absolute -top-[50%] -left-[50%] w-[200%] h-[200%] opacity-[0.012]" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 80px, white 80px, white 81px)', backgroundSize: '100% 100%' }} />
-          <div className="absolute top-[15%] right-[15%] w-[300px] h-[300px] rounded-full bg-[#3a5a4a]/[0.04] blur-[100px]" />
-          <div className="absolute bottom-[20%] left-[10%] w-[250px] h-[250px] rounded-full bg-[#2a4a3a]/[0.03] blur-[80px]" />
+          <div className="absolute top-[15%] right-[15%] w-[300px] h-[300px] rounded-full bg-white/[0.02] blur-[100px]" />
+          <div className="absolute bottom-[20%] left-[10%] w-[250px] h-[250px] rounded-full bg-white/[0.015] blur-[80px]" />
         </div>
 
         <div className="relative z-10 container mx-auto px-6 lg:px-12">
@@ -286,9 +286,9 @@ export default function LandingPage() {
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center mb-20">
               {/* Left: Heading */}
               <div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#3a5a4a]/[0.12] border border-[#4a6a5a]/[0.20] mb-6">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#5a8a6a] animate-pulse" />
-                  <span className="text-[11px] text-[#6a9a7a]/80 font-medium tracking-wider uppercase">Fashion Intelligence Platform</span>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-white/[0.04] border border-white/[0.08] mb-6">
+                  <div className="w-1.5 h-1.5 rounded-full bg-white/40 animate-pulse" />
+                  <span className="text-[11px] text-white/50 font-medium tracking-wider uppercase">Fashion Intelligence Platform</span>
                 </div>
                 <h2 className="font-editorial text-4xl md:text-5xl lg:text-[52px] text-white/[0.95] tracking-tight leading-[1.08] mb-5">
                   The Future of<br />Fashion Intelligence
@@ -299,7 +299,7 @@ export default function LandingPage() {
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Link
                     href="/dashboard"
-                    className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-[#3a5a4a] text-white/90 font-medium text-sm hover:bg-[#4a6a5a] transition-all shadow-lg shadow-[#2a4a3a]/20"
+                    className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-white text-black font-medium text-sm hover:bg-white/90 transition-all shadow-lg shadow-white/10"
                   >
                     Start Research
                     <ArrowRight className="h-4 w-4" />
@@ -313,12 +313,12 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* Right: Interactive research mockup — green shades */}
+              {/* Right: Interactive research mockup — monochromatic */}
               <div className="relative">
-                <div className="absolute -inset-4 rounded-3xl bg-[#2a4a3a]/[0.06] blur-2xl" />
-                <div className="relative rounded-2xl bg-[#090d08] border border-[#3a5a4a]/[0.15] overflow-hidden shadow-2xl shadow-black/40">
+                <div className="absolute -inset-4 rounded-3xl bg-white/[0.02] blur-2xl" />
+                <div className="relative rounded-2xl bg-[#0a0a0a] border border-white/[0.08] overflow-hidden shadow-2xl shadow-black/40">
                   {/* Window chrome */}
-                  <div className="flex items-center gap-2 px-4 py-3 bg-[#0a0e09] border-b border-white/[0.04]">
+                  <div className="flex items-center gap-2 px-4 py-3 bg-[#0c0c0c] border-b border-white/[0.04]">
                     <div className="flex gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-white/[0.08]" />
                       <div className="w-2.5 h-2.5 rounded-full bg-white/[0.08]" />
@@ -333,43 +333,43 @@ export default function LandingPage() {
                   {/* Search bar */}
                   <div className="px-5 pt-4 pb-3">
                     <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                      <Search className="w-3.5 h-3.5 text-[#5a8a6a]/50" />
+                      <Search className="w-3.5 h-3.5 text-white/30" />
                       <span className="text-[12px] text-white/40">Analyze SS26 denim trends across European markets</span>
                     </div>
                   </div>
                   {/* Results */}
                   <div className="px-5 pb-2">
                     <div className="flex items-center gap-2 mb-3">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[#5a8a6a] animate-pulse" />
-                      <span className="text-[10px] text-[#6a9a7a]/70 font-medium">Research complete</span>
+                      <div className="w-1.5 h-1.5 rounded-full bg-white/50 animate-pulse" />
+                      <span className="text-[10px] text-white/50 font-medium">Research complete</span>
                       <span className="text-[10px] text-white/20">· 3m 42s</span>
                     </div>
                   </div>
-                  {/* Stats row — all green shades */}
+                  {/* Stats row — monochromatic */}
                   <div className="grid grid-cols-3 gap-px mx-5 mb-4 rounded-lg overflow-hidden">
                     {[
-                      { value: "47", label: "Sources", shade: "#5a8a6a" },
-                      { value: "12", label: "Trends", shade: "#4a7a5a" },
-                      { value: "8", label: "Markets", shade: "#3a6a4a" },
+                      { value: "47", label: "Sources" },
+                      { value: "12", label: "Trends" },
+                      { value: "8", label: "Markets" },
                     ].map((s, i) => (
                       <div key={i} className="bg-white/[0.02] py-3 text-center">
-                        <div className="text-2xl font-light" style={{ color: `${s.shade}cc` }}>{s.value}</div>
+                        <div className="text-2xl font-light text-white/80">{s.value}</div>
                         <div className="text-[9px] text-white/25 uppercase tracking-wider mt-0.5">{s.label}</div>
                       </div>
                     ))}
                   </div>
-                  {/* Output files — green shades */}
+                  {/* Output files — monochromatic */}
                   <div className="flex gap-2 px-5 pb-5">
                     {[
                       { ext: ".xlsx", name: "supplier_data", icon: "📊" },
                       { ext: ".pdf", name: "trend_report", icon: "📄" },
                       { ext: ".pptx", name: "market_deck", icon: "📑" },
                     ].map((file, i) => (
-                      <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg border flex-1 transition-all hover:scale-[1.02] border-[#3a5a4a]/20 bg-[#2a4a3a]/[0.06]">
+                      <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg border flex-1 transition-all hover:scale-[1.02] border-white/[0.06] bg-white/[0.02]">
                         <span className="text-sm">{file.icon}</span>
                         <div>
                           <div className="text-[10px] text-white/50">{file.name}</div>
-                          <div className="text-[9px] font-mono text-[#5a8a6a]/70">{file.ext}</div>
+                          <div className="text-[9px] font-mono text-white/35">{file.ext}</div>
                         </div>
                       </div>
                     ))}
@@ -378,24 +378,21 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Bottom: Horizontal stats strip — all green shades */}
+            {/* Bottom: Horizontal stats strip — monochromatic */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-px rounded-2xl overflow-hidden bg-white/[0.02]">
               {[
                 { value: "10", label: "Specialized Domains", sub: "Fashion to Lifestyle" },
                 { value: "4+", label: "AI Models in Parallel", sub: "Multi-model routing" },
                 { value: "<5min", label: "Avg. Research Time", sub: "Prompt to report" },
                 { value: "24/7", label: "Live Monitoring", sub: "Real-time signals" },
-              ].map((stat, i) => {
-                const greens = ["#5a8a6a", "#4a7a5a", "#6a9a7a", "#3a6a4a"];
-                return (
+              ].map((stat, i) => (
                   <div key={i} className="relative group p-6 lg:p-8 bg-[#0a0a0a] hover:bg-[#0d0d0d] transition-colors text-center">
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full transition-all group-hover:w-16" style={{ backgroundColor: `${greens[i]}30` }} />
-                    <div className="text-3xl lg:text-4xl font-light mb-1" style={{ color: `${greens[i]}cc` }}>{stat.value}</div>
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full bg-white/[0.08] transition-all group-hover:w-16" />
+                    <div className="text-3xl lg:text-4xl font-light text-white/80 mb-1">{stat.value}</div>
                     <div className="text-sm text-white/60 font-medium mb-0.5">{stat.label}</div>
                     <div className="text-[11px] text-white/25">{stat.sub}</div>
                   </div>
-                );
-              })}
+              ))}
             </div>
           </div>
         </div>

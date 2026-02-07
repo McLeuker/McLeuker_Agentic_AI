@@ -28,8 +28,7 @@ export default function MentionsLegalesPage() {
                   <p><strong className="text-white/80">Email :</strong>{' '}
                     <a href="mailto:contact@mcleuker.com" className="text-white/80 underline hover:text-white">contact@mcleuker.com</a>
                   </p>
-                  <p><strong className="text-white/80">SIRET :</strong> En cours d&apos;immatriculation</p>
-                  <p><strong className="text-white/80">TVA intracommunautaire :</strong> En cours d&apos;obtention</p>
+                  <p><strong className="text-white/80">SIRET :</strong> 918 103 805 00027</p>
                 </div>
               </section>
 
