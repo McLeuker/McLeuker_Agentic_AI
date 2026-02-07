@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Linkedin, Instagram, Twitter, ArrowRight, Globe, Mail, MapPin } from "lucide-react";
+import { Linkedin, Instagram, Twitter, ArrowRight, Mail, MapPin } from "lucide-react";
 
 /* Custom TikTok icon */
 function TikTokIcon({ className }: { className?: string }) {
@@ -301,24 +301,7 @@ export function Footer() {
                 © {currentYear} McLeuker AI. All rights reserved.
               </p>
             </div>
-            <div className="flex items-center gap-5 flex-wrap justify-center">
-              <Link href="/privacy" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
-                Privacy
-              </Link>
-              <Link href="/terms" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
-                Terms
-              </Link>
-              <Link href="/cookies" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
-                Cookies
-              </Link>
-              <Link href="/legal/mentions-legales" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
-                Mentions Légales
-              </Link>
-              <div className="flex items-center gap-1.5 text-[12px] text-white/20">
-                <Globe className="w-3 h-3" />
-                <span>EN</span>
-              </div>
-            </div>
+
           </div>
         </div>
       </div>
