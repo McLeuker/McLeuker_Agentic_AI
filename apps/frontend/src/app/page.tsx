@@ -368,15 +368,187 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SECTION 2 — The Future of Fashion Intelligence */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-20 bg-[#0A0A0A]">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-12">
-          <div className="max-w-4xl mx-auto text-center">
-            <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.95] tracking-tight mb-4 leading-[1.05]">
-              The Future of<br />Fashion Intelligence
-            </h2>
-            <p className="text-white/40 text-lg md:text-xl max-w-2xl mx-auto mb-8 leading-relaxed">
-              One platform for every fashion research task. From trend analysis to supplier sourcing — structured, professional, and ready to act on.
-            </p>
+      <section className="relative py-24 lg:py-32 bg-[#070707] overflow-hidden">
+        {/* Separator line */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[80%] max-w-[600px] h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
+        {/* Background visual elements */}
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Floating grid dots */}
+          <div className="absolute top-12 left-[10%] w-[200px] h-[200px] opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+          <div className="absolute bottom-12 right-[10%] w-[200px] h-[200px] opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+          {/* Accent glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-[#2E3524]/[0.06] blur-[120px]" />
+        </div>
+
+        <div className="relative z-10 container mx-auto px-6 lg:px-12">
+          <div className="max-w-[1200px] mx-auto">
+            {/* Top: Heading + Description */}
+            <div className="text-center mb-16">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] mb-6">
+                <Sparkles className="w-3.5 h-3.5 text-[#6b9b8a]/60" />
+                <span className="text-[11px] text-white/40 uppercase tracking-[0.15em]">Fashion Intelligence Platform</span>
+              </div>
+              <h2 className="font-editorial text-4xl md:text-5xl lg:text-[56px] text-white/[0.95] tracking-tight mb-5 leading-[1.08]">
+                The Future of<br />Fashion Intelligence
+              </h2>
+              <p className="text-white/40 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+                One platform for every fashion research task. From trend analysis to supplier sourcing — structured, professional, and ready to act on.
+              </p>
+            </div>
+
+            {/* Bento Grid — Visual showcase */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-14">
+              {/* Card 1 — Large: Live Research Preview */}
+              <div className="lg:col-span-2 group relative rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-500 p-6 lg:p-8">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#6b9b8a]/20 to-transparent" />
+                <div className="flex items-start justify-between mb-6">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-[#6b9b8a]/60 animate-pulse" />
+                      <span className="text-[10px] text-white/30 uppercase tracking-wider">Live Research</span>
+                    </div>
+                    <h3 className="text-lg font-medium text-white/85">From prompt to structured intelligence</h3>
+                  </div>
+                  <Brain className="w-5 h-5 text-white/15" />
+                </div>
+                {/* Mock research output */}
+                <div className="bg-[#080808] rounded-xl border border-white/[0.04] p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Search className="w-3.5 h-3.5 text-white/20" />
+                    <span className="text-[13px] text-white/50">"Analyze SS26 denim trends across European markets"</span>
+                  </div>
+                  <div className="h-px bg-white/[0.04] mb-3" />
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: "Sources analyzed", value: "47" },
+                      { label: "Key trends found", value: "12" },
+                      { label: "Markets covered", value: "8" },
+                    ].map((stat, i) => (
+                      <div key={i} className="text-center">
+                        <div className="text-xl font-light text-white/80">{stat.value}</div>
+                        <div className="text-[9px] text-white/25 uppercase tracking-wider mt-0.5">{stat.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Output files row */}
+                <div className="flex gap-2">
+                  {[
+                    { ext: ".xlsx", color: "#217346", name: "supplier_data" },
+                    { ext: ".pdf", color: "#D32F2F", name: "trend_report" },
+                    { ext: ".pptx", color: "#D04423", name: "market_deck" },
+                  ].map((file, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] flex-1">
+                      <div className="w-1.5 h-6 rounded-full" style={{ backgroundColor: `${file.color}40` }} />
+                      <div>
+                        <div className="text-[11px] text-white/50">{file.name}</div>
+                        <div className="text-[9px] font-mono" style={{ color: `${file.color}90` }}>{file.ext}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card 2 — Domain coverage */}
+              <div className="group relative rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-500 p-6">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#C9A96E]/15 to-transparent" />
+                <div className="flex items-center gap-2 mb-4">
+                  <Globe className="w-4 h-4 text-white/25" />
+                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Domain Coverage</span>
+                </div>
+                <div className="text-4xl font-light text-white/90 mb-1">10</div>
+                <div className="text-sm text-white/40 mb-5">Specialized domains</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {["Fashion", "Beauty", "Skincare", "Sustainability", "Tech", "Catwalks", "Culture", "Textile", "Lifestyle"].map((d, i) => (
+                    <span key={i} className="px-2.5 py-1 rounded-full bg-white/[0.03] border border-white/[0.05] text-[10px] text-white/35">{d}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card 3 — Speed metric */}
+              <div className="group relative rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-500 p-6">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#8ECAE6]/15 to-transparent" />
+                <div className="flex items-center gap-2 mb-4">
+                  <Zap className="w-4 h-4 text-white/25" />
+                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Research Speed</span>
+                </div>
+                <div className="text-4xl font-light text-white/90 mb-1">&lt;5<span className="text-lg text-white/40">min</span></div>
+                <div className="text-sm text-white/40 mb-5">Average time to full report</div>
+                {/* Mini timeline */}
+                <div className="space-y-2">
+                  {[
+                    { step: "Prompt received", time: "0s", w: "5%" },
+                    { step: "Sources crawled", time: "45s", w: "35%" },
+                    { step: "Analysis complete", time: "2m", w: "65%" },
+                    { step: "Report exported", time: "4m", w: "100%" },
+                  ].map((s, i) => (
+                    <div key={i}>
+                      <div className="flex justify-between mb-0.5">
+                        <span className="text-[9px] text-white/30">{s.step}</span>
+                        <span className="text-[9px] text-white/20 font-mono">{s.time}</span>
+                      </div>
+                      <div className="h-1 rounded-full bg-white/[0.04] overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-[#8ECAE6]/30 to-[#8ECAE6]/10 transition-all duration-1000" style={{ width: s.w }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card 4 — AI Models */}
+              <div className="group relative rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-500 p-6">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#E07A5F]/15 to-transparent" />
+                <div className="flex items-center gap-2 mb-4">
+                  <Layers className="w-4 h-4 text-white/25" />
+                  <span className="text-[10px] text-white/30 uppercase tracking-wider">Multi-Model AI</span>
+                </div>
+                <div className="text-4xl font-light text-white/90 mb-1">4<span className="text-lg text-white/40">+</span></div>
+                <div className="text-sm text-white/40 mb-5">AI models in parallel</div>
+                <div className="space-y-2">
+                  {[
+                    { label: "Real-time signals", color: "#E07A5F" },
+                    { label: "Deep analysis", color: "#6b9b8a" },
+                    { label: "Creative synthesis", color: "#C9A96E" },
+                    { label: "Data structuring", color: "#8ECAE6" },
+                  ].map((m, i) => (
+                    <div key={i} className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: `${m.color}50` }} />
+                      <span className="text-[11px] text-white/35">{m.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card 5 — Wide: Source-backed */}
+              <div className="lg:col-span-2 group relative rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-500 p-6">
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#A3B18A]/15 to-transparent" />
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="w-4 h-4 text-white/25" />
+                      <span className="text-[10px] text-white/30 uppercase tracking-wider">Source-Backed Intelligence</span>
+                    </div>
+                    <h3 className="text-lg font-medium text-white/85 mb-2">Every insight is traceable</h3>
+                    <p className="text-sm text-white/35 max-w-md leading-relaxed">Sources, citations, and confidence levels included in every output. Know exactly where each data point comes from.</p>
+                  </div>
+                  <div className="hidden sm:flex items-center gap-3 ml-6">
+                    {[
+                      { n: "47", label: "Sources" },
+                      { n: "98%", label: "Accuracy" },
+                      { n: "24/7", label: "Monitoring" },
+                    ].map((s, i) => (
+                      <div key={i} className="text-center px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                        <div className="text-lg font-light text-white/70">{s.n}</div>
+                        <div className="text-[9px] text-white/25 uppercase tracking-wider">{s.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CTAs */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
                 href="/dashboard"
