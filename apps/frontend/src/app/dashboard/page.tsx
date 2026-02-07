@@ -97,6 +97,9 @@ interface Message {
   is_favorite?: boolean;
   attachedFiles?: AttachedFile[];
   downloads?: DownloadFile[];
+  toolStatus?: string;
+  toolProgress?: { message: string; tools: string[] }[];
+  searchSources?: { title: string; url: string; source: string }[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -1727,6 +1730,8 @@ function DashboardContent() {
     let currentContent = '';
     let finalFollowUp: string[] = [];
     let currentDownloads: DownloadFile[] = [];
+    let currentToolProgress: { message: string; tools: string[] }[] = [];
+    let currentSearchSources: { title: string; url: string; source: string }[] = [];
 
     try {
       // Map frontend mode names to backend mode names
@@ -1872,6 +1877,60 @@ function DashboardContent() {
                     ? { ...m, downloads: [...currentDownloads] }
                     : m
                 ));
+              } else if (eventType === 'tool_call') {
+                // Handle tool execution progress from backend
+                const toolMsg = eventData.message || 'Processing...';
+                const toolNames = eventData.tools || [];
+                currentToolProgress.push({ message: toolMsg, tools: toolNames });
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, toolStatus: toolMsg, toolProgress: [...currentToolProgress] }
+                    : m
+                ));
+              } else if (eventType === 'search_sources') {
+                // Handle search sources from backend real-time search
+                const sources = Array.isArray(eventData) ? eventData : [];
+                currentSearchSources = [...currentSearchSources, ...sources];
+                // Also add to currentSources for the existing source display
+                for (const src of sources) {
+                  if (src.title && src.url && !currentSources.some(s => s.url === src.url)) {
+                    currentSources.push({
+                      title: src.title,
+                      url: src.url,
+                      snippet: src.source || '',
+                    });
+                  }
+                }
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, sources: [...currentSources], searchSources: [...currentSearchSources] }
+                    : m
+                ));
+              } else if (eventType === 'reasoning') {
+                // Handle reasoning_content from thinking mode
+                const reasoningChunk = eventData.chunk || eventData || '';
+                if (typeof reasoningChunk === 'string' && reasoningChunk) {
+                  // Create or update a reasoning layer for thinking content
+                  if (currentLayers.length === 0) {
+                    currentLayers.push({
+                      id: 'thinking-1',
+                      layer_num: 1,
+                      type: 'analysis',
+                      title: 'Thinking',
+                      content: reasoningChunk,
+                      sub_steps: [],
+                      status: 'active',
+                      expanded: true,
+                    });
+                  } else {
+                    currentLayers[currentLayers.length - 1].content += reasoningChunk;
+                  }
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, reasoning_layers: [...currentLayers] }
+                      : m
+                  ));
+                }
               } else if (eventType === 'follow_up') {
                 finalFollowUp = eventData.questions || [];
                 setMessages(prev => prev.map(m =>
@@ -1901,6 +1960,9 @@ function DashboardContent() {
                         sources: eventData.sources || currentSources,
                         follow_up_questions: followUpQuestions,
                         downloads: allDownloads.length > 0 ? allDownloads : undefined,
+                        searchSources: currentSearchSources.length > 0 ? currentSearchSources : undefined,
+                        toolStatus: undefined,
+                        toolProgress: currentToolProgress.length > 0 ? currentToolProgress : undefined,
                         isStreaming: false,
                       }
                     : m
@@ -2324,8 +2386,32 @@ function DashboardContent() {
                             </div>
                           )}
                           
+                          {/* Tool Progress Indicator */}
+                          {message.isStreaming && message.toolStatus && (
+                            <div className="mb-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                              <div className="flex items-center gap-2">
+                                <div className="flex gap-1">
+                                  <span className="w-1.5 h-1.5 bg-[#5c6652] rounded-full animate-pulse" />
+                                  <span className="w-1.5 h-1.5 bg-[#5c6652] rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                                  <span className="w-1.5 h-1.5 bg-[#5c6652] rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                                </div>
+                                <span className="text-xs text-white/60 font-medium">{message.toolStatus}</span>
+                              </div>
+                              {message.toolProgress && message.toolProgress.length > 1 && (
+                                <div className="mt-2 space-y-1">
+                                  {message.toolProgress.slice(-3).map((tp, i) => (
+                                    <div key={i} className="flex items-center gap-2 text-[10px] text-white/40">
+                                      <CheckCircle2 className="h-3 w-3 text-[#5c6652]" />
+                                      <span>{tp.message}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
                           {/* Streaming indicator */}
-                          {message.isStreaming && !message.content && (
+                          {message.isStreaming && !message.content && !message.toolStatus && (
                             <div className="flex items-center gap-2 text-white/50">
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="text-sm">Thinking...</span>

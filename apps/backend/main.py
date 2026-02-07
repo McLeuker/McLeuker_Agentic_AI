@@ -2663,19 +2663,23 @@ class KimiEngine:
         mode: str = "thinking",
         enable_tools: bool = True
     ) -> AsyncGenerator[str, None]:
-        """Stream chat responses with full tool execution support"""
+        """Stream chat responses with full tool execution support.
+        ALWAYS performs real-time search before responding to provide current data."""
         
-        # Check if user is asking for file generation
+        # Extract user message
         user_msg = ""
+        user_msg_original = ""
         for m in messages:
             if m.get("role") == "user":
                 content = m.get("content", "")
                 if isinstance(content, str):
                     user_msg = content.lower()
+                    user_msg_original = content
                 elif isinstance(content, list):
                     for part in content:
                         if isinstance(part, dict) and part.get("type") == "text":
                             user_msg = part.get("text", "").lower()
+                            user_msg_original = part.get("text", "")
         
         file_keywords = ['excel', 'spreadsheet', 'xlsx', 'csv',
                         'word doc', 'docx', 'pdf', 'powerpoint', 'presentation', 'pptx',
@@ -2699,9 +2703,118 @@ class KimiEngine:
         
         # ===== DEDICATED FILE GENERATION PIPELINE =====
         if needs_file and file_type:
-            async for event in cls._file_generation_pipeline(messages, user_msg, file_type, mode):
+            async for event in cls._file_generation_pipeline(messages, user_msg_original, file_type, mode):
                 yield event
             return
+        
+        # ===== ALWAYS DO REAL-TIME SEARCH FIRST =====
+        # Skip search only for trivial greetings
+        trivial_patterns = ['hello', 'hi', 'hey', 'thanks', 'thank you', 'ok', 'bye', 'good morning', 'good night']
+        is_trivial = user_msg.strip() in trivial_patterns or len(user_msg.strip()) < 5
+        
+        search_context = ""
+        search_sources_data = []
+        
+        if not is_trivial and user_msg_original:
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching real-time sources...', 'tools': ['realtime_search']}})}\n\n"
+            
+            try:
+                search_results = await asyncio.wait_for(
+                    SearchAPIs.multi_search(
+                        query=user_msg_original,
+                        sources=["web", "news", "google"],
+                        num_results=10,
+                        recency_days=30
+                    ),
+                    timeout=15.0
+                )
+                
+                if search_results:
+                    context_parts = []
+                    source_names = []
+                    
+                    # Extract Perplexity answer
+                    results_data = search_results.get("results", {})
+                    if "perplexity" in results_data and "answer" in results_data["perplexity"]:
+                        context_parts.append(f"[Perplexity] {results_data['perplexity']['answer'][:800]}")
+                        source_names.append("Perplexity")
+                        # Extract citations
+                        citations = results_data["perplexity"].get("citations", [])
+                        if citations:
+                            search_sources_data.extend([{"title": c, "url": c, "source": "perplexity"} for c in citations[:5]])
+                    
+                    # Extract Google results
+                    if "google" in results_data and "results" in results_data["google"]:
+                        google_items = results_data["google"]["results"]
+                        for item in google_items[:5]:
+                            title = item.get("title", "")
+                            snippet = item.get("snippet", "")
+                            url = item.get("link", "")
+                            if title and snippet:
+                                context_parts.append(f"[Google] {title}: {snippet}")
+                                search_sources_data.append({"title": title, "url": url, "source": "google"})
+                        source_names.append("Google")
+                        # Answer box
+                        answer_box = results_data["google"].get("answer_box", {})
+                        if answer_box and answer_box.get("answer"):
+                            context_parts.insert(0, f"[Google Answer] {answer_box['answer']}")
+                    
+                    # Extract Exa results
+                    if "exa" in results_data and "results" in results_data["exa"]:
+                        exa_items = results_data["exa"]["results"]
+                        for item in exa_items[:5]:
+                            title = item.get("title", "")
+                            text = item.get("text", item.get("snippet", ""))[:300]
+                            url = item.get("url", "")
+                            if title:
+                                context_parts.append(f"[Exa] {title}: {text}")
+                                search_sources_data.append({"title": title, "url": url, "source": "exa"})
+                        source_names.append("Exa")
+                    
+                    # Synthesized answer
+                    synthesis = search_results.get("synthesized_answer", "")
+                    if synthesis and synthesis != "Search completed.":
+                        context_parts.insert(0, f"SYNTHESIS: {synthesis}")
+                    
+                    search_context = "\n\n".join(context_parts[:15])
+                    
+                    source_count = len(search_sources_data)
+                    source_list = ", ".join(source_names) if source_names else "web"
+                    yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': f'Found {source_count} sources from {source_list}. Analyzing...', 'tools': ['realtime_search']}})}\n\n"
+                    
+                    # Send search sources to frontend
+                    if search_sources_data:
+                        yield f"data: {json.dumps({'type': 'search_sources', 'data': search_sources_data})}\n\n"
+                    
+            except asyncio.TimeoutError:
+                logger.warning("Search timed out after 15s, proceeding without search context")
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Search timed out, generating response...', 'tools': []}})}\n\n"
+            except Exception as search_err:
+                logger.warning(f"Search failed: {search_err}")
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating response...', 'tools': []}})}\n\n"
+        
+        # ===== BUILD MESSAGES WITH SEARCH CONTEXT =====
+        enriched_messages = list(messages)
+        
+        if search_context:
+            # Insert search context as a system message
+            search_system_msg = {
+                "role": "system",
+                "content": f"""You are McLeuker AI, a fashion intelligence research assistant. You have access to real-time search data below. Use it to provide accurate, current, well-structured information.
+
+--- REAL-TIME SEARCH DATA ---
+{search_context}
+--- END SEARCH DATA ---
+
+IMPORTANT INSTRUCTIONS:
+1. Use the search data to provide accurate, up-to-date information
+2. Structure your response with clear headings (##), bullet points, and tables where appropriate
+3. Cite sources when referencing specific data points
+4. If the search data is relevant, integrate it naturally into your response
+5. Be comprehensive but concise - aim for well-organized, scannable content
+6. Use markdown formatting for readability"""
+            }
+            enriched_messages.insert(0, search_system_msg)
         
         # ===== NORMAL CHAT FLOW =====
         use_tools = enable_tools and mode in ["agent", "research"]
@@ -2709,7 +2822,7 @@ class KimiEngine:
         config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
         params = {
             "model": "kimi-k2.5",
-            "messages": messages,
+            "messages": enriched_messages,
             "stream": True,
             **config
         }
@@ -2965,8 +3078,37 @@ class KimiEngine:
                         yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
                         break
         
-        # Send complete event with downloads
-        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning, 'downloads': downloads}})}\n\n"
+        # Generate follow-up questions if we have content
+        follow_up_questions = []
+        if full_content and len(full_content) > 100:
+            try:
+                fq_response = client.chat.completions.create(
+                    model="kimi-k2.5",
+                    messages=[{"role": "user", "content": f"Based on this response, suggest 3 short follow-up questions the user might ask next. Return ONLY a JSON array of strings, no other text.\n\nResponse: {full_content[:500]}"}],
+                    temperature=0.7,
+                    max_tokens=200,
+                    extra_body={"thinking": {"type": "disabled"}}
+                )
+                fq_text = fq_response.choices[0].message.content.strip()
+                # Extract JSON array
+                import re as _re
+                fq_match = _re.search(r'\[.*?\]', fq_text, _re.DOTALL)
+                if fq_match:
+                    follow_up_questions = json.loads(fq_match.group())
+            except Exception:
+                pass
+        
+        if follow_up_questions:
+            yield f"data: {json.dumps({'type': 'follow_up', 'data': {'questions': follow_up_questions}})}\n\n"
+        
+        # Send sources as individual source events for frontend
+        if search_sources_data:
+            for src in search_sources_data[:8]:
+                yield f"data: {json.dumps({'type': 'source', 'data': {'title': src.get('title', 'Source'), 'url': src.get('url', ''), 'snippet': src.get('source', '')}})}\n\n"
+        
+        # Send complete event with downloads, sources, and follow-up
+        complete_sources = [{"title": s.get("title", ""), "url": s.get("url", ""), "snippet": s.get("source", "")} for s in search_sources_data] if search_sources_data else []
+        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning, 'downloads': downloads, 'sources': complete_sources, 'follow_up_questions': follow_up_questions}})}\n\n"
     
     @classmethod
     async def _file_generation_pipeline(
@@ -2986,7 +3128,6 @@ class KimiEngine:
         downloads = []
         
         try:
-            # Step 1: Inform user we're working on it
             file_type_names = {
                 'excel': 'Excel spreadsheet',
                 'word': 'Word document',
@@ -2994,49 +3135,90 @@ class KimiEngine:
                 'pptx': 'PowerPoint presentation'
             }
             
-            # Step 1a: Real-time search for data to populate the file
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching real-time sources for data...'}})}\n\n"
+            # Step 1: Real-time search for data to populate the file
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching real-time sources for data...', 'tools': ['realtime_search']}})}\n\n"
             
             search_context = ""
+            search_sources_data = []
             try:
-                search_results = await SearchAPIs.multi_search(
-                    query=user_msg,
-                    sources=["web", "news", "google"],
-                    num_results=10,
-                    recency_days=30
+                search_results = await asyncio.wait_for(
+                    SearchAPIs.multi_search(
+                        query=user_msg,
+                        sources=["web", "news", "google"],
+                        num_results=10,
+                        recency_days=30
+                    ),
+                    timeout=15.0
                 )
-                if search_results and search_results.get("result"):
-                    search_data = search_results["result"]
-                    # Build context from search results
+                if search_results:
+                    results_data = search_results.get("results", {})
                     context_parts = []
-                    for source_name, source_data in search_data.get("sources", {}).items():
-                        if isinstance(source_data, list):
-                            for item in source_data[:5]:
-                                if isinstance(item, dict):
-                                    title = item.get("title", "")
-                                    text = item.get("text", item.get("snippet", item.get("content", "")))
-                                    url = item.get("url", "")
-                                    if title or text:
-                                        context_parts.append(f"[{source_name}] {title}: {text[:500]}")
-                    if search_data.get("synthesis"):
-                        context_parts.insert(0, f"SYNTHESIS: {search_data['synthesis']}")
+                    source_names = []
+                    
+                    # Extract Perplexity answer
+                    if "perplexity" in results_data and "answer" in results_data["perplexity"]:
+                        context_parts.append(f"[Perplexity] {results_data['perplexity']['answer'][:800]}")
+                        source_names.append("Perplexity")
+                        citations = results_data["perplexity"].get("citations", [])
+                        if citations:
+                            search_sources_data.extend([{"title": c, "url": c, "source": "perplexity"} for c in citations[:5]])
+                    
+                    # Extract Google results
+                    if "google" in results_data and "results" in results_data["google"]:
+                        for item in results_data["google"]["results"][:5]:
+                            title = item.get("title", "")
+                            snippet = item.get("snippet", "")
+                            url = item.get("link", "")
+                            if title and snippet:
+                                context_parts.append(f"[Google] {title}: {snippet}")
+                                search_sources_data.append({"title": title, "url": url, "source": "google"})
+                        source_names.append("Google")
+                    
+                    # Extract Exa results
+                    if "exa" in results_data and "results" in results_data["exa"]:
+                        for item in results_data["exa"]["results"][:5]:
+                            title = item.get("title", "")
+                            text = item.get("text", item.get("snippet", ""))[:300]
+                            url = item.get("url", "")
+                            if title:
+                                context_parts.append(f"[Exa] {title}: {text}")
+                                search_sources_data.append({"title": title, "url": url, "source": "exa"})
+                        source_names.append("Exa")
+                    
+                    synthesis = search_results.get("synthesized_answer", "")
+                    if synthesis and synthesis != "Search completed.":
+                        context_parts.insert(0, f"SYNTHESIS: {synthesis}")
+                    
                     search_context = "\n\n".join(context_parts[:15])
                     
-                    source_count = sum(len(v) if isinstance(v, list) else 0 for v in search_data.get("sources", {}).values())
-                    yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': f'Found {source_count} sources. Generating structured content...'}})}\n\n"
+                    source_count = len(search_sources_data)
+                    source_list = ", ".join(source_names) if source_names else "web"
+                    ft_name = file_type_names.get(file_type, 'file')
+                    status_data = {'type': 'tool_call', 'data': {'message': f'Found {source_count} sources from {source_list}. Generating {ft_name}...', 'tools': ['generate_' + file_type]}}
+                    yield f"data: {json.dumps(status_data)}\n\n"
+                    
+                    if search_sources_data:
+                        yield f"data: {json.dumps({'type': 'search_sources', 'data': search_sources_data})}\n\n"
+                        
+            except asyncio.TimeoutError:
+                logger.warning("Search timed out during file gen")
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Search timed out, generating with AI knowledge...', 'tools': ['generate_' + file_type]}})}\n\n"
             except Exception as search_err:
-                logger.warning(f"Search failed during file gen, proceeding without: {search_err}")
-                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating structured content...'}})}\n\n"
+                logger.warning(f"Search failed during file gen: {search_err}")
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating structured content...', 'tools': ['generate_' + file_type]}})}\n\n"
             
-            # Step 2: Generate file with search context
+            # Step 2: Generate file with search context enriched prompt
             enriched_prompt = user_msg
             if search_context:
-                enriched_prompt = f"{user_msg}\n\n--- REAL-TIME DATA FROM SEARCH ---\n{search_context}\n--- END SEARCH DATA ---\n\nUse the above real-time data to populate the file with actual, current information. Include source citations where appropriate."
+                enriched_prompt = f"{user_msg}\n\n--- REAL-TIME DATA FROM SEARCH ---\n{search_context}\n--- END SEARCH DATA ---\n\nIMPORTANT: Use the above real-time data to populate the file with actual, current information. Include specific names, numbers, dates, and details from the search results. Do NOT use placeholder data."
             
             status_msg = f"Building your {file_type_names.get(file_type, 'file')} with real data..."
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': status_msg}})}\n\n"
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': status_msg, 'tools': ['generate_' + file_type]}})}\n\n"
             
-            result = await FileGenerationService.generate(file_type, enriched_prompt)
+            result = await asyncio.wait_for(
+                FileGenerationService.generate(file_type, enriched_prompt),
+                timeout=60.0
+            )
             
             if result.get("error"):
                 error_msg = f"Error generating file: {result['error']}"
@@ -3045,9 +3227,6 @@ class KimiEngine:
                 return
             
             # Step 3: Stream the download info
-            creating_msg = f"Creating {file_type_names.get(file_type, 'file')}..."
-            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': creating_msg}})}\n\n"
-            
             download_info = {
                 "filename": result["filename"],
                 "download_url": result["download_url"],
@@ -3057,8 +3236,23 @@ class KimiEngine:
             downloads.append(download_info)
             yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
             
-            # Step 4: Stream a concise summary
-            summary = f"I've created a professional {file_type_names.get(file_type, 'file')} for you. You can download it using the button above."
+            # Step 4: Generate a rich summary using Kimi
+            summary_prompt = f"""I just created a {file_type_names.get(file_type, 'file')} about: {user_msg}
+
+Provide a brief 2-3 sentence summary of what was created. Mention key data points included. Format in markdown."""
+            
+            try:
+                summary_response = client.chat.completions.create(
+                    model="kimi-k2.5",
+                    messages=[{"role": "user", "content": summary_prompt}],
+                    temperature=0.5,
+                    max_tokens=300,
+                    extra_body={"thinking": {"type": "disabled"}}
+                )
+                summary = summary_response.choices[0].message.content
+            except:
+                summary = f"Your {file_type_names.get(file_type, 'file')} has been generated with real-time data. Click the download button above to save it."
+            
             yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': summary}})}\n\n"
             yield f"data: {json.dumps({'type': 'complete', 'data': {'content': summary, 'reasoning': '', 'downloads': downloads}})}\n\n"
         
