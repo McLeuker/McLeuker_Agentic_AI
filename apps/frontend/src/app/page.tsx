@@ -29,6 +29,12 @@ import {
   File,
   FileSpreadsheet,
   Presentation,
+  GraduationCap,
+  Microscope,
+  Palette,
+  Leaf,
+  ShoppingBag,
+  Newspaper,
 } from "lucide-react";
 
 /* ─── Static Data ─── */
@@ -128,62 +134,6 @@ const steps = [
   },
 ];
 
-const outputCards = [
-  {
-    title: "Excel Intelligence",
-    type: "xlsx",
-    icon: FileSpreadsheet,
-    color: "#217346",
-    description: "Structured data with filters, formulas, and multi-sheet analysis",
-    preview: {
-      kind: "table",
-      headers: ["Supplier", "Country", "MOQ", "Cert.", "Lead"],
-      rows: [
-        ["Candiani", "Italy", "300", "GOTS", "6 wks"],
-        ["Tejidos Royo", "Spain", "500", "OEKO", "4 wks"],
-        ["Advance Denim", "Portugal", "200", "BCI", "5 wks"],
-      ],
-      footer: "+ 29 more rows across 3 sheets",
-    },
-  },
-  {
-    title: "PDF Reports",
-    type: "pdf",
-    icon: FileText,
-    color: "#D32F2F",
-    description: "Professional reports with charts, tables, and executive summaries",
-    preview: {
-      kind: "toc",
-      sections: ["Executive Summary", "Key Findings", "Trend Analysis", "Competitive Landscape", "Recommendations"],
-      meta: "12 pages · 8 charts · 47 sources",
-    },
-  },
-  {
-    title: "Presentations",
-    type: "pptx",
-    icon: Presentation,
-    color: "#D04423",
-    description: "Slide decks ready for stakeholder meetings and board presentations",
-    preview: {
-      kind: "slides",
-      slides: ["Title & Overview", "Market Size", "Competitive Map", "Trend Matrix", "Next Steps"],
-      meta: "15 slides · Stakeholder-ready",
-    },
-  },
-  {
-    title: "Word Documents",
-    type: "docx",
-    icon: File,
-    color: "#2B579A",
-    description: "Detailed research documents with citations and structured analysis",
-    preview: {
-      kind: "outline",
-      sections: ["1. Introduction", "2. Methodology", "3. Findings", "4. Analysis", "5. Appendix"],
-      meta: "5,000+ words · Fully cited",
-    },
-  },
-];
-
 const useCases = [
   {
     role: "Creative Directors",
@@ -191,6 +141,7 @@ const useCases = [
     result: "12-page structured report with visual references",
     icon: Sparkles,
     image: "/images/domains/fashion.jpg",
+    accent: "#C9A96E",
   },
   {
     role: "Sourcing Teams",
@@ -198,6 +149,7 @@ const useCases = [
     result: "Exportable Excel with tier rankings and contact details",
     icon: Search,
     image: "/images/domains/textile.jpg",
+    accent: "#A3B18A",
   },
   {
     role: "Brand Strategists",
@@ -205,6 +157,7 @@ const useCases = [
     result: "Presentation-ready brand maps with market data",
     icon: Target,
     image: "/images/domains/culture.jpg",
+    accent: "#E07A5F",
   },
   {
     role: "Sustainability Leads",
@@ -212,6 +165,55 @@ const useCases = [
     result: "Gap analysis document with remediation steps",
     icon: ShieldCheck,
     image: "/images/domains/sustainability.jpg",
+    accent: "#6B9E78",
+  },
+  {
+    role: "Fashion Students",
+    task: "Research dissertation topics across fashion history, trends, and cultural impact",
+    result: "5,000-word research document with 40+ cited sources",
+    icon: GraduationCap,
+    image: "/images/domains/catwalks.jpg",
+    accent: "#8ECAE6",
+  },
+  {
+    role: "Academic Researchers",
+    task: "Cross-reference consumer behavior data with market trends across regions",
+    result: "Multi-sheet Excel with statistical breakdowns and methodology notes",
+    icon: Microscope,
+    image: "/images/domains/lifestyle.jpg",
+    accent: "#DDA15E",
+  },
+  {
+    role: "Beauty Professionals",
+    task: "Analyze ingredient trends and clean beauty formulations across 50 brands",
+    result: "Competitive landscape PDF with ingredient matrices and brand positioning",
+    icon: Palette,
+    image: "/images/domains/beauty.jpg",
+    accent: "#D4A0B0",
+  },
+  {
+    role: "Skincare Specialists",
+    task: "Compare active ingredient efficacy data and regulatory compliance by market",
+    result: "Clinical summary report with regulatory comparison tables",
+    icon: Leaf,
+    image: "/images/domains/skincare.jpg",
+    accent: "#8ECAE6",
+  },
+  {
+    role: "Retail Buyers",
+    task: "Benchmark pricing, sell-through rates, and assortment gaps across competitors",
+    result: "Buyer's deck with pricing grids and assortment recommendations",
+    icon: ShoppingBag,
+    image: "/images/domains/fashion-tech.jpg",
+    accent: "#7B68EE",
+  },
+  {
+    role: "Fashion Journalists",
+    task: "Compile show notes, designer interviews, and trend narratives from fashion week",
+    result: "Editorial-ready article draft with quotes and trend analysis",
+    icon: Newspaper,
+    image: "/images/domains/catwalks.jpg",
+    accent: "#E8D5B7",
   },
 ];
 
@@ -254,9 +256,9 @@ function useHorizontalScroll() {
 
 export default function LandingPage() {
   const [prompt, setPrompt] = useState("");
+  const [activeOutput, setActiveOutput] = useState(0);
   const router = useRouter();
   const domainScroll = useHorizontalScroll();
-  const outputScroll = useHorizontalScroll();
   const useCaseScroll = useHorizontalScroll();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -273,6 +275,14 @@ export default function LandingPage() {
     sessionStorage.setItem("autoExecute", "true");
     router.push("/dashboard");
   };
+
+  // Auto-rotate output showcase
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveOutput((prev) => (prev + 1) % 4);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   const recentPosts = blogPosts.slice(0, 3);
 
@@ -385,10 +395,10 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SECTION 3 — Capabilities Grid */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-[#070707]">
+      <section className="py-14 lg:py-20 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="text-center mb-12 lg:mb-16">
+            <div className="text-center mb-10 lg:mb-14">
               <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">What We Deliver</p>
               <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
                 Intelligence, not just answers
@@ -422,10 +432,10 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SECTION 4 — Domain Carousel */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-[#0A0A0A]">
+      <section className="py-12 lg:py-16 bg-[#0A0A0A]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="flex items-end justify-between mb-10">
+            <div className="flex items-end justify-between mb-8">
               <div>
                 <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Specialized Intelligence</p>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
@@ -484,10 +494,10 @@ export default function LandingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SECTION 5 — How It Works */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-[#070707]">
+      <section className="py-12 lg:py-16 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="text-center mb-12 lg:mb-16">
+            <div className="text-center mb-10 lg:mb-14">
               <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">The Process</p>
               <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
                 From prompt to intelligence in minutes
@@ -519,7 +529,7 @@ export default function LandingPage() {
               })}
             </div>
 
-            <div className="text-center mt-12">
+            <div className="text-center mt-10">
               <Link
                 href="/dashboard"
                 onClick={() => {
@@ -542,243 +552,336 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 6 — Output Showcase (SCROLLABLE + OVERLAPPING) */}
+      {/* SECTION 6 — Output Showcase (INTERACTIVE TABS + VISUAL) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-[#0A0A0A]">
+      <section className="py-12 lg:py-20 bg-[#0A0A0A]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="flex items-end justify-between mb-10">
-              <div>
-                <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Exportable Deliverables</p>
-                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
-                  See exactly what you get
-                </h2>
-                <p className="text-white/35 text-base max-w-lg mt-3 leading-relaxed">
-                  Not chat responses — structured, professional documents ready for your team.
-                </p>
+            <div className="text-center mb-10">
+              <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Exportable Deliverables</p>
+              <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
+                See exactly what you get
+              </h2>
+              <p className="text-white/35 text-base max-w-lg mx-auto mt-3 leading-relaxed">
+                Not chat responses — structured, professional documents ready for your team.
+              </p>
+            </div>
+
+            {/* Tab selector */}
+            <div className="flex items-center justify-center gap-2 mb-8">
+              {[
+                { label: "Excel", icon: FileSpreadsheet, color: "#217346", type: ".xlsx" },
+                { label: "PDF", icon: FileText, color: "#D32F2F", type: ".pdf" },
+                { label: "Slides", icon: Presentation, color: "#D04423", type: ".pptx" },
+                { label: "Word", icon: File, color: "#2B579A", type: ".docx" },
+              ].map((tab, i) => {
+                const TabIcon = tab.icon;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setActiveOutput(i)}
+                    className={cn(
+                      "flex items-center gap-2 px-5 py-2.5 rounded-full border transition-all duration-300",
+                      activeOutput === i
+                        ? "bg-white/[0.06] border-white/[0.12] text-white/90"
+                        : "bg-transparent border-white/[0.04] text-white/35 hover:text-white/55 hover:border-white/[0.08]"
+                    )}
+                  >
+                    <TabIcon className="w-4 h-4" style={{ color: activeOutput === i ? tab.color : undefined }} />
+                    <span className="text-sm font-medium">{tab.label}</span>
+                    <span className={cn(
+                      "text-[10px] px-1.5 py-0.5 rounded font-mono transition-colors",
+                      activeOutput === i ? "text-white/40" : "text-white/20"
+                    )}>{tab.type}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active output preview — large visual */}
+            <div className="relative">
+              {/* Excel Preview */}
+              <div className={cn(
+                "transition-all duration-500",
+                activeOutput === 0 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
+              )}>
+                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
+                  <div className="h-1.5 w-full bg-[#217346]/30" />
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
+                    <FileSpreadsheet className="w-5 h-5 text-[#217346]" />
+                    <span className="text-sm font-medium text-white/80">supplier_analysis.xlsx</span>
+                    <span className="ml-auto text-[10px] text-white/25 font-mono">3 sheets · 32 rows · Auto-filtered</span>
+                  </div>
+                  {/* Sheet tabs */}
+                  <div className="flex gap-0 px-4 pt-2">
+                    {["Suppliers", "Pricing Matrix", "Certifications"].map((tab, i) => (
+                      <div key={i} className={cn(
+                        "px-4 py-1.5 text-[11px] rounded-t-lg border border-b-0 transition-colors",
+                        i === 0 ? "bg-[#0F0F0F] border-white/[0.06] text-white/60" : "bg-transparent border-transparent text-white/25"
+                      )}>{tab}</div>
+                    ))}
+                  </div>
+                  {/* Table */}
+                  <div className="mx-4 mb-4 rounded-b-lg border border-white/[0.04] overflow-hidden">
+                    <div className="grid grid-cols-6 bg-[#217346]/[0.08]">
+                      {["#", "Supplier", "Country", "MOQ", "Certification", "Lead Time"].map((h, j) => (
+                        <div key={j} className="px-3 py-2 text-[10px] font-semibold text-white/50 uppercase tracking-wider border-r border-white/[0.03] last:border-r-0">{h}</div>
+                      ))}
+                    </div>
+                    {[
+                      ["1", "Candiani Denim", "Italy", "300 units", "GOTS, OEKO-TEX", "6 weeks"],
+                      ["2", "Tejidos Royo", "Spain", "500 units", "OEKO-TEX 100", "4 weeks"],
+                      ["3", "Advance Denim", "Portugal", "200 units", "BCI, EU Ecolabel", "5 weeks"],
+                      ["4", "Orta Anadolu", "Turkey", "1,000 units", "GOTS, GRS", "3 weeks"],
+                      ["5", "Artistic Milliners", "Pakistan", "500 units", "WRAP, BSCI", "8 weeks"],
+                    ].map((row, j) => (
+                      <div key={j} className={cn("grid grid-cols-6 border-t border-white/[0.03]", j % 2 === 1 && "bg-white/[0.01]")}>
+                        {row.map((cell, k) => (
+                          <div key={k} className="px-3 py-2 text-[11px] text-white/45 border-r border-white/[0.02] last:border-r-0 truncate">{cell}</div>
+                        ))}
+                      </div>
+                    ))}
+                    <div className="px-3 py-2 text-[10px] text-white/20 bg-[#217346]/[0.04] border-t border-white/[0.04]">
+                      + 27 more rows across 3 sheets · Formulas included · Ready to filter
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <button
-                  onClick={() => outputScroll.scroll("left")}
-                  disabled={!outputScroll.canScrollLeft}
-                  className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => outputScroll.scroll("right")}
-                  disabled={!outputScroll.canScrollRight}
-                  className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
+
+              {/* PDF Preview */}
+              <div className={cn(
+                "transition-all duration-500",
+                activeOutput === 1 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
+              )}>
+                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
+                  <div className="h-1.5 w-full bg-[#D32F2F]/30" />
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
+                    <FileText className="w-5 h-5 text-[#D32F2F]" />
+                    <span className="text-sm font-medium text-white/80">trend_analysis_report.pdf</span>
+                    <span className="ml-auto text-[10px] text-white/25 font-mono">12 pages · 8 charts · 47 sources</span>
+                  </div>
+                  <div className="p-6">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {/* Page 1 mock */}
+                      <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5 aspect-[8.5/11]">
+                        <div className="w-12 h-0.5 rounded-full bg-[#D32F2F]/40 mb-4" />
+                        <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">McLeuker AI Report</div>
+                        <div className="text-sm text-white/70 font-medium mb-4">SS26 Womenswear Trend Analysis</div>
+                        <div className="space-y-3">
+                          {["Executive Summary", "Key Findings", "Trend Analysis", "Competitive Landscape", "Recommendations"].map((s, j) => (
+                            <div key={j} className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-[#D32F2F]/30" />
+                              <span className="text-[11px] text-white/40 flex-1">{s}</span>
+                              <div className="flex-1 border-b border-dotted border-white/[0.04]" />
+                              <span className="text-[10px] text-white/20">{j * 2 + 1}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Page 2 mock - chart */}
+                      <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5 aspect-[8.5/11]">
+                        <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">Page 3</div>
+                        <div className="text-xs text-white/50 font-medium mb-4">Trend Heatmap by Region</div>
+                        {/* Mock chart bars */}
+                        <div className="space-y-2 mb-4">
+                          {[
+                            { label: "Oversized Tailoring", w: "85%" },
+                            { label: "Sheer Fabrics", w: "72%" },
+                            { label: "Burgundy Tones", w: "68%" },
+                            { label: "Utility Details", w: "55%" },
+                            { label: "Metallic Accents", w: "45%" },
+                          ].map((bar, j) => (
+                            <div key={j}>
+                              <div className="flex justify-between mb-0.5">
+                                <span className="text-[9px] text-white/35">{bar.label}</span>
+                                <span className="text-[9px] text-white/20">{bar.w}</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-white/[0.03] overflow-hidden">
+                                <div className="h-full rounded-full bg-gradient-to-r from-[#D32F2F]/40 to-[#D32F2F]/20" style={{ width: bar.w }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="text-[9px] text-white/15 mt-auto">Source: McLeuker AI analysis of 47 runway shows</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Presentation Preview */}
+              <div className={cn(
+                "transition-all duration-500",
+                activeOutput === 2 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
+              )}>
+                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
+                  <div className="h-1.5 w-full bg-[#D04423]/30" />
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
+                    <Presentation className="w-5 h-5 text-[#D04423]" />
+                    <span className="text-sm font-medium text-white/80">market_overview.pptx</span>
+                    <span className="ml-auto text-[10px] text-white/25 font-mono">15 slides · Stakeholder-ready</span>
+                  </div>
+                  <div className="p-6">
+                    <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+                      {["Title & Overview", "Market Size $42B", "Competitive Map", "Trend Matrix", "Consumer Segments", "Regional Analysis", "Brand Positioning", "Growth Drivers", "Risk Factors", "Next Steps"].map((slide, j) => (
+                        <div key={j} className={cn(
+                          "aspect-[16/10] rounded-lg border flex flex-col items-center justify-center p-2 transition-all duration-300",
+                          j === 0 ? "bg-[#D04423]/[0.08] border-[#D04423]/20" : "bg-[#111] border-white/[0.04] hover:border-white/[0.08]"
+                        )}>
+                          <div className="w-full h-0.5 rounded-full mb-1.5" style={{ backgroundColor: j === 0 ? "#D04423" : "#ffffff08" }} />
+                          <span className="text-[8px] text-white/35 text-center leading-tight">{slide}</span>
+                          {j === 0 && <div className="w-4 h-0.5 rounded-full bg-[#D04423]/30 mt-1" />}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 text-center text-[10px] text-white/20">+ 5 more slides with appendix data and source citations</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Word Preview */}
+              <div className={cn(
+                "transition-all duration-500",
+                activeOutput === 3 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
+              )}>
+                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
+                  <div className="h-1.5 w-full bg-[#2B579A]/30" />
+                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
+                    <File className="w-5 h-5 text-[#2B579A]" />
+                    <span className="text-sm font-medium text-white/80">competitive_analysis.docx</span>
+                    <span className="ml-auto text-[10px] text-white/25 font-mono">5,200 words · 42 citations</span>
+                  </div>
+                  <div className="p-6 max-w-2xl mx-auto">
+                    {/* Document mock */}
+                    <div className="bg-[#111] rounded-xl border border-white/[0.04] p-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="w-8 h-0.5 rounded-full bg-[#2B579A]/40" />
+                        <div className="w-16 h-0.5 rounded-full bg-[#2B579A]/20" />
+                      </div>
+                      <div className="text-sm text-white/60 font-medium mb-1">1. Introduction</div>
+                      <div className="space-y-1 mb-4">
+                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[95%]" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[88%]" />
+                      </div>
+                      <div className="text-sm text-white/60 font-medium mb-1">2. Methodology</div>
+                      <div className="space-y-1 mb-4">
+                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[92%]" />
+                      </div>
+                      <div className="text-sm text-white/60 font-medium mb-1">3. Key Findings</div>
+                      <div className="space-y-1 mb-4">
+                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[97%]" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[85%]" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[90%]" />
+                      </div>
+                      <div className="text-sm text-white/60 font-medium mb-1">4. Competitive Analysis</div>
+                      <div className="space-y-1 mb-4">
+                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[93%]" />
+                      </div>
+                      <div className="text-sm text-white/60 font-medium mb-1">5. Appendix & Sources</div>
+                      <div className="space-y-1">
+                        <div className="h-2 rounded-full bg-white/[0.03] w-[80%]" />
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-white/[0.04] text-[9px] text-white/15">
+                        [1] McKinsey State of Fashion 2026 · [2] BoF Insights · [3] Euromonitor ... +39 more
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Horizontal scrollable output cards — overlapping stacked design */}
-        <div
-          ref={outputScroll.ref}
-          className="flex gap-0 overflow-x-auto scrollbar-hide px-6 lg:px-12 pb-6 snap-x snap-mandatory"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          <div className="flex-shrink-0 w-[calc((100vw-1200px)/2-24px)] hidden xl:block" />
-          
-          {outputCards.map((output, i) => {
-            const Icon = output.icon;
-            return (
-              <div
-                key={i}
-                className="group flex-shrink-0 snap-start"
-                style={{
-                  width: "380px",
-                  marginLeft: i === 0 ? 0 : "-40px",
-                  zIndex: outputCards.length - i,
-                }}
+            {/* Generate CTA */}
+            <div className="text-center mt-8">
+              <Link
+                href="/dashboard"
+                className={cn(
+                  "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
+                  "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                  "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
+                  "shadow-lg shadow-[#2E3524]/15"
+                )}
               >
-                <div
-                  className="relative rounded-2xl overflow-hidden border border-white/[0.06] hover:border-white/[0.12] transition-all duration-500 hover:z-50 hover:scale-[1.02] hover:shadow-2xl hover:shadow-black/50"
-                  style={{ backgroundColor: "#0C0C0C" }}
-                >
-                  {/* Colored top edge */}
-                  <div className="h-1 w-full" style={{ backgroundColor: `${output.color}40` }} />
-                  
-                  {/* Header */}
-                  <div className="flex items-center gap-3 px-6 pt-5 pb-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${output.color}12` }}>
-                      <Icon className="w-5 h-5" style={{ color: output.color }} />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-base font-medium text-white/[0.90]">{output.title}</h3>
-                      <p className="text-[11px] text-white/30">.{output.type} format</p>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] text-[10px] text-white/40 uppercase tracking-wider font-mono">
-                      .{output.type}
-                    </span>
-                  </div>
-
-                  {/* Preview area */}
-                  <div className="mx-5 mb-4 rounded-xl bg-[#080808] border border-white/[0.04] overflow-hidden">
-                    {output.preview.kind === "table" && (
-                      <div>
-                        <div className="flex border-b border-white/[0.06]">
-                          {output.preview.headers.map((h, j) => (
-                            <div key={j} className="flex-1 px-2.5 py-1.5 text-[9px] font-medium text-white/50 uppercase tracking-wider" style={{ backgroundColor: `${output.color}08` }}>
-                              {h}
-                            </div>
-                          ))}
-                        </div>
-                        {output.preview.rows.map((row, j) => (
-                          <div key={j} className={cn("flex border-b border-white/[0.03] last:border-b-0", j % 2 === 1 && "bg-white/[0.01]")}>
-                            {row.map((cell, k) => (
-                              <div key={k} className="flex-1 px-2.5 py-1.5 text-[10px] text-white/40 truncate">{cell}</div>
-                            ))}
-                          </div>
-                        ))}
-                        <div className="px-2.5 py-1.5 text-[9px] text-white/20" style={{ backgroundColor: `${output.color}05` }}>
-                          {output.preview.footer}
-                        </div>
-                      </div>
-                    )}
-
-                    {output.preview.kind === "toc" && (
-                      <div className="p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="w-6 h-0.5 rounded-full" style={{ backgroundColor: `${output.color}30` }} />
-                          <span className="text-[9px] text-white/25 uppercase">McLeuker AI Report</span>
-                        </div>
-                        {output.preview.sections.map((s, j) => (
-                          <div key={j} className="flex items-center gap-2 py-1">
-                            <div className="w-1 h-1 rounded-full" style={{ backgroundColor: `${output.color}40` }} />
-                            <span className="text-[10px] text-white/40">{s}</span>
-                            <div className="flex-1 border-b border-dotted border-white/[0.04]" />
-                            <span className="text-[9px] text-white/20">{j * 2 + 1}</span>
-                          </div>
-                        ))}
-                        <div className="mt-2 pt-2 border-t border-white/[0.04] text-[9px] text-white/20">{output.preview.meta}</div>
-                      </div>
-                    )}
-
-                    {output.preview.kind === "slides" && (
-                      <div className="p-4">
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {output.preview.slides.map((s, j) => (
-                            <div key={j} className="aspect-[16/10] rounded-lg bg-[#111] border border-white/[0.04] flex flex-col items-center justify-center p-1.5">
-                              <div className="w-full h-0.5 rounded-full mb-1" style={{ backgroundColor: `${output.color}20` }} />
-                              <span className="text-[7px] text-white/30 text-center leading-tight">{s}</span>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-2 pt-2 border-t border-white/[0.04] text-[9px] text-white/20">{output.preview.meta}</div>
-                      </div>
-                    )}
-
-                    {output.preview.kind === "outline" && (
-                      <div className="p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="w-5 h-0.5 rounded-full" style={{ backgroundColor: `${output.color}30` }} />
-                          <div className="w-10 h-0.5 rounded-full" style={{ backgroundColor: `${output.color}15` }} />
-                        </div>
-                        {output.preview.sections.map((s, j) => (
-                          <div key={j} className="py-1 flex items-start gap-2">
-                            <span className="text-[10px] text-white/40">{s}</span>
-                          </div>
-                        ))}
-                        <div className="mt-2 pt-2 border-t border-white/[0.04] text-[9px] text-white/20">{output.preview.meta}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Description */}
-                  <div className="px-6 pb-5">
-                    <p className="text-xs text-white/35 leading-relaxed">{output.description}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          
-          {/* "Try it" CTA card at the end */}
-          <div className="flex-shrink-0 snap-start" style={{ width: "300px", marginLeft: "-40px", zIndex: 0 }}>
-            <Link
-              href="/dashboard"
-              className="group block h-full rounded-2xl overflow-hidden bg-gradient-to-br from-[#1a1f14] to-[#0C0C0C] border border-[#2E3524]/20 hover:border-[#2E3524]/40 transition-all duration-300"
-            >
-              <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-[#2E3524]/20 border border-[#2E3524]/30 flex items-center justify-center mb-6">
-                  <Download className="w-7 h-7 text-[#5c6652]" />
-                </div>
-                <h3 className="text-lg font-medium text-white/80 mb-2">See it in action</h3>
-                <p className="text-sm text-white/35 mb-6">Generate your first report in under 5 minutes</p>
-                <div className="flex items-center gap-2 text-[#5c6652] text-sm group-hover:gap-3 transition-all">
-                  <span>Try now</span>
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
-            </Link>
+                Generate Your First Report
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
           </div>
-
-          <div className="flex-shrink-0 w-6 lg:w-12 xl:w-[calc((100vw-1200px)/2-24px)]" />
         </div>
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 7 — Impact Metrics + Who It's For (REDESIGNED) */}
+      {/* SECTION 7 — Platform Numbers (visual, no model names) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-[#070707] overflow-hidden">
+      <section className="py-10 lg:py-14 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            {/* Header */}
-            <div className="text-center mb-12">
-              <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Built for Impact</p>
-              <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
-                The platform behind the decisions
-              </h2>
-            </div>
-
-            {/* Metrics — compact row, no model names */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-14">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
-                { value: "10", label: "Specialized Domains", detail: "Fashion to Sustainability" },
-                { value: "4+", label: "AI Models in Parallel", detail: "Best model per task" },
-                { value: "<5min", label: "Avg. Research Time", detail: "From prompt to report" },
-                { value: "24/7", label: "Live Signal Monitoring", detail: "Across all sources" },
-              ].map((metric, i) => (
-                <div key={i} className="text-center p-5 rounded-xl bg-[#0C0C0C] border border-white/[0.04]">
-                  <div className="text-2xl lg:text-3xl font-light text-white/[0.88] mb-1 tracking-tight">{metric.value}</div>
-                  <div className="text-xs text-white/50 font-medium mb-0.5">{metric.label}</div>
-                  <div className="text-[10px] text-white/25">{metric.detail}</div>
-                </div>
-              ))}
+                { value: "10", label: "Specialized Domains", icon: Globe, detail: "Fashion to Lifestyle" },
+                { value: "4+", label: "AI Models in Parallel", icon: Brain, detail: "Parallel processing" },
+                { value: "<5min", label: "Avg. Research Time", icon: Clock, detail: "From prompt to report" },
+                { value: "24/7", label: "Live Signal Monitoring", icon: Zap, detail: "Across all sources" },
+              ].map((metric, i) => {
+                const MetricIcon = metric.icon;
+                return (
+                  <div key={i} className="relative group p-5 rounded-xl bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all text-center overflow-hidden">
+                    {/* Subtle background glow */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-white/[0.01] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <div className="relative">
+                      <MetricIcon className="w-5 h-5 text-white/20 mx-auto mb-3" />
+                      <div className="text-2xl lg:text-3xl font-light text-white/[0.88] mb-1 tracking-tight">{metric.value}</div>
+                      <div className="text-xs text-white/50 font-medium mb-0.5">{metric.label}</div>
+                      <div className="text-[10px] text-white/25">{metric.detail}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+          </div>
+        </div>
+      </section>
 
-            {/* Who It's For — horizontal scrolling story cards with images */}
-            <div className="mb-2">
-              <div className="flex items-end justify-between mb-8">
-                <p className="text-xs text-white/30 uppercase tracking-[0.2em]">Who It&apos;s For</p>
-                <div className="hidden sm:flex items-center gap-2">
-                  <button
-                    onClick={() => useCaseScroll.scroll("left")}
-                    disabled={!useCaseScroll.canScrollLeft}
-                    className="w-9 h-9 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => useCaseScroll.scroll("right")}
-                    disabled={!useCaseScroll.canScrollRight}
-                    className="w-9 h-9 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* SECTION 8 — Who It's For (expanded + horizontal scroll) */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="py-12 lg:py-16 bg-[#0A0A0A] overflow-hidden">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-[1200px] mx-auto">
+            <div className="flex items-end justify-between mb-8">
+              <div>
+                <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Who It&apos;s For</p>
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
+                  Built for every role in the industry
+                </h2>
+                <p className="text-white/35 text-base max-w-lg mt-3 leading-relaxed">
+                  From creative directors to fashion students — one platform for everyone who needs fashion intelligence.
+                </p>
+              </div>
+              <div className="hidden sm:flex items-center gap-2">
+                <button
+                  onClick={() => useCaseScroll.scroll("left")}
+                  disabled={!useCaseScroll.canScrollLeft}
+                  className="w-9 h-9 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => useCaseScroll.scroll("right")}
+                  disabled={!useCaseScroll.canScrollRight}
+                  className="w-9 h-9 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Full-bleed scrollable use case cards */}
+        {/* Full-bleed scrollable use case cards — 10 roles */}
         <div
           ref={useCaseScroll.ref}
           className="flex gap-4 overflow-x-auto scrollbar-hide px-6 lg:px-12 pb-4 snap-x snap-mandatory"
@@ -789,39 +892,42 @@ export default function LandingPage() {
           {useCases.map((uc, i) => {
             const Icon = uc.icon;
             return (
-              <div key={i} className="group flex-shrink-0 w-[320px] sm:w-[360px] snap-start">
-                <div className="relative h-[460px] rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.10] transition-all duration-300">
-                  {/* Background image — top half */}
+              <div key={i} className="group flex-shrink-0 w-[280px] sm:w-[320px] snap-start">
+                <div className="relative h-[420px] rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.10] transition-all duration-300">
+                  {/* Background image — top portion */}
                   <div className="absolute inset-0">
                     <Image
                       src={uc.image}
                       alt={uc.role}
                       fill
-                      className="object-cover grayscale brightness-[0.4] group-hover:brightness-[0.5] transition-all duration-700"
+                      className="object-cover grayscale brightness-[0.35] group-hover:brightness-[0.45] group-hover:scale-105 transition-all duration-700"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0C0C0C] via-[#0C0C0C]/80 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0C0C0C] via-[#0C0C0C]/85 to-transparent" />
                   </div>
                   
+                  {/* Accent line */}
+                  <div className="absolute top-0 left-0 right-0 h-0.5" style={{ backgroundColor: `${uc.accent}40` }} />
+                  
                   {/* Content — bottom */}
-                  <div className="absolute inset-0 flex flex-col justify-end p-6">
+                  <div className="absolute inset-0 flex flex-col justify-end p-5">
                     {/* Role badge */}
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center">
-                        <Icon className="w-4 h-4 text-white/50" />
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${uc.accent}15`, border: `1px solid ${uc.accent}25` }}>
+                        <Icon className="w-4 h-4" style={{ color: `${uc.accent}90` }} />
                       </div>
-                      <span className="text-sm font-medium text-white/80">{uc.role}</span>
+                      <span className="text-sm font-medium text-white/85">{uc.role}</span>
                     </div>
                     
                     {/* Task */}
-                    <div className="mb-4">
+                    <div className="mb-3">
                       <span className="text-[10px] text-white/25 uppercase tracking-wider">Task</span>
-                      <p className="text-sm text-white/55 leading-relaxed mt-1">{uc.task}</p>
+                      <p className="text-[13px] text-white/50 leading-relaxed mt-0.5">{uc.task}</p>
                     </div>
                     
                     {/* Result — highlighted */}
                     <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
                       <span className="text-[10px] text-white/30 uppercase tracking-wider">You Get</span>
-                      <p className="text-sm text-white/70 leading-relaxed mt-1">{uc.result}</p>
+                      <p className="text-[13px] text-white/70 leading-relaxed mt-0.5">{uc.result}</p>
                     </div>
                   </div>
                 </div>
@@ -834,12 +940,12 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 8 — Blog Preview */}
+      {/* SECTION 9 — Blog Preview */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-24 bg-[#0A0A0A]">
+      <section className="py-12 lg:py-16 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="flex items-end justify-between mb-10">
+            <div className="flex items-end justify-between mb-8">
               <div>
                 <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Insights & Analysis</p>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
@@ -901,9 +1007,9 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 9 — Final CTA */}
+      {/* SECTION 10 — Final CTA */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="relative py-24 lg:py-32 bg-[#070707] overflow-hidden">
+      <section className="relative py-20 lg:py-28 bg-[#070707] overflow-hidden">
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-[600px] h-[600px] rounded-full bg-white/[0.01] blur-[120px]" />
         </div>

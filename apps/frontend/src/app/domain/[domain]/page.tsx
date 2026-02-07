@@ -8,6 +8,7 @@ import { DomainInsights } from "@/components/domain/DomainInsights";
 import { DomainModules } from "@/components/domain/DomainModules";
 import { WeeklyInsights } from "@/components/domain/WeeklyInsights";
 import { WorkspaceNavigation } from "@/components/workspace/WorkspaceNavigation";
+import { Footer } from "@/components/layout/Footer";
 
 // Map URL slugs to sector IDs
 const slugToSector: Record<string, Sector> = {
@@ -106,6 +107,9 @@ export default function DomainLandingPage() {
           onModuleClick={handlePromptClick}
         />
       </main>
+
+      {/* Footer for all domain pages */}
+      <Footer />
     </div>
   );
 }
