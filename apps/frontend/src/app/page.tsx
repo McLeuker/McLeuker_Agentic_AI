@@ -84,12 +84,14 @@ export default function LandingPage() {
     e.preventDefault();
     if (prompt.trim()) {
       sessionStorage.setItem("domainPrompt", prompt);
+      sessionStorage.setItem("autoExecute", "true");
       router.push("/dashboard");
     }
   };
 
   const handlePromptClick = (promptText: string) => {
     sessionStorage.setItem("domainPrompt", promptText);
+    sessionStorage.setItem("autoExecute", "true");
     router.push("/dashboard");
   };
 

@@ -97,21 +97,23 @@ export default function DomainLandingPage() {
     }
   }, [resolvedSector]);
 
-  // Handle module click - navigate to dashboard with pre-filled prompt
+  // Handle module click - navigate to dashboard with pre-filled prompt and auto-execute
   const handleModuleClick = useCallback(
     (prompt: string) => {
       sessionStorage.setItem("domainPrompt", prompt);
       sessionStorage.setItem("domainContext", currentSector);
+      sessionStorage.setItem("autoExecute", "true");
       router.push("/dashboard");
     },
     [currentSector, router]
   );
 
-  // Handle ask AI submission
+  // Handle ask AI submission - auto-execute on dashboard
   const handleAskSubmit = useCallback(
     (query: string) => {
       sessionStorage.setItem("domainPrompt", query);
       sessionStorage.setItem("domainContext", currentSector);
+      sessionStorage.setItem("autoExecute", "true");
       router.push("/dashboard");
     },
     [currentSector, router]

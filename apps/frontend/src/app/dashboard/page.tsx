@@ -1550,6 +1550,38 @@ function DashboardContent() {
     }
   }, [input]);
 
+  // Auto-execute prompt from landing page / domain pages
+  const hasAutoExecuted = useRef(false);
+  useEffect(() => {
+    if (hasAutoExecuted.current) return;
+    try {
+      const pendingPrompt = sessionStorage.getItem('domainPrompt');
+      const shouldAutoExecute = sessionStorage.getItem('autoExecute');
+      const domainContext = sessionStorage.getItem('domainContext');
+
+      if (pendingPrompt && shouldAutoExecute === 'true' && user) {
+        // Clear immediately to prevent re-execution on re-render
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('autoExecute');
+        sessionStorage.removeItem('domainContext');
+        hasAutoExecuted.current = true;
+
+        // Start a new chat and auto-send the prompt
+        // Small delay to ensure component is fully mounted
+        setTimeout(() => {
+          handleSendMessage(pendingPrompt);
+        }, 300);
+      } else if (pendingPrompt && !shouldAutoExecute) {
+        // Legacy: just pre-fill the input without auto-executing
+        setInput(pendingPrompt);
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('domainContext');
+      }
+    } catch (e) {
+      // sessionStorage not available
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Toggle layer expansion
   const toggleLayerExpand = (messageId: string, layerId: string) => {
     setMessages(prev => prev.map(m => {
