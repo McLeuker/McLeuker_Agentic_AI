@@ -238,8 +238,7 @@ export default function LandingPage() {
 
             {/* Subheadline */}
             <p className="text-base md:text-lg lg:text-xl text-white/65 mb-10 lg:mb-12 max-w-2xl mx-auto leading-relaxed">
-              From a single prompt to finished reports, sourcing sheets, and presentation decks. 
-              AI-powered research for fashion professionals who demand excellence.
+              From one prompt to structured intelligence: trends, benchmarks, and clear next steps.
             </p>
 
             {/* CTAs - Updated with green primary button */}
