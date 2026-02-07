@@ -56,10 +56,6 @@ const footerLinks = {
     { name: "Help / FAQ", href: "/help" },
   ],
   legal: [
-    { name: "Privacy Policy", href: "/privacy" },
-    { name: "Terms of Service", href: "/terms" },
-    { name: "Cookie Policy", href: "/cookies" },
-    { name: "Mentions Légales", href: "/legal/mentions-legales" },
     { name: "Acceptable Use", href: "/legal/aup" },
     { name: "AI Transparency", href: "/legal/ai-transparency" },
     { name: "Security & Trust", href: "/legal/security" },
@@ -265,7 +261,24 @@ export function Footer() {
               </ul>
             </div>
 
-
+            {/* Legal */}
+            <div className="lg:col-span-2">
+              <h4 className="text-[11px] font-medium text-white/30 uppercase tracking-[0.15em] mb-4">
+                Legal
+              </h4>
+              <ul className="space-y-2.5">
+                {footerLinks.legal.map((link) => (
+                  <li key={link.href}>
+                    <Link
+                      href={link.href}
+                      className="text-[13px] text-white/50 hover:text-white/80 transition-colors"
+                    >
+                      {link.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       </div>
