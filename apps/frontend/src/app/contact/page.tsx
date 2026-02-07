@@ -78,8 +78,8 @@ export default function ContactPage() {
                   </div>
                   <div className="relative z-10">
                     <h3 className="text-white/[0.92] font-medium mb-1">Email</h3>
-                    <a href="mailto:contact@mcluker.com" className="text-[#6b9b8a] hover:text-[#86efac] transition-colors">
-                      contact@mcluker.com
+                    <a href="mailto:contact@mcleuker.com" className="text-[#6b9b8a] hover:text-[#86efac] transition-colors">
+                      contact@mcleuker.com
                     </a>
                   </div>
                 </div>

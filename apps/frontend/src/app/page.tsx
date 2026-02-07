@@ -35,6 +35,17 @@ import {
   Leaf,
   ShoppingBag,
   Newspaper,
+  Code,
+  Paintbrush,
+  MoreHorizontal,
+  Table,
+  PieChart,
+  BarChart,
+  LineChart,
+  CheckCircle,
+  Database,
+  Filter,
+  SortAsc,
 } from "lucide-react";
 
 /* ─── Static Data ─── */
@@ -292,68 +303,64 @@ export default function LandingPage() {
       <div className="h-16 lg:h-[72px]" />
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 1 — Hero Image + Search Bar (PRIMARY) */}
+      {/* SECTION 1 — Hero (OpenAI-style clean, centered) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="relative bg-[#070707]">
-        <div className="relative h-[600px] lg:h-[700px] overflow-hidden">
-          <Image
-            src="/images/hero-runway.jpg"
-            alt="Fashion Intelligence"
-            fill
-            className="object-cover grayscale brightness-[0.5] contrast-[1.1]"
-            priority
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#070707]/80 via-transparent to-[#070707]" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-full max-w-3xl px-6 text-center">
-              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/[0.08] mb-6">
-                <Sparkles className="w-3.5 h-3.5 text-[#5c6652]" />
-                <span className="text-xs text-white/50 uppercase tracking-[0.15em]">AI-Powered Fashion Intelligence</span>
-              </div>
-              <h1 className="font-editorial text-5xl md:text-6xl lg:text-7xl text-white/[0.95] tracking-tight mb-4 leading-[1.05]">
-                What do you want<br />to research?
-              </h1>
-              <p className="text-white/40 text-lg max-w-xl mx-auto mb-8 leading-relaxed">
-                From one prompt to structured intelligence: trends, benchmarks, and clear next steps.
-              </p>
-              <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto">
-                <input
-                  type="text"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Analyze SS26 trends, find suppliers, compare markets..."
-                  className={cn(
-                    "w-full h-14 pl-5 pr-14 rounded-2xl",
-                    "bg-black/60 backdrop-blur-md border border-white/[0.12]",
-                    "text-white/90 placeholder:text-white/30",
-                    "focus:outline-none focus:border-white/[0.25]",
-                    "text-[15px]"
-                  )}
-                />
+      <section className="relative bg-[#070707] min-h-[calc(100vh-72px)] flex items-center justify-center">
+        {/* Subtle radial glow */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-[#1a1f14]/30 blur-[150px]" />
+        </div>
+
+        <div className="relative z-10 w-full max-w-3xl mx-auto px-6 text-center py-20">
+          {/* Main heading */}
+          <h1 className="font-editorial text-5xl md:text-6xl lg:text-[72px] text-white/[0.95] tracking-tight leading-[1.08] mb-6">
+            What do you want<br />to research?
+          </h1>
+
+          {/* Subtitle */}
+          <p className="text-white/40 text-lg md:text-xl max-w-xl mx-auto mb-10 leading-relaxed">
+            AI-powered fashion intelligence. From one prompt to structured reports, benchmarks, and clear next steps.
+          </p>
+
+          {/* Search input */}
+          <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-6">
+            <input
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Analyze SS26 trends, find suppliers, compare markets..."
+              className={cn(
+                "w-full h-14 pl-5 pr-14 rounded-2xl",
+                "bg-white/[0.05] border border-white/[0.10]",
+                "text-white/90 placeholder:text-white/25",
+                "focus:outline-none focus:border-white/[0.20] focus:bg-white/[0.07]",
+                "text-[15px] transition-all duration-300"
+              )}
+            />
+            <button
+              type="submit"
+              disabled={!prompt.trim()}
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-xl bg-white/90 text-black flex items-center justify-center hover:bg-white disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+            >
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
+
+          {/* Suggestion pills */}
+          <div className="flex flex-wrap justify-center gap-2">
+            {suggestionPrompts.map((s, i) => {
+              const Icon = s.icon;
+              return (
                 <button
-                  type="submit"
-                  disabled={!prompt.trim()}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg bg-white/90 text-black flex items-center justify-center hover:bg-white disabled:opacity-30 transition-all"
+                  key={i}
+                  onClick={() => handlePromptClick(s.prompt)}
+                  className="group flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.06] transition-all duration-200"
                 >
-                  <ArrowRight className="w-4 h-4" />
+                  <Icon className="w-3.5 h-3.5 text-white/25 group-hover:text-white/40 transition-colors" />
+                  <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors">{s.title}</span>
                 </button>
-              </form>
-              <div className="flex flex-wrap justify-center gap-2 mt-5">
-                {suggestionPrompts.map((s, i) => {
-                  const Icon = s.icon;
-                  return (
-                    <button
-                      key={i}
-                      onClick={() => handlePromptClick(s.prompt)}
-                      className="group flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/[0.06] hover:border-white/[0.15] hover:bg-black/60 transition-all"
-                    >
-                      <Icon className="w-3.5 h-3.5 text-white/30" />
-                      <span className="text-xs text-white/50 group-hover:text-white/70 transition-colors">{s.title}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -558,7 +565,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 6 — Output Showcase (STACKED CARDS + VISUAL) */}
+      {/* SECTION 6 — Exportable Deliverables (Enhanced) */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-16 lg:py-24 bg-[#0A0A0A] overflow-hidden">
         <div className="container mx-auto px-6 lg:px-12">
@@ -590,10 +597,29 @@ export default function LandingPage() {
               </div>
             </div>
 
+            {/* Backend Capabilities Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-10">
+              {[
+                { icon: Code, label: "Code Generation", desc: "Python, SQL, formulas" },
+                { icon: Paintbrush, label: "Visual Design", desc: "Charts, heatmaps, matrices" },
+                { icon: Table, label: "Data Structuring", desc: "Tables, comparisons, rankings" },
+                { icon: Database, label: "Source Integration", desc: "Live web, APIs, databases" },
+              ].map((cap, i) => {
+                const CapIcon = cap.icon;
+                return (
+                  <div key={i} className="group p-4 rounded-xl bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all">
+                    <CapIcon className="w-5 h-5 text-white/30 mb-3 group-hover:text-white/50 transition-colors" />
+                    <div className="text-sm font-medium text-white/70 mb-1">{cap.label}</div>
+                    <div className="text-[11px] text-white/30">{cap.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+
             {/* Stacked overlapping cards — all 4 visible, click to expand */}
             <div className="relative" style={{ perspective: "1200px" }}>
               {/* Card stack */}
-              <div className="relative h-[520px] md:h-[480px]">
+              <div className="relative h-[560px] md:h-[520px]">
                 {[
                   { idx: 0, label: "Excel", icon: FileSpreadsheet, color: "#217346", file: "supplier_analysis.xlsx", meta: "3 sheets · 32 rows · Auto-filtered" },
                   { idx: 1, label: "PDF", icon: FileText, color: "#D32F2F", file: "trend_report.pdf", meta: "12 pages · 8 charts · 47 sources" },
@@ -634,9 +660,30 @@ export default function LandingPage() {
 
                         {/* Content — only render active for performance */}
                         <div className={cn("transition-opacity duration-300", isActive ? "opacity-100" : "opacity-40")}>
-                          {/* EXCEL content */}
+                          {/* EXCEL content — Enhanced */}
                           {card.idx === 0 && (
                             <div>
+                              {/* Toolbar */}
+                              <div className="flex items-center gap-2 px-4 py-2 border-b border-white/[0.03]">
+                                <div className="flex items-center gap-1.5">
+                                  <Filter className="w-3 h-3 text-[#217346]/60" />
+                                  <span className="text-[9px] text-white/25">Auto-filter</span>
+                                </div>
+                                <div className="w-px h-3 bg-white/[0.06]" />
+                                <div className="flex items-center gap-1.5">
+                                  <SortAsc className="w-3 h-3 text-[#217346]/60" />
+                                  <span className="text-[9px] text-white/25">Sort A-Z</span>
+                                </div>
+                                <div className="w-px h-3 bg-white/[0.06]" />
+                                <div className="flex items-center gap-1.5">
+                                  <BarChart className="w-3 h-3 text-[#217346]/60" />
+                                  <span className="text-[9px] text-white/25">Pivot</span>
+                                </div>
+                                <div className="ml-auto flex items-center gap-1.5">
+                                  <CheckCircle className="w-3 h-3 text-[#217346]/40" />
+                                  <span className="text-[9px] text-white/20">Formulas included</span>
+                                </div>
+                              </div>
                               <div className="flex gap-0 px-4 pt-2">
                                 {["Suppliers", "Pricing Matrix", "Certifications"].map((tab, i) => (
                                   <div key={i} className={cn(
@@ -671,7 +718,7 @@ export default function LandingPage() {
                             </div>
                           )}
 
-                          {/* PDF content */}
+                          {/* PDF content — Enhanced */}
                           {card.idx === 1 && (
                             <div className="p-5">
                               <div className="grid md:grid-cols-2 gap-4">
@@ -691,8 +738,16 @@ export default function LandingPage() {
                                   </div>
                                 </div>
                                 <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5">
-                                  <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">Page 3</div>
-                                  <div className="text-xs text-white/50 font-medium mb-3">Trend Heatmap by Region</div>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div>
+                                      <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">Page 3</div>
+                                      <div className="text-xs text-white/50 font-medium">Trend Heatmap by Region</div>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <PieChart className="w-3 h-3 text-[#D32F2F]/40" />
+                                      <LineChart className="w-3 h-3 text-[#D32F2F]/30" />
+                                    </div>
+                                  </div>
                                   <div className="space-y-2">
                                     {[
                                       { label: "Oversized Tailoring", w: "85%" },
@@ -718,7 +773,7 @@ export default function LandingPage() {
                             </div>
                           )}
 
-                          {/* Slides content */}
+                          {/* Slides content — Enhanced */}
                           {card.idx === 2 && (
                             <div className="p-5">
                               <div className="grid grid-cols-3 md:grid-cols-5 gap-2.5">
@@ -737,7 +792,7 @@ export default function LandingPage() {
                             </div>
                           )}
 
-                          {/* Word content */}
+                          {/* Word content — Enhanced */}
                           {card.idx === 3 && (
                             <div className="p-5 max-w-2xl mx-auto">
                               <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5">
@@ -818,7 +873,6 @@ export default function LandingPage() {
                 const MetricIcon = metric.icon;
                 return (
                   <div key={i} className="relative group p-5 rounded-xl bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all text-center overflow-hidden">
-                    {/* Subtle background glow */}
                     <div className="absolute inset-0 bg-gradient-to-b from-white/[0.01] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <div className="relative">
                       <MetricIcon className="w-5 h-5 text-white/20 mx-auto mb-3" />
@@ -883,7 +937,6 @@ export default function LandingPage() {
             return (
               <div key={i} className="group flex-shrink-0 w-[280px] sm:w-[320px] snap-start">
                 <div className="relative h-[420px] rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.10] transition-all duration-300">
-                  {/* Background image — top portion */}
                   <div className="absolute inset-0">
                     <Image
                       src={uc.image}
@@ -894,12 +947,9 @@ export default function LandingPage() {
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0C0C0C] via-[#0C0C0C]/85 to-transparent" />
                   </div>
                   
-                  {/* Accent line */}
                   <div className="absolute top-0 left-0 right-0 h-0.5" style={{ backgroundColor: `${uc.accent}40` }} />
                   
-                  {/* Content — bottom */}
                   <div className="absolute inset-0 flex flex-col justify-end p-5">
-                    {/* Role badge */}
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${uc.accent}15`, border: `1px solid ${uc.accent}25` }}>
                         <Icon className="w-4 h-4" style={{ color: `${uc.accent}90` }} />
@@ -907,13 +957,11 @@ export default function LandingPage() {
                       <span className="text-sm font-medium text-white/85">{uc.role}</span>
                     </div>
                     
-                    {/* Task */}
                     <div className="mb-3">
                       <span className="text-[10px] text-white/25 uppercase tracking-wider">Task</span>
                       <p className="text-[13px] text-white/50 leading-relaxed mt-0.5">{uc.task}</p>
                     </div>
                     
-                    {/* Result — highlighted */}
                     <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
                       <span className="text-[10px] text-white/30 uppercase tracking-wider">You Get</span>
                       <p className="text-[13px] text-white/70 leading-relaxed mt-0.5">{uc.result}</p>
