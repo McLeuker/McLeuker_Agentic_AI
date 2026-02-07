@@ -558,245 +558,228 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 6 — Output Showcase (INTERACTIVE TABS + VISUAL) */}
+      {/* SECTION 6 — Output Showcase (STACKED CARDS + VISUAL) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-12 lg:py-20 bg-[#0A0A0A]">
+      <section className="py-16 lg:py-24 bg-[#0A0A0A] overflow-hidden">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="text-center mb-10">
-              <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Exportable Deliverables</p>
-              <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
-                See exactly what you get
-              </h2>
-              <p className="text-white/35 text-base max-w-lg mx-auto mt-3 leading-relaxed">
-                Not chat responses — structured, professional documents ready for your team.
-              </p>
+            {/* Header */}
+            <div className="grid lg:grid-cols-2 gap-8 lg:gap-16 items-start mb-12">
+              <div>
+                <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Exportable Deliverables</p>
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] leading-[1.1]">
+                  Not chat responses.<br />Real documents.
+                </h2>
+              </div>
+              <div className="lg:pt-8">
+                <p className="text-white/40 text-base leading-relaxed mb-6">
+                  Every research task produces structured, professional files — ready to share with your team, present to stakeholders, or archive for reference.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    { label: ".xlsx", color: "#217346" },
+                    { label: ".pdf", color: "#D32F2F" },
+                    { label: ".pptx", color: "#D04423" },
+                    { label: ".docx", color: "#2B579A" },
+                  ].map((f, i) => (
+                    <span key={i} className="px-3 py-1.5 rounded-full border text-xs font-mono" style={{ borderColor: `${f.color}30`, color: `${f.color}cc`, backgroundColor: `${f.color}08` }}>
+                      {f.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            {/* Tab selector */}
-            <div className="flex items-center justify-center gap-2 mb-8">
-              {[
-                { label: "Excel", icon: FileSpreadsheet, color: "#217346", type: ".xlsx" },
-                { label: "PDF", icon: FileText, color: "#D32F2F", type: ".pdf" },
-                { label: "Slides", icon: Presentation, color: "#D04423", type: ".pptx" },
-                { label: "Word", icon: File, color: "#2B579A", type: ".docx" },
-              ].map((tab, i) => {
-                const TabIcon = tab.icon;
-                return (
+            {/* Stacked overlapping cards — all 4 visible, click to expand */}
+            <div className="relative" style={{ perspective: "1200px" }}>
+              {/* Card stack */}
+              <div className="relative h-[520px] md:h-[480px]">
+                {[
+                  { idx: 0, label: "Excel", icon: FileSpreadsheet, color: "#217346", file: "supplier_analysis.xlsx", meta: "3 sheets · 32 rows · Auto-filtered" },
+                  { idx: 1, label: "PDF", icon: FileText, color: "#D32F2F", file: "trend_report.pdf", meta: "12 pages · 8 charts · 47 sources" },
+                  { idx: 2, label: "Slides", icon: Presentation, color: "#D04423", file: "market_overview.pptx", meta: "15 slides · Stakeholder-ready" },
+                  { idx: 3, label: "Word", icon: File, color: "#2B579A", file: "competitive_analysis.docx", meta: "5,200 words · 42 citations" },
+                ].map((card) => {
+                  const CardIcon = card.icon;
+                  const isActive = activeOutput === card.idx;
+                  const offset = card.idx - activeOutput;
+                  return (
+                    <div
+                      key={card.idx}
+                      onClick={() => setActiveOutput(card.idx)}
+                      className="absolute inset-0 cursor-pointer transition-all duration-700 ease-out"
+                      style={{
+                        transform: isActive
+                          ? "translateY(0) scale(1) rotateX(0)"
+                          : `translateY(${offset * 12 + (offset > 0 ? 30 : -30)}px) scale(${1 - Math.abs(offset) * 0.03}) rotateX(${offset * 2}deg)`,
+                        zIndex: isActive ? 40 : 30 - Math.abs(offset) * 10,
+                        opacity: Math.abs(offset) > 2 ? 0 : 1 - Math.abs(offset) * 0.15,
+                        filter: isActive ? "none" : `brightness(${0.7 - Math.abs(offset) * 0.1})`,
+                      }}
+                    >
+                      <div className={cn(
+                        "h-full rounded-2xl overflow-hidden border transition-all duration-500",
+                        isActive ? "bg-[#0C0C0C] border-white/[0.10] shadow-2xl shadow-black/50" : "bg-[#0A0A0A] border-white/[0.04]"
+                      )}>
+                        {/* Color bar */}
+                        <div className="h-1" style={{ backgroundColor: `${card.color}${isActive ? '60' : '20'}` }} />
+                        
+                        {/* Header */}
+                        <div className="flex items-center gap-3 px-6 py-3.5 border-b border-white/[0.04]">
+                          <CardIcon className="w-5 h-5" style={{ color: card.color }} />
+                          <span className="text-sm font-medium text-white/80">{card.file}</span>
+                          <span className="ml-auto text-[10px] text-white/25 font-mono hidden sm:inline">{card.meta}</span>
+                          <span className="ml-auto sm:ml-2 text-[10px] font-mono px-2 py-0.5 rounded" style={{ color: card.color, backgroundColor: `${card.color}12` }}>{card.label}</span>
+                        </div>
+
+                        {/* Content — only render active for performance */}
+                        <div className={cn("transition-opacity duration-300", isActive ? "opacity-100" : "opacity-40")}>
+                          {/* EXCEL content */}
+                          {card.idx === 0 && (
+                            <div>
+                              <div className="flex gap-0 px-4 pt-2">
+                                {["Suppliers", "Pricing Matrix", "Certifications"].map((tab, i) => (
+                                  <div key={i} className={cn(
+                                    "px-4 py-1.5 text-[11px] rounded-t-lg border border-b-0",
+                                    i === 0 ? "bg-[#0F0F0F] border-white/[0.06] text-white/60" : "bg-transparent border-transparent text-white/25"
+                                  )}>{tab}</div>
+                                ))}
+                              </div>
+                              <div className="mx-4 mb-4 rounded-b-lg border border-white/[0.04] overflow-hidden">
+                                <div className="grid grid-cols-6 bg-[#217346]/[0.08]">
+                                  {["#", "Supplier", "Country", "MOQ", "Certification", "Lead Time"].map((h, j) => (
+                                    <div key={j} className="px-3 py-2 text-[10px] font-semibold text-white/50 uppercase tracking-wider border-r border-white/[0.03] last:border-r-0">{h}</div>
+                                  ))}
+                                </div>
+                                {[
+                                  ["1", "Candiani Denim", "Italy", "300 units", "GOTS, OEKO-TEX", "6 weeks"],
+                                  ["2", "Tejidos Royo", "Spain", "500 units", "OEKO-TEX 100", "4 weeks"],
+                                  ["3", "Advance Denim", "Portugal", "200 units", "BCI, EU Ecolabel", "5 weeks"],
+                                  ["4", "Orta Anadolu", "Turkey", "1,000 units", "GOTS, GRS", "3 weeks"],
+                                  ["5", "Artistic Milliners", "Pakistan", "500 units", "WRAP, BSCI", "8 weeks"],
+                                ].map((row, j) => (
+                                  <div key={j} className={cn("grid grid-cols-6 border-t border-white/[0.03]", j % 2 === 1 && "bg-white/[0.01]")}>
+                                    {row.map((cell, k) => (
+                                      <div key={k} className="px-3 py-2 text-[11px] text-white/45 border-r border-white/[0.02] last:border-r-0 truncate">{cell}</div>
+                                    ))}
+                                  </div>
+                                ))}
+                                <div className="px-3 py-2 text-[10px] text-white/20 bg-[#217346]/[0.04] border-t border-white/[0.04]">
+                                  + 27 more rows across 3 sheets · Formulas included · Ready to filter
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* PDF content */}
+                          {card.idx === 1 && (
+                            <div className="p-5">
+                              <div className="grid md:grid-cols-2 gap-4">
+                                <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5">
+                                  <div className="w-12 h-0.5 rounded-full bg-[#D32F2F]/40 mb-3" />
+                                  <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">McLeuker AI Report</div>
+                                  <div className="text-sm text-white/70 font-medium mb-4">SS26 Womenswear Trend Analysis</div>
+                                  <div className="space-y-2.5">
+                                    {["Executive Summary", "Key Findings", "Trend Analysis", "Competitive Landscape", "Recommendations"].map((s, j) => (
+                                      <div key={j} className="flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-[#D32F2F]/30" />
+                                        <span className="text-[11px] text-white/40 flex-1">{s}</span>
+                                        <div className="flex-1 border-b border-dotted border-white/[0.04]" />
+                                        <span className="text-[10px] text-white/20">{j * 2 + 1}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5">
+                                  <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">Page 3</div>
+                                  <div className="text-xs text-white/50 font-medium mb-3">Trend Heatmap by Region</div>
+                                  <div className="space-y-2">
+                                    {[
+                                      { label: "Oversized Tailoring", w: "85%" },
+                                      { label: "Sheer Fabrics", w: "72%" },
+                                      { label: "Burgundy Tones", w: "68%" },
+                                      { label: "Utility Details", w: "55%" },
+                                      { label: "Metallic Accents", w: "45%" },
+                                    ].map((bar, j) => (
+                                      <div key={j}>
+                                        <div className="flex justify-between mb-0.5">
+                                          <span className="text-[9px] text-white/35">{bar.label}</span>
+                                          <span className="text-[9px] text-white/20">{bar.w}</span>
+                                        </div>
+                                        <div className="h-2 rounded-full bg-white/[0.04] overflow-hidden">
+                                          <div className="h-full rounded-full bg-gradient-to-r from-[#D32F2F]/40 to-[#D32F2F]/20" style={{ width: bar.w }} />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="text-[9px] text-white/15 mt-3">Source: McLeuker AI analysis of 47 runway shows</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Slides content */}
+                          {card.idx === 2 && (
+                            <div className="p-5">
+                              <div className="grid grid-cols-3 md:grid-cols-5 gap-2.5">
+                                {["Title & Overview", "Market Size $42B", "Competitive Map", "Trend Matrix", "Consumer Segments", "Regional Analysis", "Brand Positioning", "Growth Drivers", "Risk Factors", "Next Steps"].map((slide, j) => (
+                                  <div key={j} className={cn(
+                                    "aspect-[16/10] rounded-lg border flex flex-col items-center justify-center p-2 transition-all duration-300",
+                                    j === 0 ? "bg-[#D04423]/[0.08] border-[#D04423]/20" : "bg-[#111] border-white/[0.04] hover:border-white/[0.08]"
+                                  )}>
+                                    <div className="w-full h-0.5 rounded-full mb-1.5" style={{ backgroundColor: j === 0 ? "#D04423" : "#ffffff08" }} />
+                                    <span className="text-[8px] text-white/35 text-center leading-tight">{slide}</span>
+                                    {j === 0 && <div className="w-4 h-0.5 rounded-full bg-[#D04423]/30 mt-1" />}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-3 text-center text-[10px] text-white/20">+ 5 more slides with appendix data and source citations</div>
+                            </div>
+                          )}
+
+                          {/* Word content */}
+                          {card.idx === 3 && (
+                            <div className="p-5 max-w-2xl mx-auto">
+                              <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5">
+                                <div className="flex items-center gap-2 mb-4">
+                                  <div className="w-8 h-0.5 rounded-full bg-[#2B579A]/40" />
+                                  <div className="w-16 h-0.5 rounded-full bg-[#2B579A]/20" />
+                                </div>
+                                {["1. Introduction", "2. Methodology", "3. Key Findings", "4. Competitive Analysis", "5. Appendix & Sources"].map((section, j) => (
+                                  <div key={j} className="mb-3">
+                                    <div className="text-sm text-white/60 font-medium mb-1">{section}</div>
+                                    <div className="space-y-1">
+                                      {Array.from({ length: j === 2 ? 4 : j === 4 ? 1 : 2 }).map((_, l) => (
+                                        <div key={l} className="h-2 rounded-full bg-white/[0.03]" style={{ width: `${95 - l * 5 - j * 2}%` }} />
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                                <div className="mt-3 pt-3 border-t border-white/[0.04] text-[9px] text-white/15">
+                                  [1] McKinsey State of Fashion 2026 · [2] BoF Insights · [3] Euromonitor ... +39 more
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Navigation dots */}
+              <div className="flex items-center justify-center gap-2 mt-6">
+                {[0, 1, 2, 3].map((i) => (
                   <button
                     key={i}
                     onClick={() => setActiveOutput(i)}
                     className={cn(
-                      "flex items-center gap-2 px-5 py-2.5 rounded-full border transition-all duration-300",
-                      activeOutput === i
-                        ? "bg-white/[0.06] border-white/[0.12] text-white/90"
-                        : "bg-transparent border-white/[0.04] text-white/35 hover:text-white/55 hover:border-white/[0.08]"
+                      "transition-all duration-300 rounded-full",
+                      activeOutput === i ? "w-8 h-2 bg-white/40" : "w-2 h-2 bg-white/10 hover:bg-white/20"
                     )}
-                  >
-                    <TabIcon className="w-4 h-4" style={{ color: activeOutput === i ? tab.color : undefined }} />
-                    <span className="text-sm font-medium">{tab.label}</span>
-                    <span className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded font-mono transition-colors",
-                      activeOutput === i ? "text-white/40" : "text-white/20"
-                    )}>{tab.type}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Active output preview — large visual */}
-            <div className="relative">
-              {/* Excel Preview */}
-              <div className={cn(
-                "transition-all duration-500",
-                activeOutput === 0 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
-              )}>
-                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
-                  <div className="h-1.5 w-full bg-[#217346]/30" />
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
-                    <FileSpreadsheet className="w-5 h-5 text-[#217346]" />
-                    <span className="text-sm font-medium text-white/80">supplier_analysis.xlsx</span>
-                    <span className="ml-auto text-[10px] text-white/25 font-mono">3 sheets · 32 rows · Auto-filtered</span>
-                  </div>
-                  {/* Sheet tabs */}
-                  <div className="flex gap-0 px-4 pt-2">
-                    {["Suppliers", "Pricing Matrix", "Certifications"].map((tab, i) => (
-                      <div key={i} className={cn(
-                        "px-4 py-1.5 text-[11px] rounded-t-lg border border-b-0 transition-colors",
-                        i === 0 ? "bg-[#0F0F0F] border-white/[0.06] text-white/60" : "bg-transparent border-transparent text-white/25"
-                      )}>{tab}</div>
-                    ))}
-                  </div>
-                  {/* Table */}
-                  <div className="mx-4 mb-4 rounded-b-lg border border-white/[0.04] overflow-hidden">
-                    <div className="grid grid-cols-6 bg-[#217346]/[0.08]">
-                      {["#", "Supplier", "Country", "MOQ", "Certification", "Lead Time"].map((h, j) => (
-                        <div key={j} className="px-3 py-2 text-[10px] font-semibold text-white/50 uppercase tracking-wider border-r border-white/[0.03] last:border-r-0">{h}</div>
-                      ))}
-                    </div>
-                    {[
-                      ["1", "Candiani Denim", "Italy", "300 units", "GOTS, OEKO-TEX", "6 weeks"],
-                      ["2", "Tejidos Royo", "Spain", "500 units", "OEKO-TEX 100", "4 weeks"],
-                      ["3", "Advance Denim", "Portugal", "200 units", "BCI, EU Ecolabel", "5 weeks"],
-                      ["4", "Orta Anadolu", "Turkey", "1,000 units", "GOTS, GRS", "3 weeks"],
-                      ["5", "Artistic Milliners", "Pakistan", "500 units", "WRAP, BSCI", "8 weeks"],
-                    ].map((row, j) => (
-                      <div key={j} className={cn("grid grid-cols-6 border-t border-white/[0.03]", j % 2 === 1 && "bg-white/[0.01]")}>
-                        {row.map((cell, k) => (
-                          <div key={k} className="px-3 py-2 text-[11px] text-white/45 border-r border-white/[0.02] last:border-r-0 truncate">{cell}</div>
-                        ))}
-                      </div>
-                    ))}
-                    <div className="px-3 py-2 text-[10px] text-white/20 bg-[#217346]/[0.04] border-t border-white/[0.04]">
-                      + 27 more rows across 3 sheets · Formulas included · Ready to filter
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* PDF Preview */}
-              <div className={cn(
-                "transition-all duration-500",
-                activeOutput === 1 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
-              )}>
-                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
-                  <div className="h-1.5 w-full bg-[#D32F2F]/30" />
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
-                    <FileText className="w-5 h-5 text-[#D32F2F]" />
-                    <span className="text-sm font-medium text-white/80">trend_analysis_report.pdf</span>
-                    <span className="ml-auto text-[10px] text-white/25 font-mono">12 pages · 8 charts · 47 sources</span>
-                  </div>
-                  <div className="p-6">
-                    <div className="grid md:grid-cols-2 gap-6">
-                      {/* Page 1 mock */}
-                      <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5 aspect-[8.5/11]">
-                        <div className="w-12 h-0.5 rounded-full bg-[#D32F2F]/40 mb-4" />
-                        <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">McLeuker AI Report</div>
-                        <div className="text-sm text-white/70 font-medium mb-4">SS26 Womenswear Trend Analysis</div>
-                        <div className="space-y-3">
-                          {["Executive Summary", "Key Findings", "Trend Analysis", "Competitive Landscape", "Recommendations"].map((s, j) => (
-                            <div key={j} className="flex items-center gap-2">
-                              <div className="w-1.5 h-1.5 rounded-full bg-[#D32F2F]/30" />
-                              <span className="text-[11px] text-white/40 flex-1">{s}</span>
-                              <div className="flex-1 border-b border-dotted border-white/[0.04]" />
-                              <span className="text-[10px] text-white/20">{j * 2 + 1}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      {/* Page 2 mock - chart */}
-                      <div className="bg-[#111] rounded-xl border border-white/[0.04] p-5 aspect-[8.5/11]">
-                        <div className="text-[10px] text-white/20 uppercase tracking-wider mb-1">Page 3</div>
-                        <div className="text-xs text-white/50 font-medium mb-4">Trend Heatmap by Region</div>
-                        {/* Mock chart bars */}
-                        <div className="space-y-2 mb-4">
-                          {[
-                            { label: "Oversized Tailoring", w: "85%" },
-                            { label: "Sheer Fabrics", w: "72%" },
-                            { label: "Burgundy Tones", w: "68%" },
-                            { label: "Utility Details", w: "55%" },
-                            { label: "Metallic Accents", w: "45%" },
-                          ].map((bar, j) => (
-                            <div key={j}>
-                              <div className="flex justify-between mb-0.5">
-                                <span className="text-[9px] text-white/35">{bar.label}</span>
-                                <span className="text-[9px] text-white/20">{bar.w}</span>
-                              </div>
-                              <div className="h-2 rounded-full bg-white/[0.03] overflow-hidden">
-                                <div className="h-full rounded-full bg-gradient-to-r from-[#D32F2F]/40 to-[#D32F2F]/20" style={{ width: bar.w }} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="text-[9px] text-white/15 mt-auto">Source: McLeuker AI analysis of 47 runway shows</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Presentation Preview */}
-              <div className={cn(
-                "transition-all duration-500",
-                activeOutput === 2 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
-              )}>
-                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
-                  <div className="h-1.5 w-full bg-[#D04423]/30" />
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
-                    <Presentation className="w-5 h-5 text-[#D04423]" />
-                    <span className="text-sm font-medium text-white/80">market_overview.pptx</span>
-                    <span className="ml-auto text-[10px] text-white/25 font-mono">15 slides · Stakeholder-ready</span>
-                  </div>
-                  <div className="p-6">
-                    <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
-                      {["Title & Overview", "Market Size $42B", "Competitive Map", "Trend Matrix", "Consumer Segments", "Regional Analysis", "Brand Positioning", "Growth Drivers", "Risk Factors", "Next Steps"].map((slide, j) => (
-                        <div key={j} className={cn(
-                          "aspect-[16/10] rounded-lg border flex flex-col items-center justify-center p-2 transition-all duration-300",
-                          j === 0 ? "bg-[#D04423]/[0.08] border-[#D04423]/20" : "bg-[#111] border-white/[0.04] hover:border-white/[0.08]"
-                        )}>
-                          <div className="w-full h-0.5 rounded-full mb-1.5" style={{ backgroundColor: j === 0 ? "#D04423" : "#ffffff08" }} />
-                          <span className="text-[8px] text-white/35 text-center leading-tight">{slide}</span>
-                          {j === 0 && <div className="w-4 h-0.5 rounded-full bg-[#D04423]/30 mt-1" />}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-4 text-center text-[10px] text-white/20">+ 5 more slides with appendix data and source citations</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Word Preview */}
-              <div className={cn(
-                "transition-all duration-500",
-                activeOutput === 3 ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 absolute inset-0 pointer-events-none"
-              )}>
-                <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06]">
-                  <div className="h-1.5 w-full bg-[#2B579A]/30" />
-                  <div className="flex items-center gap-3 px-6 py-4 border-b border-white/[0.04]">
-                    <File className="w-5 h-5 text-[#2B579A]" />
-                    <span className="text-sm font-medium text-white/80">competitive_analysis.docx</span>
-                    <span className="ml-auto text-[10px] text-white/25 font-mono">5,200 words · 42 citations</span>
-                  </div>
-                  <div className="p-6 max-w-2xl mx-auto">
-                    {/* Document mock */}
-                    <div className="bg-[#111] rounded-xl border border-white/[0.04] p-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="w-8 h-0.5 rounded-full bg-[#2B579A]/40" />
-                        <div className="w-16 h-0.5 rounded-full bg-[#2B579A]/20" />
-                      </div>
-                      <div className="text-sm text-white/60 font-medium mb-1">1. Introduction</div>
-                      <div className="space-y-1 mb-4">
-                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[95%]" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[88%]" />
-                      </div>
-                      <div className="text-sm text-white/60 font-medium mb-1">2. Methodology</div>
-                      <div className="space-y-1 mb-4">
-                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[92%]" />
-                      </div>
-                      <div className="text-sm text-white/60 font-medium mb-1">3. Key Findings</div>
-                      <div className="space-y-1 mb-4">
-                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[97%]" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[85%]" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[90%]" />
-                      </div>
-                      <div className="text-sm text-white/60 font-medium mb-1">4. Competitive Analysis</div>
-                      <div className="space-y-1 mb-4">
-                        <div className="h-2 rounded-full bg-white/[0.03] w-full" />
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[93%]" />
-                      </div>
-                      <div className="text-sm text-white/60 font-medium mb-1">5. Appendix & Sources</div>
-                      <div className="space-y-1">
-                        <div className="h-2 rounded-full bg-white/[0.03] w-[80%]" />
-                      </div>
-                      <div className="mt-4 pt-3 border-t border-white/[0.04] text-[9px] text-white/15">
-                        [1] McKinsey State of Fashion 2026 · [2] BoF Insights · [3] Euromonitor ... +39 more
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  />
+                ))}
               </div>
             </div>
 
