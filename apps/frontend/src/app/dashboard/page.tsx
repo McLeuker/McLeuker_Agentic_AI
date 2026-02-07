@@ -2124,10 +2124,12 @@ function DashboardContent() {
     <div className="min-h-screen bg-[#070707] flex w-full">
       {/* Header - Fixed at top, full width */}
       <header className="h-[60px] border-b border-white/[0.08] flex items-center justify-between px-4 bg-[#0A0A0A] fixed top-0 left-0 right-0 z-40">
-        {/* Left: McLeuker Logo */}
+        {/* Left: McLeuker.ai Logo */}
         <div className="flex items-center gap-4 w-48">
-          <Link href="/" className="font-editorial text-xl text-white tracking-wide">
-            McLeuker
+          <Link href="/" className="flex items-center">
+            <span className="font-editorial text-xl lg:text-[22px] text-white tracking-[0.02em]">
+              McLeuker<span className="text-white/30">.ai</span>
+            </span>
           </Link>
         </div>
         
