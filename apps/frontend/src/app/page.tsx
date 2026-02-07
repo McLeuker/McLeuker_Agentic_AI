@@ -223,7 +223,7 @@ export default function LandingPage() {
         <div className="relative z-10 container mx-auto px-6 lg:px-12 py-20 lg:py-32">
           <div className="max-w-4xl mx-auto text-center">
             {/* Tagline Badge - Updated with green accent */}
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/80 backdrop-blur-sm border border-[#2E3524]/30 mb-8 lg:mb-10">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#141414]/80 backdrop-blur-sm border border-[#2E3524]/30 mb-5 lg:mb-6">
               <Sparkles className="w-4 h-4 text-[#5c6652]" />
               <span className="text-sm text-white/70 tracking-wide">
                 AI & Sustainability for Fashion
@@ -231,12 +231,12 @@ export default function LandingPage() {
             </div>
 
             {/* Main Headline */}
-            <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl xl:text-7xl text-white/[0.92] mb-6 lg:mb-8 leading-[1.05]">
+            <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl xl:text-7xl text-white/[0.92] mb-4 lg:mb-5 leading-[1.05]">
               The Future of<br />Fashion Intelligence
             </h2>
 
             {/* Subheadline */}
-            <p className="text-base md:text-lg lg:text-xl text-white/65 mb-10 lg:mb-12 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-base md:text-lg lg:text-xl text-white/65 mb-8 lg:mb-10 max-w-2xl mx-auto leading-relaxed">
               From one prompt to structured intelligence: trends, benchmarks, and clear next steps.
             </p>
 
@@ -367,17 +367,17 @@ export default function LandingPage() {
               </div>
 
               {/* Content */}
-              <div className="lg:py-12">
-                <p className="text-sm text-white/50 uppercase tracking-[0.2em] mb-4">
+              <div className="lg:py-8">
+                <p className="text-sm text-white/50 uppercase tracking-[0.2em] mb-3">
                   BUILT FOR DECISIONS
                 </p>
-                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-5 leading-[1.1]">
                   From prompt to structured intelligence
                 </h2>
-                <p className="text-white/65 text-lg leading-relaxed mb-8">
+                <p className="text-white/65 text-lg leading-relaxed mb-6">
                   McLeuker AI uses a multi-model engine to synthesize fashion, beauty, and lifestyle signals into clear takeaways you can act on. No fluff—just structured outputs.
                 </p>
-                <ul className="space-y-4 mb-10">
+                <ul className="space-y-3 mb-8">
                   {[
                     "Key takeaways + next steps (not long chat)",
                     "Structured comparisons (pricing, assortments, ingredients, suppliers)",
@@ -413,20 +413,20 @@ export default function LandingPage() {
           <div className="max-w-7xl mx-auto">
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
               {/* Content - Left on desktop */}
-              <div className="lg:py-12 order-2 lg:order-1">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-[#2E3524]/30 mb-6">
+              <div className="lg:py-8 order-2 lg:order-1">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-[#2E3524]/30 mb-4">
                   <ShieldCheck className="w-4 h-4 text-[#5c6652]" />
                   <span className="text-sm text-white/60">
                     RESPONSIBLE INTELLIGENCE
                   </span>
                 </div>
-                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-5 leading-[1.1]">
                   Evidence-forward by default
                 </h2>
-                <p className="text-white/65 text-lg leading-relaxed mb-8">
+                <p className="text-white/65 text-lg leading-relaxed mb-6">
                   We prioritize clarity over hype: transparent assumptions, focused outputs, and signals from web + social + search (where available). Sustainability can be a lens—but it’s not the only one.
                 </p>
-                <div className="grid grid-cols-2 gap-8 mb-10">
+                <div className="grid grid-cols-2 gap-6 mb-8">
                   <div>
                     <p className="text-4xl font-editorial text-[#5c6652] mb-2">10</p>
                     <p className="text-sm text-white/50">Domains supported</p>
