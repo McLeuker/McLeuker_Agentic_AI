@@ -13,8 +13,7 @@ import {
   TrendingUp, 
   Search, 
   BarChart3, 
-  ShieldCheck,
-  Leaf
+  ShieldCheck
 } from "lucide-react";
 
 const suggestionPrompts = [
@@ -416,31 +415,29 @@ export default function LandingPage() {
               {/* Content - Left on desktop */}
               <div className="lg:py-12 order-2 lg:order-1">
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#141414] border border-[#2E3524]/30 mb-6">
-                  <Leaf className="w-4 h-4 text-[#5c6652]" />
+                  <ShieldCheck className="w-4 h-4 text-[#5c6652]" />
                   <span className="text-sm text-white/60">
-                    Sustainability First
+                    RESPONSIBLE INTELLIGENCE
                   </span>
                 </div>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
-                  Fashion with purpose
+                  Evidence-forward by default
                 </h2>
                 <p className="text-white/65 text-lg leading-relaxed mb-8">
-                  Sustainability isn&apos;t an afterthought—it&apos;s woven into everything we do. 
-                  From supplier certifications to impact assessments, we help brands 
-                  make informed decisions that benefit both business and planet.
+                  We prioritize clarity over hype: transparent assumptions, focused outputs, and signals from web + social + search (where available). Sustainability can be a lens—but it’s not the only one.
                 </p>
                 <div className="grid grid-cols-2 gap-8 mb-10">
                   <div>
-                    <p className="text-4xl font-editorial text-[#5c6652] mb-2">85%</p>
-                    <p className="text-sm text-white/50">Time saved on sustainability research</p>
+                    <p className="text-4xl font-editorial text-[#5c6652] mb-2">10</p>
+                    <p className="text-sm text-white/50">Domains supported</p>
                   </div>
                   <div>
-                    <p className="text-4xl font-editorial text-[#5c6652] mb-2">100+</p>
-                    <p className="text-sm text-white/50">Certification databases tracked</p>
+                    <p className="text-4xl font-editorial text-[#5c6652] mb-2">4</p>
+                    <p className="text-sm text-white/50">Step workflow</p>
                   </div>
                 </div>
                 <Link
-                  href="/about"
+                  href="/legal/ai-transparency"
                   className={cn(
                     "inline-flex items-center gap-2 px-8 py-3",
                     "bg-[#141414] border border-[#2E3524]/30 rounded-full",
@@ -448,7 +445,7 @@ export default function LandingPage() {
                     "transition-colors"
                   )}
                 >
-                  Learn About Our Mission
+                  AI Transparency
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
@@ -456,11 +453,13 @@ export default function LandingPage() {
               {/* Image - Right on desktop (with Grayscale) */}
               <div className="relative rounded-[20px] overflow-hidden shadow-[0_14px_40px_rgba(0,0,0,0.55)] order-1 lg:order-2 aspect-[4/5]">
                 <Image 
-                  src="/images/sustainable-materials.jpg" 
-                  alt="Sustainable fashion materials" 
+                  src="/images/home/responsible-intelligence.jpg" 
+                  alt="Clothes hanging on a rail" 
                   fill
                   className="object-cover grayscale contrast-105 brightness-90"
                 />
+                {/* Dark overlay for blending into dark UI */}
+                <div className="absolute inset-0 bg-black/[0.15]" />
               </div>
             </div>
           </div>
