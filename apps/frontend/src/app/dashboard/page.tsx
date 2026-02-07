@@ -1520,10 +1520,14 @@ function DashboardContent() {
     loadConversations();
   }, [loadConversations]);
 
-  // Auto-restore last conversation on page load
+  // Auto-restore last conversation on page load (skip if auto-execute pending)
   useEffect(() => {
     if (conversations.length > 0 && !currentConversation && messages.length === 0) {
       try {
+        // Don't restore old conversation if we're about to auto-execute a new prompt
+        const pendingAutoExecute = sessionStorage.getItem('autoExecute') === 'true' && sessionStorage.getItem('domainPrompt');
+        if (pendingAutoExecute) return;
+
         const lastConvId = localStorage.getItem('mcleuker_last_conversation_id');
         if (lastConvId) {
           const conv = conversations.find(c => c.id === lastConvId);
@@ -1566,11 +1570,11 @@ function DashboardContent() {
         sessionStorage.removeItem('domainContext');
         hasAutoExecuted.current = true;
 
-        // Start a new chat and auto-send the prompt
-        // Small delay to ensure component is fully mounted
+        // Start a fresh new chat, then auto-send the prompt
+        startNewChat();
         setTimeout(() => {
           handleSendMessage(pendingPrompt);
-        }, 300);
+        }, 400);
       } else if (pendingPrompt && !shouldAutoExecute) {
         // Legacy: just pre-fill the input without auto-executing
         setInput(pendingPrompt);
