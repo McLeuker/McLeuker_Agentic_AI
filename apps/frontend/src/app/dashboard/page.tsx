@@ -100,6 +100,7 @@ interface Message {
   toolStatus?: string;
   toolProgress?: { message: string; tools: string[] }[];
   searchSources?: { title: string; url: string; source: string }[];
+  taskSteps?: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -398,17 +399,34 @@ function MessageContent({
       // Code block toggle (``` fences) - skip highlighting inside code blocks
       if (line.trim().startsWith('```')) {
         flushList();
-        inCodeBlock = !inCodeBlock;
-        elements.push(
-          <div key={i} className="text-xs text-white/30 font-mono">{line}</div>
-        );
+        if (!inCodeBlock) {
+          // Opening code block
+          inCodeBlock = true;
+          const lang = line.trim().slice(3).trim();
+          elements.push(
+            <div key={`cb-start-${i}`} className="mt-3 rounded-t-lg bg-white/[0.04] border border-white/[0.06] border-b-0 px-3 py-1.5 flex items-center gap-2">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 rounded-full bg-white/10" />
+                <span className="w-2 h-2 rounded-full bg-white/10" />
+                <span className="w-2 h-2 rounded-full bg-white/10" />
+              </div>
+              {lang && <span className="text-[10px] text-white/30 uppercase tracking-wider">{lang}</span>}
+            </div>
+          );
+        } else {
+          // Closing code block
+          inCodeBlock = false;
+          elements.push(
+            <div key={`cb-end-${i}`} className="rounded-b-lg bg-[#111] border border-white/[0.06] border-t-0 h-2" />
+          );
+        }
         return;
       }
 
       // Inside code block - render as-is without search highlighting
       if (inCodeBlock) {
         elements.push(
-          <pre key={i} className="text-sm text-white/70 font-mono bg-white/5 px-3 py-0.5 leading-relaxed">{line}</pre>
+          <pre key={i} className="text-[13px] text-white/70 font-mono bg-[#111] border-x border-white/[0.06] px-4 py-0.5 leading-relaxed overflow-x-auto">{line}</pre>
         );
         return;
       }
@@ -473,145 +491,133 @@ function MessageContent({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Action Buttons - ABOVE the answer text */}
-      <div className="flex items-center gap-1 mb-2">
-        {/* Copy Button */}
+    <div className="space-y-0">
+      {/* Response Content */}
+      <div className="relative">
+        <div className={cn(
+          "prose prose-invert prose-sm max-w-none",
+          !expanded && "max-h-[400px] overflow-hidden"
+        )}>
+          {renderContent(content)}
+        </div>
+        
+        {content.length > 1500 && (
+          <div className={cn(
+            "relative",
+            !expanded && "mt-0"
+          )}>
+            {!expanded && (
+              <div className="absolute -top-12 left-0 right-0 h-12 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none" />
+            )}
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center gap-1 text-xs text-[#7a8a6e] hover:text-[#9aaa8e] mt-2 transition-colors"
+            >
+              {expanded ? (
+                <>Show less <ChevronUp className="h-3 w-3" /></>
+              ) : (
+                <>Continue reading <ChevronDown className="h-3 w-3" /></>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Action Bar - Below content */}
+      <div className="flex items-center gap-1 mt-3 pt-3 border-t border-white/[0.04]">
         <button
           onClick={handleCopy}
-          className="p-1.5 text-white/30 hover:text-white/60 transition-colors rounded"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all rounded-lg text-[11px]"
           title="Copy to clipboard"
         >
-          {copied ? <Check className="h-3.5 w-3.5 text-[#5c6652]" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? <Check className="h-3 w-3 text-[#5c6652]" /> : <Copy className="h-3 w-3" />}
+          {copied ? 'Copied' : 'Copy'}
         </button>
         
-        {/* Export Menu */}
         <div className="relative">
           <button
             onClick={() => setShowExportMenu(!showExportMenu)}
-            className="p-1.5 text-white/30 hover:text-white/60 transition-colors rounded"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all rounded-lg text-[11px]"
             title="Export document"
           >
-            <FileDown className="h-3.5 w-3.5" />
+            <FileDown className="h-3 w-3" />
+            Export
           </button>
           
           {showExportMenu && (
-            <div className="absolute left-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 min-w-[160px] py-1">
-              <button
-                onClick={() => handleExport('pdf')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-red-400" />}
-                Export as PDF
-              </button>
-              <button
-                onClick={() => handleExport('docx')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'docx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-blue-400" />}
-                Export as Word
-              </button>
-              <button
-                onClick={() => handleExport('xlsx')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-[#5c6652]" />}
-                Export as Excel
-              </button>
-              <button
-                onClick={() => handleExport('pptx')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4 text-orange-400" />}
-                Export as PowerPoint
-              </button>
-              <button
-                onClick={() => handleExport('markdown')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'markdown' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-white/60" />}
-                Export as Markdown
-              </button>
+            <div className="absolute left-0 bottom-full mb-1 bg-[#1a1a1a] border border-white/[0.08] rounded-xl shadow-2xl z-50 min-w-[180px] py-1.5 backdrop-blur-xl">
+              {[
+                { format: 'pdf', icon: <FileText className="h-4 w-4 text-red-400" />, label: 'PDF Document' },
+                { format: 'docx', icon: <FileText className="h-4 w-4 text-blue-400" />, label: 'Word Document' },
+                { format: 'xlsx', icon: <FileSpreadsheet className="h-4 w-4 text-[#5c6652]" />, label: 'Excel Spreadsheet' },
+                { format: 'pptx', icon: <Presentation className="h-4 w-4 text-orange-400" />, label: 'PowerPoint' },
+                { format: 'markdown', icon: <FileText className="h-4 w-4 text-white/50" />, label: 'Markdown' },
+              ].map(({ format, icon, label }) => (
+                <button
+                  key={format}
+                  onClick={() => handleExport(format)}
+                  disabled={!!exporting}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-40"
+                >
+                  {exporting === format ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+                  {label}
+                </button>
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      {/* Response Content */}
-      <div className="relative">
-        <div className={cn(
-          "prose prose-invert prose-sm max-w-none",
-          !expanded && "max-h-[300px] overflow-hidden"
-        )}>
-          {renderContent(content)}
-        </div>
-        
-        {content.length > 1000 && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs text-[#5c6652] hover:text-[#7a8a6e] mt-2"
-          >
-            {expanded ? (
-              <>Show less <ChevronUp className="h-3 w-3" /></>
-            ) : (
-              <>Show more <ChevronDown className="h-3 w-3" /></>
-            )}
-          </button>
-        )}
-      </div>
-
       {/* Sources */}
       {sources.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <p className="text-xs font-medium text-white/50 mb-2">Sources ({sources.length})</p>
-          <div className="flex flex-wrap gap-2">
-            {sources.map((source, i) => {
+        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+          <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Sources ({sources.length})</p>
+          <div className="flex flex-wrap gap-1.5">
+            {sources.slice(0, 8).map((source, i) => {
               const validUrl = ensureValidUrl(source.url);
               const isClickable = validUrl !== '#';
+              const favicon = validUrl !== '#' ? `https://www.google.com/s2/favicons?domain=${new URL(validUrl).hostname}&sz=16` : '';
               return isClickable ? (
                 <a
                   key={i}
                   href={validUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
+                  className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.12] rounded-lg text-[11px] text-white/50 hover:text-white/80 transition-all"
                 >
-                  <Globe className="h-3 w-3" />
-                  <span className="truncate max-w-[150px]">{source.title || 'Source'}</span>
-                  <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                  {favicon && <img src={favicon} alt="" className="w-3 h-3 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+                  <span className="truncate max-w-[120px]">{source.title || 'Source'}</span>
                 </a>
               ) : (
                 <span
                   key={i}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/50 cursor-default"
-                  title={source.url || 'No URL available'}
+                  className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/[0.04] rounded-lg text-[11px] text-white/30"
                 >
                   <Globe className="h-3 w-3" />
-                  <span className="truncate max-w-[150px]">{source.title || 'Source'}</span>
+                  <span className="truncate max-w-[120px]">{source.title || 'Source'}</span>
                 </span>
               );
             })}
+            {sources.length > 8 && (
+              <span className="px-2 py-1 text-[11px] text-white/30">+{sources.length - 8} more</span>
+            )}
           </div>
         </div>
       )}
 
       {/* Follow-up Questions */}
       {followUpQuestions.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <p className="text-xs font-medium text-white/50 mb-2">Continue exploring</p>
-          <div className="flex flex-wrap gap-2">
+        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+          <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Continue exploring</p>
+          <div className="flex flex-col gap-1.5">
             {followUpQuestions.map((question, i) => (
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="px-3 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
+                className="flex items-center gap-2 px-3 py-2 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] hover:border-white/[0.10] rounded-xl text-xs text-white/50 hover:text-white/80 transition-all text-left group"
               >
-                {question}
+                <Search className="h-3 w-3 text-white/20 group-hover:text-[#5c6652] transition-colors flex-shrink-0" />
+                <span className="line-clamp-1">{question}</span>
               </button>
             ))}
           </div>
@@ -1732,6 +1738,7 @@ function DashboardContent() {
     let currentDownloads: DownloadFile[] = [];
     let currentToolProgress: { message: string; tools: string[] }[] = [];
     let currentSearchSources: { title: string; url: string; source: string }[] = [];
+    let currentTaskSteps: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[] = [];
 
     try {
       // Map frontend mode names to backend mode names
@@ -1906,6 +1913,30 @@ function DashboardContent() {
                     ? { ...m, sources: [...currentSources], searchSources: [...currentSearchSources] }
                     : m
                 ));
+              } else if (eventType === 'task_progress') {
+                // Manus AI-style task progress tracking
+                const stepData = {
+                  step: eventData.step || 'unknown',
+                  title: eventData.title || 'Processing...',
+                  status: eventData.status || 'active' as const,
+                  detail: eventData.detail,
+                };
+                // Update existing step or add new one
+                const existingIdx = currentTaskSteps.findIndex(s => s.step === stepData.step);
+                if (existingIdx >= 0) {
+                  currentTaskSteps[existingIdx] = stepData;
+                } else {
+                  // Mark all previous active steps as complete
+                  currentTaskSteps = currentTaskSteps.map(s => 
+                    s.status === 'active' ? { ...s, status: 'complete' as const } : s
+                  );
+                  currentTaskSteps.push(stepData);
+                }
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, taskSteps: [...currentTaskSteps] }
+                    : m
+                ));
               } else if (eventType === 'reasoning') {
                 // Handle reasoning_content from thinking mode
                 const reasoningChunk = eventData.chunk || eventData || '';
@@ -1944,6 +1975,7 @@ function DashboardContent() {
                 const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
+                currentTaskSteps = currentTaskSteps.map(s => ({ ...s, status: 'complete' as const }));
 
                 // Merge downloads from complete event and from stream
                 const completeDownloads = eventData.downloads || [];
@@ -1963,6 +1995,7 @@ function DashboardContent() {
                         searchSources: currentSearchSources.length > 0 ? currentSearchSources : undefined,
                         toolStatus: undefined,
                         toolProgress: currentToolProgress.length > 0 ? currentToolProgress : undefined,
+                        taskSteps: currentTaskSteps.length > 0 ? currentTaskSteps : undefined,
                         isStreaming: false,
                       }
                     : m
@@ -2275,30 +2308,36 @@ function DashboardContent() {
                   
                   {/* Quick/Deep Mode Toggle - Under search bar */}
                   <div className="flex justify-center mt-3">
-                    <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
+                    <div className="flex items-center gap-0.5 p-1 bg-white/[0.03] rounded-xl border border-white/[0.06]">
                       <button
                         onClick={() => setSearchMode('quick')}
                         className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                          "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all",
                           searchMode === 'quick'
-                            ? "bg-[#2E3524]/20 text-white"
-                            : "text-white/50 hover:text-white/70"
+                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
+                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
                         )}
                       >
-                        <Zap className="h-3 w-3" />
-                        Quick
+                        <Zap className="h-3.5 w-3.5" />
+                        <div className="text-left">
+                          <span className="block">Quick</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Fast response</span>
+                        </div>
                       </button>
                       <button
                         onClick={() => setSearchMode('deep')}
                         className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                          "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all",
                           searchMode === 'deep'
-                            ? "bg-[#2E3524]/20 text-white"
-                            : "text-white/50 hover:text-white/70"
+                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
+                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
                         )}
                       >
-                        <Brain className="h-3 w-3" />
-                        Deep
+                        <Brain className="h-3.5 w-3.5" />
+                        <div className="text-left">
+                          <span className="block">Deep</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Thinking + search</span>
+                        </div>
                       </button>
                     </div>
                   </div>
@@ -2370,55 +2409,89 @@ function DashboardContent() {
                       
                       {/* Assistant message */}
                       {message.role === 'assistant' && (
-                        <div className="space-y-3">
-                          {/* Reasoning Layers */}
-                          {message.reasoning_layers.length > 0 && (
-                            <div className="space-y-1 mb-4">
-                              <p className="text-xs text-white/40 mb-2">Reasoning...</p>
-                              {message.reasoning_layers.map((layer, layerIndex) => (
-                                <ReasoningLayerItem
-                                  key={layer.id}
-                                  layer={layer}
-                                  isLatest={layerIndex === message.reasoning_layers.length - 1}
-                                  onToggleExpand={() => toggleLayerExpand(message.id, layer.id)}
-                                />
-                              ))}
+                        <div className="space-y-0">
+                          {/* ===== MANUS AI-STYLE TASK PROGRESS TIMELINE ===== */}
+                          {(message.taskSteps && message.taskSteps.length > 0) && (
+                            <div className="mb-4">
+                              <div className="relative pl-6">
+                                {/* Vertical line */}
+                                <div className="absolute left-[9px] top-2 bottom-2 w-[2px] bg-gradient-to-b from-[#5c6652]/60 to-[#5c6652]/10" />
+                                
+                                {message.taskSteps.map((step, stepIdx) => (
+                                  <div key={step.step} className="relative flex items-start gap-3 pb-3 last:pb-0">
+                                    {/* Step dot */}
+                                    <div className="absolute -left-6 mt-0.5">
+                                      {step.status === 'complete' ? (
+                                        <div className="w-[20px] h-[20px] rounded-full bg-[#2E3524] flex items-center justify-center">
+                                          <CheckCircle2 className="h-3 w-3 text-[#8a9a7e]" />
+                                        </div>
+                                      ) : step.status === 'active' ? (
+                                        <div className="w-[20px] h-[20px] rounded-full bg-[#2E3524] flex items-center justify-center">
+                                          <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
+                                        </div>
+                                      ) : (
+                                        <div className="w-[20px] h-[20px] rounded-full bg-white/[0.06] border border-white/[0.12]" />
+                                      )}
+                                    </div>
+                                    {/* Step content */}
+                                    <div className="flex-1 min-w-0 pt-0.5">
+                                      <p className={cn(
+                                        "text-xs font-medium",
+                                        step.status === 'active' ? "text-white/80" : step.status === 'complete' ? "text-white/50" : "text-white/30"
+                                      )}>
+                                        {step.title}
+                                      </p>
+                                      {step.detail && step.status === 'active' && (
+                                        <p className="text-[10px] text-white/30 mt-0.5">{step.detail}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
-                          
-                          {/* Tool Progress Indicator */}
-                          {message.isStreaming && message.toolStatus && (
-                            <div className="mb-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
-                              <div className="flex items-center gap-2">
-                                <div className="flex gap-1">
-                                  <span className="w-1.5 h-1.5 bg-[#5c6652] rounded-full animate-pulse" />
-                                  <span className="w-1.5 h-1.5 bg-[#5c6652] rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-                                  <span className="w-1.5 h-1.5 bg-[#5c6652] rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
-                                </div>
-                                <span className="text-xs text-white/60 font-medium">{message.toolStatus}</span>
-                              </div>
-                              {message.toolProgress && message.toolProgress.length > 1 && (
-                                <div className="mt-2 space-y-1">
-                                  {message.toolProgress.slice(-3).map((tp, i) => (
-                                    <div key={i} className="flex items-center gap-2 text-[10px] text-white/40">
-                                      <CheckCircle2 className="h-3 w-3 text-[#5c6652]" />
-                                      <span>{tp.message}</span>
-                                    </div>
-                                  ))}
+
+                          {/* ===== REASONING LAYERS (Thinking mode) ===== */}
+                          {message.reasoning_layers.length > 0 && (
+                            <div className="mb-4">
+                              <button
+                                onClick={() => {
+                                  setMessages(prev => prev.map(m => {
+                                    if (m.id !== message.id) return m;
+                                    const allExpanded = m.reasoning_layers.every(l => l.expanded);
+                                    return { ...m, reasoning_layers: m.reasoning_layers.map(l => ({ ...l, expanded: !allExpanded })) };
+                                  }));
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] transition-all w-full text-left group"
+                              >
+                                <Brain className="h-3.5 w-3.5 text-[#5c6652]" />
+                                <span className="text-xs text-white/50 font-medium flex-1">
+                                  {message.isStreaming ? 'Thinking...' : `Thought for ${Math.max(1, Math.round(message.reasoning_layers.reduce((a, l) => a + l.content.length, 0) / 200))}s`}
+                                </span>
+                                <ChevronDown className={cn(
+                                  "h-3 w-3 text-white/30 transition-transform",
+                                  message.reasoning_layers.some(l => l.expanded) && "rotate-180"
+                                )} />
+                              </button>
+                              {message.reasoning_layers.some(l => l.expanded) && (
+                                <div className="mt-2 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] max-h-[200px] overflow-y-auto">
+                                  <p className="text-xs text-white/40 leading-relaxed whitespace-pre-wrap">
+                                    {message.reasoning_layers.map(l => l.content).join('\n')}
+                                  </p>
                                 </div>
                               )}
                             </div>
                           )}
-                          
-                          {/* Streaming indicator */}
-                          {message.isStreaming && !message.content && !message.toolStatus && (
-                            <div className="flex items-center gap-2 text-white/50">
+
+                          {/* ===== STREAMING INDICATOR ===== */}
+                          {message.isStreaming && !message.content && !message.taskSteps?.length && !message.reasoning_layers.length && (
+                            <div className="flex items-center gap-2 text-white/50 py-2">
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm">Thinking...</span>
+                              <span className="text-sm">Processing...</span>
                             </div>
                           )}
                           
-                          {/* Content */}
+                          {/* ===== MAIN CONTENT ===== */}
                           {message.content && (
                             <MessageContent
                               content={message.content}
@@ -2429,16 +2502,22 @@ function DashboardContent() {
                             />
                           )}
                           
-                          {/* Download Files */}
+                          {/* ===== DOWNLOAD FILES ===== */}
                           {message.downloads && message.downloads.length > 0 && (
                             <div className="mt-4 space-y-2">
-                              <p className="text-xs text-white/40 mb-1">Generated Files</p>
+                              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Generated Files</p>
                               {message.downloads.map((dl, dlIdx) => {
                                 const getFileIcon = (ft: string) => {
-                                  if (ft.includes('excel') || ft.includes('xlsx') || ft.includes('csv')) return <FileSpreadsheet className="h-4 w-4 text-green-400" />;
-                                  if (ft.includes('ppt') || ft.includes('presentation')) return <Presentation className="h-4 w-4 text-orange-400" />;
-                                  if (ft.includes('pdf')) return <FileText className="h-4 w-4 text-red-400" />;
-                                  return <File className="h-4 w-4 text-blue-400" />;
+                                  if (ft.includes('excel') || ft.includes('xlsx') || ft.includes('csv')) return <FileSpreadsheet className="h-5 w-5 text-[#5c6652]" />;
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return <Presentation className="h-5 w-5 text-orange-400" />;
+                                  if (ft.includes('pdf')) return <FileText className="h-5 w-5 text-red-400" />;
+                                  return <File className="h-5 w-5 text-blue-400" />;
+                                };
+                                const getFileColor = (ft: string) => {
+                                  if (ft.includes('excel') || ft.includes('xlsx')) return 'border-[#5c6652]/30 hover:border-[#5c6652]/60';
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return 'border-orange-400/30 hover:border-orange-400/60';
+                                  if (ft.includes('pdf')) return 'border-red-400/30 hover:border-red-400/60';
+                                  return 'border-blue-400/30 hover:border-blue-400/60';
                                 };
                                 return (
                                   <a
@@ -2446,16 +2525,21 @@ function DashboardContent() {
                                     href={`${API_URL}${dl.download_url}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex items-center gap-3 px-4 py-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] rounded-xl transition-all group cursor-pointer"
+                                    className={cn(
+                                      "flex items-center gap-3 px-4 py-3 bg-white/[0.03] hover:bg-white/[0.06] border rounded-xl transition-all group cursor-pointer",
+                                      getFileColor(dl.file_type)
+                                    )}
                                   >
-                                    <div className="flex-shrink-0 p-2 bg-white/[0.06] rounded-lg">
+                                    <div className="flex-shrink-0 p-2.5 bg-white/[0.04] rounded-lg">
                                       {getFileIcon(dl.file_type)}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm font-medium text-white/90 truncate">{dl.filename}</p>
-                                      <p className="text-xs text-white/40 uppercase">{dl.file_type}</p>
+                                      <p className="text-[10px] text-white/30 uppercase tracking-wider mt-0.5">{dl.file_type} document</p>
                                     </div>
-                                    <Download className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
+                                    <div className="flex-shrink-0 p-2 rounded-lg bg-white/[0.04] group-hover:bg-white/[0.08] transition-colors">
+                                      <Download className="h-4 w-4 text-white/40 group-hover:text-white/80 transition-colors" />
+                                    </div>
                                   </a>
                                 );
                               })}
@@ -2482,16 +2566,16 @@ function DashboardContent() {
                 onRemove={handleRemoveFile} 
               />
               
-              {/* Quick/Deep Mode Toggle - Centered (no credit numbers) */}
+              {/* Quick/Deep Mode Toggle - Centered */}
               <div className="flex justify-center mb-3">
-                <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
+                <div className="flex items-center gap-0.5 p-0.5 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                   <button
                     onClick={() => setSearchMode('quick')}
                     className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                       searchMode === 'quick'
-                        ? "bg-[#2E3524]/20 text-white"
-                        : "text-white/50 hover:text-white/70"
+                        ? "bg-[#2E3524] text-white shadow-sm"
+                        : "text-white/40 hover:text-white/60"
                     )}
                   >
                     <Zap className="h-3 w-3" />
@@ -2500,10 +2584,10 @@ function DashboardContent() {
                   <button
                     onClick={() => setSearchMode('deep')}
                     className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                       searchMode === 'deep'
-                        ? "bg-[#2E3524]/20 text-white"
-                        : "text-white/50 hover:text-white/70"
+                        ? "bg-[#2E3524] text-white shadow-sm"
+                        : "text-white/40 hover:text-white/60"
                     )}
                   >
                     <Brain className="h-3 w-3" />
