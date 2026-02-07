@@ -16,7 +16,6 @@ const architectureLayers = [
     title: "Task Interpretation",
     subtitle: "Understanding your intent",
     description: "Your natural language query is parsed, classified by domain, and decomposed into structured research sub-tasks.",
-    color: "blue",
     detail: "Domain classification, intent extraction, task decomposition",
     example: "\"Analyze SS26 womenswear trends from Milan\" → Domain: Fashion, Task: Trend Analysis, Scope: Milan FW SS26",
   },
@@ -26,7 +25,6 @@ const architectureLayers = [
     title: "LLM Layer",
     subtitle: "Multi-model intelligence",
     description: "The best AI model is selected per sub-task — GPT-4 for synthesis, Grok for real-time data, Gemini for speed, Kimi for long documents.",
-    color: "purple",
     detail: "GPT-4, Grok, Gemini Flash, Kimi — routed by task type",
     example: "Trend synthesis → GPT-4 | Live signals → Grok | Quick facts → Gemini Flash",
   },
@@ -36,7 +34,6 @@ const architectureLayers = [
     title: "Real-Time Web Research",
     subtitle: "Live intelligence gathering",
     description: "AI agents search the web in real-time, pulling data from fashion weeks, trade publications, social media, and industry databases.",
-    color: "cyan",
     detail: "Perplexity, Grok Search, curated industry sources",
     example: "47 runway shows analyzed, 2,300 social posts scanned, 15 trade reports cross-referenced",
   },
@@ -46,7 +43,6 @@ const architectureLayers = [
     title: "Logic & Structuring",
     subtitle: "Making sense of data",
     description: "Raw intelligence is validated, cross-referenced, and organized into structured formats — tables, charts, comparisons, and narratives.",
-    color: "amber",
     detail: "Validation, deduplication, ranking, formatting",
     example: "Trend heatmap generated, supplier matrix built, competitive landscape mapped",
   },
@@ -56,19 +52,10 @@ const architectureLayers = [
     title: "Execution Layer",
     subtitle: "Professional deliverables",
     description: "Final outputs are generated as professional documents — PDF reports, Excel spreadsheets, PowerPoint decks, and Word documents.",
-    color: "green",
     detail: "PDF, Excel, PPTX, DOCX — formatted and ready to share",
     example: "12-page PDF with executive summary, charts, and source citations",
   },
 ];
-
-const colorMap: Record<string, { bg: string; border: string; text: string; glow: string; dot: string }> = {
-  blue: { bg: "bg-blue-500/10", border: "border-blue-500/20", text: "text-blue-400", glow: "bg-blue-500/[0.02]", dot: "bg-blue-400" },
-  purple: { bg: "bg-purple-500/10", border: "border-purple-500/20", text: "text-purple-400", glow: "bg-purple-500/[0.02]", dot: "bg-purple-400" },
-  cyan: { bg: "bg-cyan-500/10", border: "border-cyan-500/20", text: "text-cyan-400", glow: "bg-cyan-500/[0.02]", dot: "bg-cyan-400" },
-  amber: { bg: "bg-amber-500/10", border: "border-amber-500/20", text: "text-amber-400", glow: "bg-amber-500/[0.02]", dot: "bg-amber-400" },
-  green: { bg: "bg-green-500/10", border: "border-green-500/20", text: "text-green-400", glow: "bg-green-500/[0.02]", dot: "bg-green-400" },
-};
 
 const differentiators = [
   { icon: Sparkles, title: "Multi-Model AI", desc: "Best model selected per task — not one-size-fits-all" },
@@ -95,7 +82,7 @@ export default function HowItWorksPage() {
       {/* Hero */}
       <section className="relative pt-20 lg:pt-28 pb-12 lg:pb-16 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-white/[0.015] rounded-full blur-[120px]" />
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-white/[0.01] rounded-full blur-[120px]" />
         
         <div className="container mx-auto px-6 lg:px-12 relative">
           <div className="max-w-4xl mx-auto text-center">
@@ -116,7 +103,7 @@ export default function HowItWorksPage() {
         </div>
       </section>
 
-      {/* Architecture Visualization */}
+      {/* Architecture Visualization — Monochromatic */}
       <section className="py-8 lg:py-12">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-4xl mx-auto">
@@ -125,24 +112,18 @@ export default function HowItWorksPage() {
             <div className="space-y-0">
               {architectureLayers.map((layer, i) => {
                 const Icon = layer.icon;
-                const colors = colorMap[layer.color];
                 return (
                   <div key={layer.id}>
                     {/* Layer card */}
-                    <div className={cn(
-                      "relative rounded-2xl overflow-hidden",
-                      "bg-[#0C0C0C] border border-white/[0.06]",
-                      "hover:border-white/[0.12] transition-all duration-300",
-                      "group"
-                    )}>
-                      <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity", colors.glow)} />
+                    <div className="relative rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.06] hover:border-white/[0.12] transition-all duration-300 group">
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity bg-white/[0.01]" />
                       
                       <div className="relative p-6 lg:p-8">
                         <div className="flex flex-col lg:flex-row lg:items-start gap-6">
                           {/* Left: Icon + Number */}
                           <div className="flex items-center gap-4 lg:w-48 shrink-0">
-                            <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", colors.bg, colors.border, "border")}>
-                              <Icon className={cn("w-5 h-5", colors.text)} />
+                            <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/[0.06]">
+                              <Icon className="w-5 h-5 text-white/45" />
                             </div>
                             <div>
                               <span className="text-[10px] text-white/25 uppercase tracking-wider">Layer {layer.id}</span>
@@ -152,12 +133,12 @@ export default function HowItWorksPage() {
 
                           {/* Right: Content */}
                           <div className="flex-1 space-y-3">
-                            <p className={cn("text-xs uppercase tracking-wider", colors.text)}>{layer.subtitle}</p>
+                            <p className="text-xs uppercase tracking-wider text-white/40">{layer.subtitle}</p>
                             <p className="text-white/55 leading-relaxed">{layer.description}</p>
                             
                             {/* Technical detail */}
                             <div className="flex items-start gap-2 pt-1">
-                              <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", colors.dot)} />
+                              <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 bg-white/25" />
                               <span className="text-xs text-white/35">{layer.detail}</span>
                             </div>
 

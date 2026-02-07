@@ -18,12 +18,12 @@ const timeline = [
 ];
 
 const techStack = [
-  { icon: Brain, label: "Multi-Model AI", desc: "4+ AI models working in parallel for every query", color: "#A78BFA" },
-  { icon: Zap, label: "Real-Time Signals", desc: "Live data from web, social, and search sources", color: "#F4D35E" },
-  { icon: Layers, label: "Structured Output", desc: "Tables, matrices, comparisons — not chat responses", color: "#8ECAE6" },
-  { icon: Shield, label: "Source-Backed", desc: "Every insight traceable to its original source", color: "#6b9b8a" },
-  { icon: Code, label: "Export Engine", desc: "Generate .xlsx, .pdf, .pptx, .docx automatically", color: "#E07A5F" },
-  { icon: Globe, label: "10 Domains", desc: "Fashion, Beauty, Skincare, Sustainability, and more", color: "#C9A96E" },
+  { icon: Brain, label: "Multi-Model AI", desc: "4+ AI models working in parallel for every query" },
+  { icon: Zap, label: "Real-Time Signals", desc: "Live data from web, social, and search sources" },
+  { icon: Layers, label: "Structured Output", desc: "Tables, matrices, comparisons — not chat responses" },
+  { icon: Shield, label: "Source-Backed", desc: "Every insight traceable to its original source" },
+  { icon: Code, label: "Export Engine", desc: "Generate .xlsx, .pdf, .pptx, .docx automatically" },
+  { icon: Globe, label: "10 Domains", desc: "Fashion, Beauty, Skincare, Sustainability, and more" },
 ];
 
 const values = [
@@ -31,25 +31,21 @@ const values = [
     icon: Target,
     title: "Precision Over Volume",
     description: "We don't flood you with data. Every insight is curated, verified, and structured for action.",
-    accent: "#C9A96E"
   },
   {
     icon: Leaf,
     title: "Sustainability First",
     description: "Environmental responsibility isn't a feature — it's a foundation. Every tool we build considers impact.",
-    accent: "#6b9b8a"
   },
   {
     icon: Eye,
     title: "Radical Transparency",
     description: "See exactly how our AI works. Every source cited, every reasoning step visible, every confidence level shown.",
-    accent: "#8ECAE6"
   },
   {
     icon: Sparkles,
     title: "Fashion-Native AI",
     description: "Built by people who understand fashion. Our AI speaks the industry's language — from MOQs to silhouettes.",
-    accent: "#A78BFA"
   },
 ];
 
@@ -60,35 +56,28 @@ export default function AboutPage() {
       <div className="h-16 lg:h-[72px]" />
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* HERO — Bold statement with animated accent */}
+      {/* HERO — Bold statement, monochromatic */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="relative pt-24 lg:pt-32 pb-20 lg:pb-28 overflow-hidden">
-        {/* Background elements */}
         <div className="absolute inset-0 pointer-events-none">
-          {/* Diagonal grid */}
           <div className="absolute inset-0 opacity-[0.015]" style={{
             backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 60px, white 60px, white 61px)`,
           }} />
-          {/* Accent glow */}
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-[#6b9b8a]/[0.03] blur-[120px]" />
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-white/[0.015] blur-[120px]" />
         </div>
 
         <div className="relative z-10 container mx-auto px-6 lg:px-12">
           <div className="max-w-5xl mx-auto">
-            {/* Badge */}
             <div className="flex justify-center mb-8">
               <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06]">
-                <div className="w-1.5 h-1.5 rounded-full bg-[#6b9b8a]/60 animate-pulse" />
+                <div className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" />
                 <span className="text-[11px] text-white/40 uppercase tracking-[0.15em]">About McLeuker AI</span>
               </div>
             </div>
 
-            {/* Main heading */}
             <h1 className="font-editorial text-5xl md:text-6xl lg:text-[5.5rem] text-center text-white/[0.95] tracking-tight leading-[1.02] mb-6">
               We&apos;re building the<br />
-              <span className="relative inline-block">
-                <span className="bg-gradient-to-r from-[#C9A96E] via-[#E07A5F] to-[#8ECAE6] bg-clip-text text-transparent">intelligence layer</span>
-              </span>
+              <span className="text-white/50">intelligence layer</span>
               <br />for fashion
             </h1>
 
@@ -96,16 +85,16 @@ export default function AboutPage() {
               Where AI-powered research meets fashion expertise. From one prompt to structured reports, benchmarks, and clear next steps.
             </p>
 
-            {/* Key metrics — horizontal strip */}
+            {/* Key metrics — monochromatic */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl mx-auto">
               {[
-                { value: "10", label: "Specialized Domains", color: "#C9A96E" },
-                { value: "4+", label: "AI Models in Parallel", color: "#A78BFA" },
-                { value: "<5min", label: "Prompt to Report", color: "#8ECAE6" },
-                { value: "24/7", label: "Live Intelligence", color: "#6b9b8a" },
+                { value: "10", label: "Specialized Domains" },
+                { value: "4+", label: "AI Models in Parallel" },
+                { value: "<5min", label: "Prompt to Report" },
+                { value: "24/7", label: "Live Intelligence" },
               ].map((m, i) => (
                 <div key={i} className="text-center p-4 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                  <div className="text-2xl md:text-3xl font-light mb-1" style={{ color: `${m.color}bb` }}>{m.value}</div>
+                  <div className="text-2xl md:text-3xl font-light text-white/70 mb-1">{m.value}</div>
                   <div className="text-[10px] text-white/25 uppercase tracking-wider">{m.label}</div>
                 </div>
               ))}
@@ -115,17 +104,16 @@ export default function AboutPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* MISSION — Split layout with visual accent */}
+      {/* MISSION — Split layout */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-20 lg:py-28 bg-[#0a0a0a]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-              {/* Left: Text */}
               <div>
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="h-px w-8 bg-[#C9A96E]/40" />
-                  <span className="text-[11px] text-[#C9A96E]/60 uppercase tracking-[0.2em] font-medium">Our Mission</span>
+                  <div className="h-px w-8 bg-white/20" />
+                  <span className="text-[11px] text-white/40 uppercase tracking-[0.2em] font-medium">Our Mission</span>
                 </div>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-6">
                   Empowering fashion with intelligence
@@ -153,16 +141,16 @@ export default function AboutPage() {
               <div className="relative">
                 <div className="space-y-3">
                   {[
-                    { icon: TrendingUp, label: "Trend Forecasting", prompt: "Analyze SS26 denim trends across European markets", time: "3m 42s", color: "#C9A96E" },
-                    { icon: Users, label: "Supplier Research", prompt: "Find GOTS-certified denim mills in Europe with MOQ < 500", time: "4m 18s", color: "#8ECAE6" },
-                    { icon: BarChart3, label: "Market Analysis", prompt: "Compare luxury handbag pricing across US, EU, and Asia", time: "2m 55s", color: "#A78BFA" },
-                    { icon: Leaf, label: "Sustainability Audit", prompt: "Map EPR compliance requirements for textile exports to EU", time: "3m 10s", color: "#6b9b8a" },
+                    { icon: TrendingUp, label: "Trend Forecasting", prompt: "Analyze SS26 denim trends across European markets", time: "3m 42s" },
+                    { icon: Users, label: "Supplier Research", prompt: "Find GOTS-certified denim mills in Europe with MOQ < 500", time: "4m 18s" },
+                    { icon: BarChart3, label: "Market Analysis", prompt: "Compare luxury handbag pricing across US, EU, and Asia", time: "2m 55s" },
+                    { icon: Leaf, label: "Sustainability Audit", prompt: "Map EPR compliance requirements for textile exports to EU", time: "3m 10s" },
                   ].map((item, i) => {
                     const ItemIcon = item.icon;
                     return (
-                      <div key={i} className="flex items-center gap-4 p-4 rounded-xl bg-[#0d0d0d] border border-white/[0.04] hover:border-white/[0.10] transition-all group">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border" style={{ backgroundColor: `${item.color}08`, borderColor: `${item.color}15` }}>
-                          <ItemIcon className="w-5 h-5" style={{ color: `${item.color}70` }} />
+                      <div key={i} className="flex items-center gap-4 p-4 rounded-xl bg-[#0d0d0d] border border-white/[0.04] hover:border-white/[0.08] transition-all group">
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border border-white/[0.06] bg-white/[0.02]">
+                          <ItemIcon className="w-5 h-5 text-white/40" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-0.5">
@@ -171,13 +159,12 @@ export default function AboutPage() {
                           </div>
                           <p className="text-[11px] text-white/30 truncate">&ldquo;{item.prompt}&rdquo;</p>
                         </div>
-                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${item.color}60` }} />
+                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-white/20" />
                       </div>
                     );
                   })}
                 </div>
-                {/* Decorative glow */}
-                <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-[#C9A96E]/[0.03] blur-[60px] pointer-events-none" />
+                <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-white/[0.01] blur-[60px] pointer-events-none" />
               </div>
             </div>
           </div>
@@ -192,9 +179,9 @@ export default function AboutPage() {
           <div className="max-w-[1200px] mx-auto">
             <div className="text-center mb-14">
               <div className="flex items-center justify-center gap-3 mb-4">
-                <div className="h-px w-12 bg-gradient-to-r from-transparent to-[#A78BFA]/30" />
-                <span className="text-[11px] text-[#A78BFA]/60 uppercase tracking-[0.2em] font-medium">Technology</span>
-                <div className="h-px w-12 bg-gradient-to-l from-transparent to-[#A78BFA]/30" />
+                <div className="h-px w-12 bg-gradient-to-r from-transparent to-white/10" />
+                <span className="text-[11px] text-white/40 uppercase tracking-[0.2em] font-medium">Technology</span>
+                <div className="h-px w-12 bg-gradient-to-l from-transparent to-white/10" />
               </div>
               <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight">
                 What Powers McLeuker
@@ -208,10 +195,10 @@ export default function AboutPage() {
               {techStack.map((tech, i) => {
                 const TechIcon = tech.icon;
                 return (
-                  <div key={i} className="group p-6 rounded-2xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.10] transition-all">
+                  <div key={i} className="group p-6 rounded-2xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.08] transition-all">
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center border" style={{ backgroundColor: `${tech.color}08`, borderColor: `${tech.color}15` }}>
-                        <TechIcon className="w-4.5 h-4.5" style={{ color: `${tech.color}70` }} />
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center border border-white/[0.06] bg-white/[0.02]">
+                        <TechIcon className="w-4.5 h-4.5 text-white/40" />
                       </div>
                       <h3 className="text-sm font-medium text-white/80">{tech.label}</h3>
                     </div>
@@ -221,24 +208,24 @@ export default function AboutPage() {
               })}
             </div>
 
-            {/* Architecture visual */}
+            {/* Architecture visual — monochromatic */}
             <div className="mt-10 p-6 lg:p-8 rounded-2xl bg-[#0a0a0a] border border-white/[0.04]">
               <div className="flex items-center gap-2 mb-6">
-                <div className="w-2 h-2 rounded-full bg-[#6b9b8a]/40" />
+                <div className="w-2 h-2 rounded-full bg-white/20" />
                 <span className="text-[10px] text-white/25 uppercase tracking-wider font-mono">Architecture Pipeline</span>
               </div>
               <div className="flex flex-col md:flex-row items-stretch gap-3">
                 {[
-                  { label: "Your Prompt", sub: "Natural language", color: "#C9A96E", icon: "→" },
-                  { label: "Domain Router", sub: "Context detection", color: "#E07A5F", icon: "→" },
-                  { label: "Multi-Model AI", sub: "4+ models parallel", color: "#A78BFA", icon: "→" },
-                  { label: "Source Crawler", sub: "10K+ live sources", color: "#8ECAE6", icon: "→" },
-                  { label: "Analysis Engine", sub: "Structured output", color: "#6b9b8a", icon: "→" },
-                  { label: "Export", sub: ".xlsx .pdf .pptx", color: "#F4D35E", icon: "" },
+                  { label: "Your Prompt", sub: "Natural language", icon: "→" },
+                  { label: "Domain Router", sub: "Context detection", icon: "→" },
+                  { label: "Multi-Model AI", sub: "4+ models parallel", icon: "→" },
+                  { label: "Source Crawler", sub: "10K+ live sources", icon: "→" },
+                  { label: "Analysis Engine", sub: "Structured output", icon: "→" },
+                  { label: "Export", sub: ".xlsx .pdf .pptx", icon: "" },
                 ].map((step, i) => (
                   <div key={i} className="flex items-center gap-3 flex-1">
-                    <div className="flex-1 p-3 rounded-lg border text-center" style={{ borderColor: `${step.color}15`, backgroundColor: `${step.color}04` }}>
-                      <div className="text-xs font-medium mb-0.5" style={{ color: `${step.color}90` }}>{step.label}</div>
+                    <div className="flex-1 p-3 rounded-lg border border-white/[0.06] bg-white/[0.02] text-center">
+                      <div className="text-xs font-medium text-white/60 mb-0.5">{step.label}</div>
                       <div className="text-[9px] text-white/25">{step.sub}</div>
                     </div>
                     {step.icon && <span className="text-white/10 text-lg hidden md:block">{step.icon}</span>}
@@ -257,37 +244,30 @@ export default function AboutPage() {
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
             <div className="flex items-center gap-3 mb-5">
-              <div className="h-px w-8 bg-[#8ECAE6]/40" />
-              <span className="text-[11px] text-[#8ECAE6]/60 uppercase tracking-[0.2em] font-medium">Our Journey</span>
+              <div className="h-px w-8 bg-white/20" />
+              <span className="text-[11px] text-white/40 uppercase tracking-[0.2em] font-medium">Our Journey</span>
             </div>
             <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight mb-12">
               From idea to intelligence
             </h2>
 
             <div className="relative">
-              {/* Timeline line */}
-              <div className="absolute left-6 top-0 bottom-0 w-px bg-gradient-to-b from-[#C9A96E]/20 via-[#A78BFA]/20 to-[#6b9b8a]/20 hidden md:block" />
+              <div className="absolute left-6 top-0 bottom-0 w-px bg-gradient-to-b from-white/10 via-white/5 to-transparent hidden md:block" />
 
               <div className="space-y-8 md:space-y-0 md:grid md:grid-cols-4 md:gap-6">
-                {timeline.map((item, i) => {
-                  const colors = ["#C9A96E", "#E07A5F", "#A78BFA", "#6b9b8a"];
-                  const color = colors[i];
-                  return (
-                    <div key={i} className="relative group">
-                      {/* Dot on timeline (mobile) */}
-                      <div className="md:hidden absolute left-6 top-6 w-3 h-3 rounded-full border-2 z-10" style={{ borderColor: `${color}60`, backgroundColor: `${color}20` }} />
+                {timeline.map((item, i) => (
+                  <div key={i} className="relative group">
+                    <div className="md:hidden absolute left-6 top-6 w-3 h-3 rounded-full border-2 z-10 border-white/20 bg-white/5" />
 
-                      <div className="md:pl-0 pl-14 p-5 rounded-xl bg-[#0d0d0d] border border-white/[0.04] hover:border-white/[0.10] transition-all">
-                        {/* Year badge */}
-                        <div className="inline-flex px-3 py-1 rounded-md mb-3 text-xs font-mono font-medium" style={{ backgroundColor: `${color}10`, color: `${color}90` }}>
-                          {item.year}
-                        </div>
-                        <h3 className="text-lg font-medium text-white/85 mb-2">{item.title}</h3>
-                        <p className="text-sm text-white/35 leading-relaxed">{item.desc}</p>
+                    <div className="md:pl-0 pl-14 p-5 rounded-xl bg-[#0d0d0d] border border-white/[0.04] hover:border-white/[0.08] transition-all">
+                      <div className="inline-flex px-3 py-1 rounded-md mb-3 text-xs font-mono font-medium bg-white/[0.04] text-white/60">
+                        {item.year}
                       </div>
+                      <h3 className="text-lg font-medium text-white/85 mb-2">{item.title}</h3>
+                      <p className="text-sm text-white/35 leading-relaxed">{item.desc}</p>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -302,9 +282,9 @@ export default function AboutPage() {
           <div className="max-w-[1200px] mx-auto">
             <div className="text-center mb-14">
               <div className="flex items-center justify-center gap-3 mb-4">
-                <div className="h-px w-12 bg-gradient-to-r from-transparent to-[#6b9b8a]/30" />
-                <span className="text-[11px] text-[#6b9b8a]/60 uppercase tracking-[0.2em] font-medium">Our Values</span>
-                <div className="h-px w-12 bg-gradient-to-l from-transparent to-[#6b9b8a]/30" />
+                <div className="h-px w-12 bg-gradient-to-r from-transparent to-white/10" />
+                <span className="text-[11px] text-white/40 uppercase tracking-[0.2em] font-medium">Our Values</span>
+                <div className="h-px w-12 bg-gradient-to-l from-transparent to-white/10" />
               </div>
               <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight">
                 What Drives Us
@@ -315,13 +295,13 @@ export default function AboutPage() {
               {values.map((value, i) => {
                 const ValueIcon = value.icon;
                 return (
-                  <div key={i} className="group relative p-7 rounded-2xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.10] transition-all overflow-hidden">
-                    {/* Accent top bar */}
-                    <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: `linear-gradient(to right, ${value.accent}40, transparent)` }} />
+                  <div key={i} className="group relative p-7 rounded-2xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.08] transition-all overflow-hidden">
+                    {/* Subtle top bar */}
+                    <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-white/[0.08] via-white/[0.04] to-transparent" />
 
                     <div className="flex items-start gap-4">
-                      <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 border" style={{ backgroundColor: `${value.accent}08`, borderColor: `${value.accent}15` }}>
-                        <ValueIcon className="w-5 h-5" style={{ color: `${value.accent}70` }} />
+                      <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/[0.06] bg-white/[0.02]">
+                        <ValueIcon className="w-5 h-5 text-white/40" />
                       </div>
                       <div>
                         <h3 className="text-lg font-medium text-white/85 mb-2">{value.title}</h3>
@@ -337,7 +317,7 @@ export default function AboutPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* DOMAINS OVERVIEW — Visual strip */}
+      {/* DOMAINS OVERVIEW — Monochromatic grid */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-20 lg:py-28 bg-[#0a0a0a]">
         <div className="container mx-auto px-6 lg:px-12">
@@ -353,29 +333,28 @@ export default function AboutPage() {
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
-                { icon: Shirt, name: "Fashion", color: "#C9A96E" },
-                { icon: Heart, name: "Beauty", color: "#E07A5F" },
-                { icon: Droplets, name: "Skincare", color: "#8ECAE6" },
-                { icon: Leaf, name: "Sustainability", color: "#6b9b8a" },
-                { icon: Cpu, name: "Fashion Tech", color: "#A78BFA" },
-                { icon: Sparkles, name: "Catwalks", color: "#F4D35E" },
-                { icon: Palette, name: "Culture", color: "#E8998D" },
-                { icon: Factory, name: "Textile", color: "#B5838D" },
-                { icon: Users, name: "Lifestyle", color: "#D4A373" },
-                { icon: Globe, name: "Global", color: "#ffffff" },
+                { icon: Shirt, name: "Fashion" },
+                { icon: Heart, name: "Beauty" },
+                { icon: Droplets, name: "Skincare" },
+                { icon: Leaf, name: "Sustainability" },
+                { icon: Cpu, name: "Fashion Tech" },
+                { icon: Sparkles, name: "Catwalks" },
+                { icon: Palette, name: "Culture" },
+                { icon: Factory, name: "Textile" },
+                { icon: Users, name: "Lifestyle" },
+                { icon: Globe, name: "Global" },
               ].map((d, i) => {
                 const DIcon = d.icon;
                 return (
                   <Link
                     key={i}
                     href={d.name === "Global" ? "/dashboard" : `/domain/${d.name.toLowerCase().replace(' ', '-')}`}
-                    className="group flex flex-col items-center gap-2 p-4 rounded-xl border transition-all hover:scale-105"
-                    style={{ borderColor: `${d.color}10`, backgroundColor: `${d.color}04` }}
+                    className="group flex flex-col items-center gap-2 p-4 rounded-xl border border-white/[0.04] bg-white/[0.01] transition-all hover:bg-white/[0.03] hover:border-white/[0.08] hover:scale-105"
                   >
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center border" style={{ backgroundColor: `${d.color}10`, borderColor: `${d.color}20` }}>
-                      <DIcon className="w-5 h-5" style={{ color: `${d.color}70` }} />
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-white/[0.06] bg-white/[0.02]">
+                      <DIcon className="w-5 h-5 text-white/40 group-hover:text-white/60 transition-colors" />
                     </div>
-                    <span className="text-xs text-white/50 group-hover:text-white/80 transition-colors">{d.name}</span>
+                    <span className="text-xs text-white/40 group-hover:text-white/70 transition-colors">{d.name}</span>
                   </Link>
                 );
               })}
@@ -393,8 +372,8 @@ export default function AboutPage() {
             <div className="grid lg:grid-cols-2 gap-12 items-start">
               <div>
                 <div className="flex items-center gap-3 mb-5">
-                  <div className="h-px w-8 bg-[#E07A5F]/40" />
-                  <span className="text-[11px] text-[#E07A5F]/60 uppercase tracking-[0.2em] font-medium">Capabilities</span>
+                  <div className="h-px w-8 bg-white/20" />
+                  <span className="text-[11px] text-white/40 uppercase tracking-[0.2em] font-medium">Capabilities</span>
                 </div>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-5">
                   Areas of<br />Expertise
@@ -406,15 +385,15 @@ export default function AboutPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { title: "Strategy & Planning", desc: "Collection planning, market entry, brand positioning", color: "#C9A96E" },
-                  { title: "Sustainability", desc: "Impact analysis, certification mapping, ESG reporting", color: "#6b9b8a" },
-                  { title: "Circularity", desc: "Circular models, resale analysis, waste reduction", color: "#8ECAE6" },
-                  { title: "Traceability", desc: "Supply chain transparency, due diligence, compliance", color: "#A78BFA" },
-                  { title: "Sourcing", desc: "Supplier discovery, capability assessment, evaluation", color: "#E07A5F" },
-                  { title: "Market Intelligence", desc: "Competitive analysis, pricing, consumer trends", color: "#F4D35E" },
+                  { title: "Strategy & Planning", desc: "Collection planning, market entry, brand positioning" },
+                  { title: "Sustainability", desc: "Impact analysis, certification mapping, ESG reporting" },
+                  { title: "Circularity", desc: "Circular models, resale analysis, waste reduction" },
+                  { title: "Traceability", desc: "Supply chain transparency, due diligence, compliance" },
+                  { title: "Sourcing", desc: "Supplier discovery, capability assessment, evaluation" },
+                  { title: "Market Intelligence", desc: "Competitive analysis, pricing, consumer trends" },
                 ].map((cap, i) => (
-                  <div key={i} className="p-4 rounded-xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.10] transition-all">
-                    <div className="w-1.5 h-1.5 rounded-full mb-3" style={{ backgroundColor: `${cap.color}60` }} />
+                  <div key={i} className="p-4 rounded-xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.08] transition-all">
+                    <div className="w-1.5 h-1.5 rounded-full mb-3 bg-white/20" />
                     <h3 className="text-sm font-medium text-white/75 mb-1.5">{cap.title}</h3>
                     <p className="text-[11px] text-white/30 leading-relaxed">{cap.desc}</p>
                   </div>
@@ -430,13 +409,13 @@ export default function AboutPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-20 lg:py-28 bg-[#0a0a0a] relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-[#6b9b8a]/[0.02] blur-[120px]" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] rounded-full bg-white/[0.01] blur-[120px]" />
         </div>
 
         <div className="relative z-10 container mx-auto px-6 lg:px-12">
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-white/[0.03] border border-white/[0.06] mb-6">
-              <Leaf className="w-3.5 h-3.5 text-[#6b9b8a]/50" />
+              <Leaf className="w-3.5 h-3.5 text-white/35" />
               <span className="text-[11px] text-white/35 uppercase tracking-wider">Our Vision</span>
             </div>
 
@@ -450,9 +429,9 @@ export default function AboutPage() {
               can focus on creativity while AI handles the research.
             </p>
 
-            <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-xl bg-[#6b9b8a]/[0.08] border border-[#6b9b8a]/[0.15]">
-              <Leaf className="w-4 h-4 text-[#6b9b8a]/60" />
-              <span className="text-sm text-[#6b9b8a]/80 font-medium">Committed to net-zero by 2030</span>
+            <div className="inline-flex items-center gap-3 px-5 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <Leaf className="w-4 h-4 text-white/40" />
+              <span className="text-sm text-white/50 font-medium">Committed to net-zero by 2030</span>
             </div>
           </div>
         </div>

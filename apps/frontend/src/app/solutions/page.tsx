@@ -1,7 +1,7 @@
 'use client';
 
 import Link from "next/link";
-import { useRef, useState, useEffect } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { TopNavigation } from "@/components/layout/TopNavigation";
 import { Footer } from "@/components/layout/Footer";
@@ -19,8 +19,6 @@ const solutions = [
       { value: "<5min", label: "Report generation" },
     ],
     features: ["Runway analysis", "Color forecasting", "Material trends", "Silhouette tracking", "Social signals", "Seasonal predictions"],
-    gradient: "from-amber-500/10 via-transparent to-transparent",
-    accentColor: "amber",
     href: "/solutions/trend-forecasting",
     preview: {
       type: "heatmap",
@@ -44,8 +42,6 @@ const solutions = [
       { value: "Excel", label: "Export ready" },
     ],
     features: ["Global database", "Certification verification", "MOQ analysis", "Quality assessment", "Sustainability scoring", "Contact details"],
-    gradient: "from-blue-500/10 via-transparent to-transparent",
-    accentColor: "blue",
     href: "/solutions/supplier-research",
     preview: {
       type: "table",
@@ -67,8 +63,6 @@ const solutions = [
       { value: "PDF", label: "Report format" },
     ],
     features: ["Competitive intelligence", "Pricing benchmarks", "Market sizing", "Growth mapping", "Brand positioning", "Consumer segments"],
-    gradient: "from-purple-500/10 via-transparent to-transparent",
-    accentColor: "purple",
     href: "/solutions/market-analysis",
     preview: {
       type: "chart",
@@ -91,8 +85,6 @@ const solutions = [
       { value: "Gap", label: "Analysis included" },
     ],
     features: ["Certification tracking", "Impact assessment", "ESG compliance", "Circular models", "Carbon footprint", "Supply chain mapping"],
-    gradient: "from-green-500/10 via-transparent to-transparent",
-    accentColor: "green",
     href: "/solutions/sustainability-insights",
     preview: {
       type: "metrics",
@@ -105,27 +97,6 @@ const solutions = [
     }
   }
 ];
-
-const accentColors: Record<string, string> = {
-  amber: "bg-amber-500/20 text-amber-400",
-  blue: "bg-blue-500/20 text-blue-400",
-  purple: "bg-purple-500/20 text-purple-400",
-  green: "bg-green-500/20 text-green-400",
-};
-
-const accentBorders: Record<string, string> = {
-  amber: "border-amber-500/20",
-  blue: "border-blue-500/20",
-  purple: "border-purple-500/20",
-  green: "border-green-500/20",
-};
-
-const barColors: Record<string, string> = {
-  amber: "bg-amber-500/60",
-  blue: "bg-blue-500/60",
-  purple: "bg-purple-500/60",
-  green: "bg-green-500/60",
-};
 
 export default function SolutionsPage() {
   const [activeIdx, setActiveIdx] = useState(0);
@@ -153,7 +124,7 @@ export default function SolutionsPage() {
               Each solution is purpose-built for fashion professionals. Real-time data, structured outputs, and domain expertise — all in one platform.
             </p>
 
-            {/* Quick nav pills */}
+            {/* Quick nav pills — Monochromatic */}
             <div className="flex flex-wrap items-center justify-center gap-3">
               {solutions.map((s, i) => {
                 const Icon = s.icon;
@@ -181,7 +152,7 @@ export default function SolutionsPage() {
         </div>
       </section>
 
-      {/* Solutions — Full-width immersive cards */}
+      {/* Solutions — Full-width immersive cards — Monochromatic */}
       <section className="pb-12 lg:pb-16">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-6xl mx-auto space-y-8">
@@ -198,9 +169,6 @@ export default function SolutionsPage() {
                     "border border-white/[0.06] hover:border-white/[0.12] transition-all duration-500"
                   )}
                 >
-                  {/* Gradient glow */}
-                  <div className={cn("absolute inset-0 bg-gradient-to-br opacity-40", solution.gradient)} />
-                  
                   <div className={cn(
                     "relative grid lg:grid-cols-2 gap-8 lg:gap-0",
                     !isEven && "lg:[direction:rtl]"
@@ -208,7 +176,7 @@ export default function SolutionsPage() {
                     {/* Content Side */}
                     <div className={cn("p-8 lg:p-12 lg:[direction:ltr]")}>
                       <div className="flex items-center gap-3 mb-6">
-                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", accentColors[solution.accentColor])}>
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.06] text-white/60">
                           <IconComponent className="w-5 h-5" />
                         </div>
                         <span className="text-xs text-white/40 uppercase tracking-[0.15em]">Solution {String(i + 1).padStart(2, '0')}</span>
@@ -244,30 +212,21 @@ export default function SolutionsPage() {
 
                       <Link
                         href={solution.href}
-                        className={cn(
-                          "inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-medium transition-all",
-                          "bg-white text-black hover:bg-white/90",
-                          "group-hover:shadow-lg group-hover:shadow-white/5"
-                        )}
+                        className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-medium transition-all bg-white text-black hover:bg-white/90"
                       >
                         Explore {solution.title}
                         <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                       </Link>
                     </div>
 
-                    {/* Preview Side */}
+                    {/* Preview Side — Monochromatic */}
                     <div className={cn(
                       "relative p-8 lg:p-12 lg:[direction:ltr]",
                       "flex items-center justify-center",
                       "bg-gradient-to-br from-white/[0.02] to-transparent"
                     )}>
                       <div className="w-full max-w-md">
-                        {/* Preview mockup */}
-                        <div className={cn(
-                          "rounded-2xl overflow-hidden",
-                          "bg-[#0A0A0A] border",
-                          accentBorders[solution.accentColor]
-                        )}>
+                        <div className="rounded-2xl overflow-hidden bg-[#0A0A0A] border border-white/[0.08]">
                           {/* Window bar */}
                           <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
                             <div className="flex gap-1.5">
@@ -280,7 +239,7 @@ export default function SolutionsPage() {
                             </div>
                           </div>
 
-                          {/* Content based on type */}
+                          {/* Content based on type — All Monochromatic */}
                           <div className="p-5">
                             {solution.preview.type === "heatmap" && (
                               <div className="space-y-3">
@@ -290,7 +249,7 @@ export default function SolutionsPage() {
                                     <span className="text-xs text-white/50 w-32 truncate">{item.name}</span>
                                     <div className="flex-1 h-5 bg-white/[0.04] rounded-full overflow-hidden">
                                       <div
-                                        className={cn("h-full rounded-full transition-all duration-1000", barColors[solution.accentColor])}
+                                        className="h-full rounded-full bg-white/20"
                                         style={{ width: `${item.value}%` }}
                                       />
                                     </div>
@@ -313,7 +272,7 @@ export default function SolutionsPage() {
                                     <div key={j} className="grid grid-cols-3 gap-2 py-2.5 border-b border-white/[0.03]">
                                       <span className="text-xs text-white/60">{row.supplier}</span>
                                       <span className="text-xs text-white/45">{row.country}</span>
-                                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full w-fit", accentColors[solution.accentColor])}>{row.cert}</span>
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full w-fit bg-white/[0.06] text-white/50">{row.cert}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -329,7 +288,7 @@ export default function SolutionsPage() {
                                     <div key={j} className="flex-1 flex flex-col items-center gap-2">
                                       <span className="text-[10px] text-white/40">{item.share}%</span>
                                       <div
-                                        className={cn("w-full rounded-t-lg transition-all duration-1000", barColors[solution.accentColor])}
+                                        className="w-full rounded-t-lg bg-white/15"
                                         style={{ height: `${item.share * 2.5}px` }}
                                       />
                                       <span className="text-[9px] text-white/30">{item.segment}</span>
@@ -349,7 +308,7 @@ export default function SolutionsPage() {
                                       <div className="text-[10px] text-white/35">{item.label}</div>
                                       <div className="mt-2 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
                                         <div
-                                          className={cn("h-full rounded-full", barColors[solution.accentColor])}
+                                          className="h-full rounded-full bg-white/25"
                                           style={{ width: `${item.value}%` }}
                                         />
                                       </div>
@@ -370,7 +329,7 @@ export default function SolutionsPage() {
         </div>
       </section>
 
-      {/* Capabilities Banner */}
+      {/* Capabilities Banner — Monochromatic */}
       <section className="py-12 lg:py-16 border-y border-white/[0.04]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-6xl mx-auto">

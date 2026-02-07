@@ -36,17 +36,17 @@ export default function SupplierResearchPage() {
       <TopNavigation variant="marketing" />
       <div className="h-16 lg:h-[72px]" />
 
-      {/* Hero */}
+      {/* Hero — Monochromatic */}
       <section className="relative pt-20 lg:pt-28 pb-16 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-blue-500/[0.03] to-transparent" />
-        <div className="absolute top-40 left-0 w-[500px] h-[500px] bg-blue-500/[0.02] rounded-full blur-[120px]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+        <div className="absolute top-40 left-0 w-[500px] h-[500px] bg-white/[0.01] rounded-full blur-[120px]" />
         
         <div className="container mx-auto px-6 lg:px-12 relative">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20 mb-6">
-                <Factory className="w-3.5 h-3.5 text-blue-400" />
-                <span className="text-xs text-blue-400/80 uppercase tracking-[0.15em]">Supplier Research</span>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.08] mb-6">
+                <Factory className="w-3.5 h-3.5 text-white/50" />
+                <span className="text-xs text-white/50 uppercase tracking-[0.15em]">Supplier Research</span>
               </div>
               <h1 className="font-editorial text-4xl md:text-5xl lg:text-[3.5rem] text-white/[0.92] mb-5 leading-[1.1]">
                 Find the right<br />partners, faster
@@ -76,9 +76,9 @@ export default function SupplierResearchPage() {
               </div>
             </div>
 
-            {/* Excel preview mockup */}
+            {/* Excel preview mockup — Monochromatic */}
             <div className="relative">
-              <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-blue-500/10 shadow-2xl shadow-blue-500/5">
+              <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.08] shadow-2xl shadow-black/40">
                 <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06] bg-[#0A0A0A]">
                   <div className="flex gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-full bg-white/10" />
@@ -92,7 +92,7 @@ export default function SupplierResearchPage() {
                   {["Suppliers", "Pricing Matrix", "Certifications"].map((tab, i) => (
                     <div key={i} className={cn(
                       "px-4 py-2 text-[10px]",
-                      i === 0 ? "bg-white/[0.04] text-white/60 border-b-2 border-blue-400/40" : "text-white/25"
+                      i === 0 ? "bg-white/[0.04] text-white/60 border-b-2 border-white/30" : "text-white/25"
                     )}>{tab}</div>
                   ))}
                 </div>
@@ -112,9 +112,9 @@ export default function SupplierResearchPage() {
                           <td className="text-[11px] text-white/60 py-2 pr-3">{row.name}</td>
                           <td className="text-[10px] text-white/40 py-2 pr-3">{row.country}</td>
                           <td className="text-[10px] text-white/40 py-2 pr-3">{row.moq}</td>
-                          <td className="py-2 pr-3"><span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400/70">{row.cert}</span></td>
+                          <td className="py-2 pr-3"><span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/50">{row.cert}</span></td>
                           <td className="text-[10px] text-white/40 py-2 pr-3">{row.lead}</td>
-                          <td className="py-2"><span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400/70">{row.tier}</span></td>
+                          <td className="py-2"><span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/50">{row.tier}</span></td>
                         </tr>
                       ))}
                     </tbody>
@@ -127,7 +127,7 @@ export default function SupplierResearchPage() {
         </div>
       </section>
 
-      {/* Capabilities Grid */}
+      {/* Capabilities Grid — Monochromatic */}
       <section className="py-12 lg:py-16 border-y border-white/[0.04]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-6xl mx-auto">
@@ -136,8 +136,8 @@ export default function SupplierResearchPage() {
               {capabilities.map((cap, i) => {
                 const Icon = cap.icon;
                 return (
-                  <div key={i} className="group p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-blue-500/20 hover:bg-blue-500/[0.02] transition-all">
-                    <Icon className="w-5 h-5 text-white/40 group-hover:text-blue-400/70 transition-colors mb-3" />
+                  <div key={i} className="group p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.12] transition-all">
+                    <Icon className="w-5 h-5 text-white/40 group-hover:text-white/60 transition-colors mb-3" />
                     <h3 className="text-sm font-medium text-white/[0.8] mb-1.5">{cap.title}</h3>
                     <p className="text-xs text-white/40 leading-relaxed">{cap.desc}</p>
                   </div>
@@ -148,7 +148,7 @@ export default function SupplierResearchPage() {
         </div>
       </section>
 
-      {/* Workflow */}
+      {/* Workflow — Monochromatic */}
       <section className="py-12 lg:py-16">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-4xl mx-auto">
@@ -157,8 +157,8 @@ export default function SupplierResearchPage() {
               {workflow.map((step, i) => (
                 <div key={i} className="flex gap-6 relative">
                   <div className="flex flex-col items-center">
-                    <div className="w-10 h-10 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-mono text-blue-400/80">{step.step}</span>
+                    <div className="w-10 h-10 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shrink-0">
+                      <span className="text-xs font-mono text-white/50">{step.step}</span>
                     </div>
                     {i < workflow.length - 1 && <div className="w-px flex-1 bg-white/[0.06] my-2" />}
                   </div>
@@ -174,7 +174,7 @@ export default function SupplierResearchPage() {
         </div>
       </section>
 
-      {/* Who it's for */}
+      {/* Who it's for — Monochromatic */}
       <section className="py-12 lg:py-16 border-t border-white/[0.04]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-4xl mx-auto">
@@ -189,7 +189,7 @@ export default function SupplierResearchPage() {
                 "Independent Designers",
               ].map((role, i) => (
                 <div key={i} className="flex items-center gap-3 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                  <Check className="w-4 h-4 text-blue-400/60 shrink-0" />
+                  <Check className="w-4 h-4 text-white/40 shrink-0" />
                   <span className="text-sm text-white/60">{role}</span>
                 </div>
               ))}

@@ -17,22 +17,22 @@ interface TopNavigationProps {
 }
 
 const solutionItems = [
-  { name: "Trend Forecasting", href: "/solutions/trend-forecasting", icon: TrendingUp, desc: "Runway analysis & trend prediction", color: "#C9A96E" },
-  { name: "Supplier Research", href: "/solutions/supplier-research", icon: Users, desc: "Supplier discovery & evaluation", color: "#8ECAE6" },
-  { name: "Market Analysis", href: "/solutions/market-analysis", icon: BarChart3, desc: "Competitive intelligence & pricing", color: "#A78BFA" },
-  { name: "Sustainability Insights", href: "/solutions/sustainability-insights", icon: Leaf, desc: "ESG compliance & impact analysis", color: "#6b9b8a" },
+  { name: "Trend Forecasting", href: "/solutions/trend-forecasting", icon: TrendingUp, desc: "Runway analysis & trend prediction" },
+  { name: "Supplier Research", href: "/solutions/supplier-research", icon: Users, desc: "Supplier discovery & evaluation" },
+  { name: "Market Analysis", href: "/solutions/market-analysis", icon: BarChart3, desc: "Competitive intelligence & pricing" },
+  { name: "Sustainability Insights", href: "/solutions/sustainability-insights", icon: Leaf, desc: "ESG compliance & impact analysis" },
 ];
 
 const domainItems = [
-  { name: "Fashion", href: "/domain/fashion", icon: Shirt, color: "#C9A96E" },
-  { name: "Beauty", href: "/domain/beauty", icon: Heart, color: "#E07A5F" },
-  { name: "Skincare", href: "/domain/skincare", icon: Droplets, color: "#8ECAE6" },
-  { name: "Sustainability", href: "/domain/sustainability", icon: Leaf, color: "#6b9b8a" },
-  { name: "Fashion Tech", href: "/domain/fashion-tech", icon: Cpu, color: "#A78BFA" },
-  { name: "Catwalks", href: "/domain/catwalks", icon: Sparkles, color: "#F4D35E" },
-  { name: "Culture", href: "/domain/culture", icon: Palette, color: "#E8998D" },
-  { name: "Textile", href: "/domain/textile", icon: Factory, color: "#B5838D" },
-  { name: "Lifestyle", href: "/domain/lifestyle", icon: Globe, color: "#D4A373" },
+  { name: "Fashion", href: "/domain/fashion", icon: Shirt },
+  { name: "Beauty", href: "/domain/beauty", icon: Heart },
+  { name: "Skincare", href: "/domain/skincare", icon: Droplets },
+  { name: "Sustainability", href: "/domain/sustainability", icon: Leaf },
+  { name: "Fashion Tech", href: "/domain/fashion-tech", icon: Cpu },
+  { name: "Catwalks", href: "/domain/catwalks", icon: Sparkles },
+  { name: "Culture", href: "/domain/culture", icon: Palette },
+  { name: "Textile", href: "/domain/textile", icon: Factory },
+  { name: "Lifestyle", href: "/domain/lifestyle", icon: Globe },
 ];
 
 const resourceItems = [
@@ -136,8 +136,8 @@ export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
                           href={item.href}
                           className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/[0.04] transition-colors group"
                         >
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border" style={{ backgroundColor: `${item.color}08`, borderColor: `${item.color}15` }}>
-                            <ItemIcon className="w-4 h-4" style={{ color: `${item.color}90` }} />
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 border bg-white/[0.03] border-white/[0.08]">
+                            <ItemIcon className="w-4 h-4 text-white/50" />
                           </div>
                           <div className="flex-1">
                             <div className="text-sm text-white/80 group-hover:text-white transition-colors">{item.name}</div>
@@ -190,7 +190,7 @@ export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
                             href={item.href}
                             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors group"
                           >
-                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${item.color}70` }} />
+                            <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-white/30" />
                             <span className="text-sm text-white/55 group-hover:text-white/90 transition-colors">{item.name}</span>
                           </Link>
                         );
@@ -342,7 +342,7 @@ export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
                         onClick={() => setMobileMenuOpen(false)}
                         className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-white/50 hover:text-white/80 hover:bg-white/[0.03] transition-all"
                       >
-                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${item.color}70` }} />
+                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-white/30" />
                         {item.name}
                       </Link>
                     );
@@ -376,7 +376,7 @@ export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
                       onClick={() => setMobileMenuOpen(false)}
                       className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/50 hover:text-white/80 hover:bg-white/[0.03] transition-all"
                     >
-                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: `${item.color}70` }} />
+                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-white/30" />
                       {item.name}
                     </Link>
                   ))}

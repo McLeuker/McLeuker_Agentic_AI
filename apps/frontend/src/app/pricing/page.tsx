@@ -18,7 +18,6 @@ const plans = [
     monthlyPrice: 0,
     yearlyPrice: 0,
     priceLabel: "Free",
-    color: "#ffffff",
     icon: Zap,
     features: [
       "5 research queries / month",
@@ -37,7 +36,6 @@ const plans = [
     desc: "For fashion professionals",
     monthlyPrice: 99,
     yearlyPrice: 79,
-    color: "#C9A96E",
     icon: Sparkles,
     features: [
       "100 research queries / month",
@@ -60,7 +58,6 @@ const plans = [
     monthlyPrice: null,
     yearlyPrice: null,
     priceLabel: "Custom",
-    color: "#A78BFA",
     icon: Building2,
     features: [
       "Unlimited research queries",
@@ -118,23 +115,23 @@ export default function PricingPage() {
       <div className="h-16 lg:h-[72px]" />
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* HERO */}
+      {/* HERO — Monochromatic */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="relative pt-24 lg:pt-32 pb-16 lg:pb-20 overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-[#C9A96E]/[0.02] blur-[120px]" />
+          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-white/[0.015] blur-[120px]" />
         </div>
 
         <div className="relative z-10 container mx-auto px-6 lg:px-12">
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] mb-6">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#C9A96E]/50 animate-pulse" />
+              <div className="w-1.5 h-1.5 rounded-full bg-white/30 animate-pulse" />
               <span className="text-[11px] text-white/35 uppercase tracking-[0.15em]">Pricing</span>
             </div>
 
             <h1 className="font-editorial text-4xl md:text-5xl lg:text-[3.5rem] text-white/[0.95] tracking-tight leading-[1.08] mb-5">
               Intelligence that<br />
-              <span className="bg-gradient-to-r from-[#C9A96E] to-[#E07A5F] bg-clip-text text-transparent">pays for itself</span>
+              <span className="text-white/50">pays for itself</span>
             </h1>
 
             <p className="text-white/40 text-lg max-w-xl mx-auto leading-relaxed mb-10">
@@ -160,7 +157,7 @@ export default function PricingPage() {
                 )}
               >
                 Annual
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#6b9b8a]/20 text-[#6b9b8a] font-medium">-20%</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.08] text-white/60 font-medium">-20%</span>
               </button>
             </div>
           </div>
@@ -168,7 +165,7 @@ export default function PricingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* PRICING CARDS */}
+      {/* PRICING CARDS — Monochromatic */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="pb-20 lg:pb-28">
         <div className="container mx-auto px-6 lg:px-12">
@@ -189,7 +186,7 @@ export default function PricingPage() {
                   {/* Badge */}
                   {plan.badge && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <div className="px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-wider" style={{ backgroundColor: `${plan.color}15`, color: `${plan.color}`, borderColor: `${plan.color}25` }}>
+                      <div className="px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-wider bg-white/[0.08] text-white/70 border border-white/[0.10]">
                         {plan.badge}
                       </div>
                     </div>
@@ -197,8 +194,8 @@ export default function PricingPage() {
 
                   {/* Header */}
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center border" style={{ backgroundColor: `${plan.color}06`, borderColor: `${plan.color}12` }}>
-                      <PlanIcon className="w-4 h-4" style={{ color: `${plan.color}80` }} />
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center border border-white/[0.06] bg-white/[0.02]">
+                      <PlanIcon className="w-4 h-4 text-white/50" />
                     </div>
                     <div>
                       <h3 className="text-base font-medium text-white/90">{plan.name}</h3>
@@ -218,8 +215,8 @@ export default function PricingPage() {
                   <ul className="space-y-2.5 mb-7">
                     {plan.features.map((feature, j) => (
                       <li key={j} className="flex items-start gap-2.5 text-sm">
-                        <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: `${plan.color}10` }}>
-                          <Check className="w-2.5 h-2.5" style={{ color: `${plan.color}80` }} />
+                        <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 bg-white/[0.04]">
+                          <Check className="w-2.5 h-2.5 text-white/50" />
                         </div>
                         <span className="text-white/55">{feature}</span>
                       </li>
@@ -247,7 +244,7 @@ export default function PricingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* COMPARISON TABLE */}
+      {/* COMPARISON TABLE — Monochromatic */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-20 lg:py-28 bg-[#0a0a0a]">
         <div className="container mx-auto px-6 lg:px-12">
@@ -269,7 +266,7 @@ export default function PricingPage() {
                   <span className="text-sm text-white/50">Starter</span>
                 </div>
                 <div className="p-4 lg:p-5 text-center border-x border-white/[0.04]">
-                  <span className="text-sm font-medium" style={{ color: "#C9A96E" }}>Professional</span>
+                  <span className="text-sm font-medium text-white/80">Professional</span>
                 </div>
                 <div className="p-4 lg:p-5 text-center">
                   <span className="text-sm text-white/50">Enterprise</span>
@@ -279,11 +276,9 @@ export default function PricingPage() {
               {/* Table Body */}
               {comparisonFeatures.map((group, gi) => (
                 <div key={gi}>
-                  {/* Category Header */}
                   <div className="px-4 lg:px-5 py-3 bg-white/[0.02] border-b border-white/[0.04]">
                     <span className="text-[11px] text-white/30 uppercase tracking-[0.15em] font-medium">{group.category}</span>
                   </div>
-                  {/* Features */}
                   {group.features.map((feature, fi) => (
                     <div key={fi} className="grid grid-cols-4 border-b border-white/[0.03] hover:bg-white/[0.01] transition-colors">
                       <div className="p-4 lg:p-5 flex items-center">
@@ -292,11 +287,11 @@ export default function PricingPage() {
                       {['starter', 'pro', 'enterprise'].map((tier, ti) => {
                         const val = tier === 'starter' ? feature.starter : tier === 'pro' ? feature.pro : feature.enterprise;
                         return (
-                          <div key={ti} className={cn("p-4 lg:p-5 flex items-center justify-center", ti === 1 && "border-x border-white/[0.04] bg-[#C9A96E]/[0.01]")}>
+                          <div key={ti} className={cn("p-4 lg:p-5 flex items-center justify-center", ti === 1 && "border-x border-white/[0.04] bg-white/[0.01]")}>
                             {typeof val === 'boolean' ? (
                               val ? (
-                                <div className="w-5 h-5 rounded-full bg-[#6b9b8a]/15 flex items-center justify-center">
-                                  <Check className="w-3 h-3 text-[#6b9b8a]" />
+                                <div className="w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center">
+                                  <Check className="w-3 h-3 text-white/50" />
                                 </div>
                               ) : (
                                 <div className="w-5 h-5 rounded-full bg-white/[0.03] flex items-center justify-center">
@@ -319,7 +314,7 @@ export default function PricingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* WHAT'S INCLUDED */}
+      {/* WHAT'S INCLUDED — Monochromatic */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-20 lg:py-28 bg-[#070707]">
         <div className="container mx-auto px-6 lg:px-12">
@@ -333,18 +328,18 @@ export default function PricingPage() {
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {[
-                { icon: FileText, title: "Structured Reports", desc: "Professional, exportable deliverables", color: "#C9A96E" },
-                { icon: BarChart3, title: "Data Visualization", desc: "Charts, matrices, and comparisons", color: "#8ECAE6" },
-                { icon: Shield, title: "Source Citations", desc: "Every insight is traceable", color: "#6b9b8a" },
-                { icon: Users, title: "Fashion Expertise", desc: "Industry-specific AI models", color: "#A78BFA" },
-                { icon: Globe, title: "Global Coverage", desc: "Multi-market intelligence", color: "#E07A5F" },
-                { icon: Headphones, title: "Support", desc: "Email support on all plans", color: "#F4D35E" },
+                { icon: FileText, title: "Structured Reports", desc: "Professional, exportable deliverables" },
+                { icon: BarChart3, title: "Data Visualization", desc: "Charts, matrices, and comparisons" },
+                { icon: Shield, title: "Source Citations", desc: "Every insight is traceable" },
+                { icon: Users, title: "Fashion Expertise", desc: "Industry-specific AI models" },
+                { icon: Globe, title: "Global Coverage", desc: "Multi-market intelligence" },
+                { icon: Headphones, title: "Support", desc: "Email support on all plans" },
               ].map((item, i) => {
                 const ItemIcon = item.icon;
                 return (
                   <div key={i} className="p-5 rounded-xl bg-[#0a0a0a] border border-white/[0.04] hover:border-white/[0.08] transition-all">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center border mb-3" style={{ backgroundColor: `${item.color}06`, borderColor: `${item.color}12` }}>
-                      <ItemIcon className="w-4 h-4" style={{ color: `${item.color}70` }} />
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center border border-white/[0.06] bg-white/[0.02] mb-3">
+                      <ItemIcon className="w-4 h-4 text-white/40" />
                     </div>
                     <h3 className="text-sm font-medium text-white/80 mb-1">{item.title}</h3>
                     <p className="text-[12px] text-white/30">{item.desc}</p>
@@ -397,7 +392,7 @@ export default function PricingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-24 lg:py-32 bg-[#070707] relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-[#6b9b8a]/[0.02] blur-[120px]" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-white/[0.01] blur-[120px]" />
         </div>
         <div className="relative z-10 container mx-auto px-6 lg:px-12 text-center">
           <h2 className="font-editorial text-3xl md:text-4xl text-white/[0.95] tracking-tight mb-4">

@@ -37,17 +37,17 @@ export default function TrendForecastingPage() {
       <TopNavigation variant="marketing" />
       <div className="h-16 lg:h-[72px]" />
 
-      {/* Hero */}
+      {/* Hero — Monochromatic */}
       <section className="relative pt-20 lg:pt-28 pb-16 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-amber-500/[0.03] to-transparent" />
-        <div className="absolute top-40 right-0 w-[500px] h-[500px] bg-amber-500/[0.02] rounded-full blur-[120px]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+        <div className="absolute top-40 right-0 w-[500px] h-[500px] bg-white/[0.01] rounded-full blur-[120px]" />
         
         <div className="container mx-auto px-6 lg:px-12 relative">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20 mb-6">
-                <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
-                <span className="text-xs text-amber-400/80 uppercase tracking-[0.15em]">Trend Forecasting</span>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.08] mb-6">
+                <TrendingUp className="w-3.5 h-3.5 text-white/50" />
+                <span className="text-xs text-white/50 uppercase tracking-[0.15em]">Trend Forecasting</span>
               </div>
               <h1 className="font-editorial text-4xl md:text-5xl lg:text-[3.5rem] text-white/[0.92] mb-5 leading-[1.1]">
                 See what&apos;s next<br />before it happens
@@ -77,9 +77,9 @@ export default function TrendForecastingPage() {
               </div>
             </div>
 
-            {/* Live preview mockup */}
+            {/* Live preview mockup — Monochromatic */}
             <div className="relative">
-              <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-amber-500/10 shadow-2xl shadow-amber-500/5">
+              <div className="rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.08] shadow-2xl shadow-black/40">
                 <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06] bg-[#0A0A0A]">
                   <div className="flex gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-full bg-white/10" />
@@ -96,17 +96,17 @@ export default function TrendForecastingPage() {
                       <div key={i} className="flex items-center gap-3">
                         <span className="text-xs text-white/50 w-36 truncate">{item.name}</span>
                         <div className="flex-1 h-6 bg-white/[0.04] rounded-lg overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-amber-600/60 to-amber-400/40 rounded-lg flex items-center justify-end pr-2" style={{ width: `${item.value}%` }}>
+                          <div className="h-full bg-gradient-to-r from-white/30 to-white/15 rounded-lg flex items-center justify-end pr-2" style={{ width: `${item.value}%` }}>
                             <span className="text-[10px] text-white/70 font-medium">{item.value}%</span>
                           </div>
                         </div>
-                        <span className="text-[10px] text-green-400/60 w-10 text-right">{item.change}</span>
+                        <span className="text-[10px] text-white/40 w-10 text-right">{item.change}</span>
                       </div>
                     ))}
                   </div>
                   <div className="mt-4 pt-3 border-t border-white/[0.04] flex items-center justify-between">
                     <span className="text-[10px] text-white/20">Source: 47 runway shows analyzed</span>
-                    <span className="text-[10px] text-amber-400/40">Page 3 of 12</span>
+                    <span className="text-[10px] text-white/30">Page 3 of 12</span>
                   </div>
                 </div>
               </div>
@@ -115,7 +115,7 @@ export default function TrendForecastingPage() {
         </div>
       </section>
 
-      {/* Capabilities Grid */}
+      {/* Capabilities Grid — Monochromatic */}
       <section className="py-12 lg:py-16 border-y border-white/[0.04]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-6xl mx-auto">
@@ -124,8 +124,8 @@ export default function TrendForecastingPage() {
               {capabilities.map((cap, i) => {
                 const Icon = cap.icon;
                 return (
-                  <div key={i} className="group p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-amber-500/20 hover:bg-amber-500/[0.02] transition-all">
-                    <Icon className="w-5 h-5 text-white/40 group-hover:text-amber-400/70 transition-colors mb-3" />
+                  <div key={i} className="group p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.12] transition-all">
+                    <Icon className="w-5 h-5 text-white/40 group-hover:text-white/60 transition-colors mb-3" />
                     <h3 className="text-sm font-medium text-white/[0.8] mb-1.5">{cap.title}</h3>
                     <p className="text-xs text-white/40 leading-relaxed">{cap.desc}</p>
                   </div>
@@ -136,7 +136,7 @@ export default function TrendForecastingPage() {
         </div>
       </section>
 
-      {/* Workflow */}
+      {/* Workflow — Monochromatic */}
       <section className="py-12 lg:py-16">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-4xl mx-auto">
@@ -144,14 +144,12 @@ export default function TrendForecastingPage() {
             <div className="space-y-0">
               {workflow.map((step, i) => (
                 <div key={i} className="flex gap-6 relative">
-                  {/* Timeline */}
                   <div className="flex flex-col items-center">
-                    <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-mono text-amber-400/80">{step.step}</span>
+                    <div className="w-10 h-10 rounded-full bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shrink-0">
+                      <span className="text-xs font-mono text-white/50">{step.step}</span>
                     </div>
                     {i < workflow.length - 1 && <div className="w-px flex-1 bg-white/[0.06] my-2" />}
                   </div>
-                  {/* Content */}
                   <div className="pb-10">
                     <h3 className="text-lg font-medium text-white/[0.85] mb-1">{step.title}</h3>
                     <p className="text-white/55 mb-1">{step.desc}</p>
@@ -164,7 +162,7 @@ export default function TrendForecastingPage() {
         </div>
       </section>
 
-      {/* Who it's for */}
+      {/* Who it's for — Monochromatic */}
       <section className="py-12 lg:py-16 border-t border-white/[0.04]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-4xl mx-auto">
@@ -179,7 +177,7 @@ export default function TrendForecastingPage() {
                 "Trend Researchers",
               ].map((role, i) => (
                 <div key={i} className="flex items-center gap-3 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                  <Check className="w-4 h-4 text-amber-400/60 shrink-0" />
+                  <Check className="w-4 h-4 text-white/40 shrink-0" />
                   <span className="text-sm text-white/60">{role}</span>
                 </div>
               ))}
