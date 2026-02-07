@@ -265,24 +265,7 @@ export function Footer() {
               </ul>
             </div>
 
-            {/* Legal */}
-            <div className="lg:col-span-2">
-              <h4 className="text-[11px] font-medium text-white/30 uppercase tracking-[0.15em] mb-4">
-                Legal
-              </h4>
-              <ul className="space-y-2.5">
-                {footerLinks.legal.map((link) => (
-                  <li key={link.href}>
-                    <Link
-                      href={link.href}
-                      className="text-[13px] text-white/50 hover:text-white/80 transition-colors"
-                    >
-                      {link.name}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
+
           </div>
         </div>
       </div>
@@ -300,6 +283,20 @@ export function Footer() {
               <p className="text-[12px] text-white/30">
                 © {currentYear} McLeuker AI. All rights reserved.
               </p>
+            </div>
+            <div className="flex items-center gap-5 flex-wrap justify-center">
+              <Link href="/privacy" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+                Privacy
+              </Link>
+              <Link href="/terms" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+                Terms
+              </Link>
+              <Link href="/cookies" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+                Cookies
+              </Link>
+              <Link href="/legal/mentions-legales" className="text-[12px] text-white/30 hover:text-white/60 transition-colors">
+                Mentions Légales
+              </Link>
             </div>
 
           </div>
