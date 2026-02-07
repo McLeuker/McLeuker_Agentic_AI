@@ -145,7 +145,7 @@ class MultiModelOrchestrator:
         self.grok_model = "grok-4-fast-non-reasoning"
         
         # Kimi for execution
-        self.kimi_api_key = os.getenv("MOONSHOT_API_KEY", "")
+        self.kimi_api_key = os.getenv("KIMI_API_KEY", "")
         self.kimi_provider: Optional[KimiProvider] = None
         
         # Initialize Grok client

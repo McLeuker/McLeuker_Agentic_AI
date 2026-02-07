@@ -1,130 +1,408 @@
-import axios from 'axios';
-import { V51Response, ChatRequest, ChatResponse } from '@/types';
+/**
+ * McLeuker AI - Complete API Client
+ * All Kimi 2.5 capabilities with TypeScript support
+ */
 
-// Backend API URL - Railway deployment
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  timeout: 120000, // 120 second timeout for AI responses
-});
-
-// Parse V5.1 Response Contract
-export function parseV51Response(data: any): V51Response | null {
-  try {
-    // Handle string responses (legacy)
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch {
-        // If it's plain text, wrap it in a V51-like structure
-        return {
-          session_id: crypto.randomUUID(),
-          message_id: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-          intent: 'general',
-          domain: 'general',
-          confidence: 1.0,
-          summary: data.substring(0, 200),
-          main_content: data,
-          key_insights: [],
-          sections: [],
-          sources: [],
-          follow_up_questions: [],
-          action_items: [],
-          credits_used: 1,
-        };
-      }
-    }
-
-    // Check if response is wrapped in a "response" object (V5.1 format)
-    const responseData = data.response || data;
-
-    // Check if it's a V5.1 response
-    if (responseData.main_content || responseData.summary) {
-      return {
-        session_id: responseData.session_id || data.session_id || crypto.randomUUID(),
-        message_id: responseData.message_id || crypto.randomUUID(),
-        timestamp: responseData.timestamp || new Date().toISOString(),
-        intent: responseData.intent || 'general',
-        domain: responseData.domain || 'general',
-        confidence: responseData.confidence || 1.0,
-        summary: responseData.summary || '',
-        main_content: responseData.main_content || responseData.content || '',
-        key_insights: responseData.key_insights || [],
-        sections: responseData.sections || [],
-        sources: responseData.sources || [],
-        follow_up_questions: responseData.follow_up_questions || [],
-        action_items: responseData.action_items || [],
-        credits_used: responseData.credits_used || data.credits_used || 1,
-      };
-    }
-
-    // Fallback for unexpected formats
-    return {
-      session_id: crypto.randomUUID(),
-      message_id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      intent: 'general',
-      domain: 'general',
-      confidence: 1.0,
-      summary: 'Response received',
-      main_content: JSON.stringify(data, null, 2),
-      key_insights: [],
-      sections: [],
-      sources: [],
-      follow_up_questions: [],
-      action_items: [],
-      credits_used: 1,
-    };
-  } catch (error) {
-    console.error('Error parsing V5.1 response:', error);
-    return null;
-  }
+// Types
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | any[];
+  tool_calls?: any[];
+  tool_call_id?: string;
 }
 
-// Send chat message to backend
-export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
-  try {
-    const response = await api.post('/api/chat', {
-      message: request.message,
-      session_id: request.session_id,
-      user_id: request.user_id,
+export type ChatMode = 'instant' | 'thinking' | 'agent' | 'swarm' | 'research' | 'code';
+
+export interface ChatOptions {
+  mode?: ChatMode;
+  stream?: boolean;
+  enable_tools?: boolean;
+  context_id?: string;
+}
+
+export interface DownloadableFile {
+  filename: string;
+  download_url: string;
+  file_id: string;
+  file_type: string;
+}
+
+export interface SearchSource {
+  type: 'search' | 'file';
+  filename?: string;
+  download_url?: string;
+  file_id?: string;
+  sources?: string[];
+}
+
+export interface ChatResponse {
+  success: boolean;
+  response?: {
+    answer: string;
+    reasoning?: string;
+    mode: ChatMode;
+    downloads: DownloadableFile[];
+    search_sources: SearchSource[];
+    metadata: {
+      tokens: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+      };
+      latency_ms: number;
+      tool_calls: number;
+    };
+  };
+  error?: string;
+}
+
+// Main API client
+export const api = {
+  // ==================== CHAT ====================
+  
+  async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResponse> {
+    const response = await fetch(`${API_URL}/api/v1/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        mode: options.mode || 'thinking',
+        stream: options.stream || false,
+        enable_tools: options.enable_tools !== false,
+        context_id: options.context_id
+      })
+    });
+    return response.json();
+  },
+
+  async *chatStream(messages: ChatMessage[], options: ChatOptions = {}) {
+    const response = await fetch(`${API_URL}/api/v1/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        mode: options.mode || 'thinking',
+        enable_tools: options.enable_tools !== false
+      })
     });
 
-    const parsedResponse = parseV51Response(response.data);
-    
-    if (parsedResponse) {
-      return {
-        success: true,
-        data: parsedResponse,
-      };
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) return;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            yield data;
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
     }
+  },
 
+  // ==================== AGENT SWARM ====================
+  
+  async swarm(
+    masterTask: string, 
+    numAgents: number = 5, 
+    enableSearch: boolean = true,
+    generateDeliverable: boolean = false,
+    deliverableType?: 'report' | 'presentation' | 'spreadsheet'
+  ) {
+    const response = await fetch(`${API_URL}/api/v1/swarm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        master_task: masterTask,
+        context: {},
+        num_agents: numAgents,
+        enable_search: enableSearch,
+        generate_deliverable: generateDeliverable,
+        deliverable_type: deliverableType
+      })
+    });
+    return response.json();
+  },
+
+  // ==================== SEARCH ====================
+  
+  async search(
+    query: string, 
+    sources: string[] = ['web', 'news'], 
+    numResults: number = 10,
+    recencyDays?: number
+  ) {
+    const response = await fetch(`${API_URL}/api/v1/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        sources,
+        num_results: numResults,
+        recency_days: recencyDays
+      })
+    });
+    return response.json();
+  },
+
+  // ==================== RESEARCH ====================
+  
+  async research(
+    query: string, 
+    depth: 'quick' | 'deep' | 'exhaustive' = 'deep',
+    generateDeliverable: boolean = false,
+    deliverableType: 'report' | 'presentation' | 'spreadsheet' = 'report'
+  ) {
+    const response = await fetch(`${API_URL}/api/v1/research`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        depth,
+        generate_deliverable: generateDeliverable,
+        deliverable_type: deliverableType
+      })
+    });
+    return response.json();
+  },
+
+  // ==================== VISION TO CODE ====================
+  
+  async visionToCode(
+    imageBase64: string, 
+    requirements: string = '', 
+    framework: 'html' | 'react' | 'vue' | 'svelte' | 'angular' = 'html',
+    stylingPreference: 'tailwind' | 'bootstrap' | 'css' | 'styled-components' = 'tailwind'
+  ) {
+    const response = await fetch(`${API_URL}/api/v1/vision-to-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_base64: imageBase64,
+        requirements,
+        framework,
+        styling_preference: stylingPreference
+      })
+    });
+    return response.json();
+  },
+
+  // ==================== CODE EXECUTION ====================
+  
+  async executeCode(
+    code: string,
+    language: 'python' | 'javascript' | 'typescript' | 'bash' | 'sql' = 'python',
+    timeout: number = 30,
+    dependencies?: string[],
+    inputs?: Record<string, any>
+  ) {
+    const response = await fetch(`${API_URL}/api/v1/execute-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        language,
+        timeout,
+        dependencies,
+        inputs
+      })
+    });
+    return response.json();
+  },
+
+  // ==================== FILE GENERATION ====================
+  
+  async generateFile(
+    content: string | object,
+    fileType: 'excel' | 'word' | 'pdf' | 'pptx' | 'csv' | 'json',
+    options: {
+      title?: string;
+      subtitle?: string;
+      filename?: string;
+      includeCharts?: boolean;
+    } = {}
+  ) {
+    const response = await fetch(`${API_URL}/api/v1/generate-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: typeof content === 'string' ? content : JSON.stringify(content),
+        file_type: fileType,
+        title: options.title,
+        subtitle: options.subtitle,
+        filename: options.filename,
+        include_charts: options.includeCharts
+      })
+    });
+    return response.json();
+  },
+
+  async generateExcel(
+    data: Record<string, any[]> | any[],
+    options: {
+      title?: string;
+      filename?: string;
+      includeCharts?: boolean;
+    } = {}
+  ) {
+    return this.generateFile(data, 'excel', options);
+  },
+
+  async generateWord(
+    content: string,
+    options: {
+      title?: string;
+      subtitle?: string;
+      filename?: string;
+    } = {}
+  ) {
+    return this.generateFile(content, 'word', options);
+  },
+
+  async generatePDF(
+    content: string,
+    options: {
+      title?: string;
+      filename?: string;
+      includeToc?: boolean;
+    } = {}
+  ) {
+    return this.generateFile(content, 'pdf', {
+      ...options,
+      includeCharts: options.includeToc
+    });
+  },
+
+  async generatePresentation(
+    content: string,
+    options: {
+      title?: string;
+      filename?: string;
+      theme?: 'professional' | 'modern' | 'dark';
+    } = {}
+  ) {
+    return this.generateFile(content, 'pptx', options);
+  },
+
+  // ==================== MULTIMODAL ====================
+  
+  async multimodal(text: string, imageFile?: File, mode: ChatMode = 'thinking') {
+    const formData = new FormData();
+    formData.append('text', text);
+    formData.append('mode', mode);
+    if (imageFile) formData.append('image', imageFile);
+
+    const response = await fetch(`${API_URL}/api/v1/multimodal`, {
+      method: 'POST',
+      body: formData
+    });
+    return response.json();
+  },
+
+  // ==================== DOWNLOAD ====================
+  
+  downloadFile(fileId: string, filename: string) {
+    const link = document.createElement('a');
+    link.href = `${API_URL}/api/v1/download/${fileId}`;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  },
+
+  getDownloadUrl(fileId: string) {
+    return `${API_URL}/api/v1/download/${fileId}`;
+  },
+
+  // ==================== HEALTH & STATUS ====================
+  
+  async health() {
+    const response = await fetch(`${API_URL}/api/v1/health`);
+    return response.json();
+  }
+};
+
+// ==================== HELPERS ====================
+
+export function handleChatResponse(response: ChatResponse) {
+  if (!response.success) {
     return {
-      success: false,
-      error: 'Failed to parse response',
-    };
-  } catch (error: any) {
-    console.error('API Error:', error);
-    return {
-      success: false,
-      error: error.response?.data?.detail || error.message || 'An error occurred',
+      error: response.error,
+      answer: null,
+      reasoning: null,
+      downloads: [] as DownloadableFile[],
+      searchSources: [] as SearchSource[],
+      metadata: null
     };
   }
+
+  const { answer, reasoning, downloads = [], search_sources = [], metadata } = response.response!;
+
+  return {
+    answer,
+    reasoning,
+    downloads,
+    searchSources: search_sources,
+    metadata
+  };
 }
 
-// Health check
-export async function checkHealth(): Promise<boolean> {
-  try {
-    const response = await api.get('/health');
-    return response.status === 200;
-  } catch {
-    return false;
+export function createExcelData(items: any[], sheetName: string = 'Data'): Record<string, any[]> {
+  return { [sheetName]: items };
+}
+
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export function detectFileRequest(text: string): { type: 'excel' | 'word' | 'pdf' | 'pptx' | null; confidence: number } {
+  const lower = text.toLowerCase();
+  
+  const patterns = [
+    { type: 'excel' as const, keywords: ['excel', 'spreadsheet', '.xlsx', 'csv', 'sheet', 'table data'] },
+    { type: 'word' as const, keywords: ['word', 'document', '.docx', 'report', 'write up'] },
+    { type: 'pdf' as const, keywords: ['pdf', 'whitepaper', 'download as pdf'] },
+    { type: 'pptx' as const, keywords: ['presentation', 'powerpoint', 'pptx', 'slides', 'deck'] }
+  ];
+  
+  for (const pattern of patterns) {
+    const matches = pattern.keywords.filter(kw => lower.includes(kw)).length;
+    if (matches > 0) {
+      return { type: pattern.type, confidence: matches / pattern.keywords.length };
+    }
   }
+  
+  return { type: null, confidence: 0 };
 }
 
-export default api;
+export function formatTokenCount(count: number): string {
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+  return count.toString();
+}
+
+export function formatLatency(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}

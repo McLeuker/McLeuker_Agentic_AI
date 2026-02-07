@@ -77,7 +77,7 @@ async def health_check():
     
     # Check model availability
     grok_available = bool(os.getenv("XAI_API_KEY"))
-    kimi_available = bool(os.getenv("MOONSHOT_API_KEY"))
+    kimi_available = bool(os.getenv("KIMI_API_KEY"))
     perplexity_available = bool(os.getenv("PERPLEXITY_API_KEY"))
     
     return {
@@ -430,7 +430,7 @@ async def get_models():
                     "256K context window",
                     "Thinking mode"
                 ],
-                "available": bool(os.getenv("MOONSHOT_API_KEY"))
+                "available": bool(os.getenv("KIMI_API_KEY"))
             },
             "perplexity": {
                 "provider": "Perplexity AI",

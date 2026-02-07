@@ -1,32 +1,31 @@
 'use client';
 
 import Link from "next/link";
-import { WorkspaceNavigation } from "@/components/workspace/WorkspaceNavigation";
-import { Globe, Sparkles, Leaf, Cpu, Heart, Droplets, ArrowRight, Shirt, Palette, Users, Factory } from "lucide-react";
+import Image from "next/image";
+import { cn } from "@/lib/utils";
+import { TopNavigation } from "@/components/layout/TopNavigation";
+import { Footer } from "@/components/layout/Footer";
+import {
+  Globe, Sparkles, Leaf, Cpu, Heart, Droplets, ArrowRight,
+  Shirt, Palette, Users, Factory, Search, Brain, Zap, FileText,
+  TrendingUp, BarChart3, Layers
+} from "lucide-react";
 
 const DOMAINS = [
-  {
-    id: "all",
-    slug: "dashboard",
-    name: "Global",
-    icon: Globe,
-    description: "Cross-industry intelligence spanning fashion, beauty, sustainability, and emerging technologies.",
-    examples: [
-      "What are the top consumer trends for 2026?",
-      "Compare sustainability strategies across luxury brands",
-      "Analyze the impact of AI on retail operations"
-    ]
-  },
   {
     id: "fashion",
     slug: "fashion",
     name: "Fashion",
     icon: Shirt,
-    description: "Runway analysis, trend forecasting, and market intelligence for apparel and accessories.",
-    examples: [
+    image: "/images/domains/fashion.jpg",
+    color: "#C9A96E",
+    tagline: "Runway to Retail",
+    description: "Runway analysis, trend forecasting, silhouette tracking, and market intelligence for apparel and accessories.",
+    stats: { sources: "2,400+", reports: "180+", signals: "Real-time" },
+    queries: [
       "Analyze SS26 womenswear trends from Milan Fashion Week",
-      "What silhouettes are emerging for Resort 2026?",
-      "Compare pricing strategies of European luxury houses"
+      "Compare pricing strategies of European luxury houses",
+      "What silhouettes are emerging for Resort 2026?"
     ]
   },
   {
@@ -34,8 +33,12 @@ const DOMAINS = [
     slug: "beauty",
     name: "Beauty",
     icon: Heart,
-    description: "Cosmetics, skincare, and fragrance market intelligence with ingredient and regulatory insights.",
-    examples: [
+    image: "/images/domains/beauty.jpg",
+    color: "#E07A5F",
+    tagline: "Formulas & Futures",
+    description: "Cosmetics, fragrance market intelligence with ingredient analysis, brand strategy, and regulatory insights.",
+    stats: { sources: "1,800+", reports: "120+", signals: "Real-time" },
+    queries: [
       "What are the trending active ingredients in K-beauty?",
       "Analyze clean beauty market growth in North America",
       "Compare Gen Z vs Millennial beauty purchasing patterns"
@@ -46,8 +49,12 @@ const DOMAINS = [
     slug: "skincare",
     name: "Skincare",
     icon: Droplets,
-    description: "Deep-dive analysis on skincare formulations, efficacy claims, and consumer preferences.",
-    examples: [
+    image: "/images/domains/skincare.jpg",
+    color: "#8ECAE6",
+    tagline: "Science Meets Skin",
+    description: "Deep-dive analysis on skincare formulations, efficacy claims, clinical data, and consumer preferences.",
+    stats: { sources: "1,200+", reports: "90+", signals: "Real-time" },
+    queries: [
       "What peptides are trending in anti-aging products?",
       "Analyze the barrier repair category growth",
       "Compare retinol alternatives in clean skincare"
@@ -58,8 +65,12 @@ const DOMAINS = [
     slug: "sustainability",
     name: "Sustainability",
     icon: Leaf,
-    description: "Environmental impact, certifications, circular economy, and regulatory compliance intelligence.",
-    examples: [
+    image: "/images/domains/sustainability.jpg",
+    color: "#6b9b8a",
+    tagline: "Impact & Integrity",
+    description: "Environmental impact, certifications, circular economy models, and regulatory compliance intelligence.",
+    stats: { sources: "900+", reports: "75+", signals: "Real-time" },
+    queries: [
       "Map sustainability certifications for European brands",
       "What are the leading circular fashion initiatives?",
       "Analyze EPR regulations across EU markets"
@@ -70,8 +81,12 @@ const DOMAINS = [
     slug: "fashion-tech",
     name: "Fashion Tech",
     icon: Cpu,
-    description: "Technology adoption, digital transformation, and innovation in fashion and retail.",
-    examples: [
+    image: "/images/domains/fashion-tech.jpg",
+    color: "#A78BFA",
+    tagline: "Digital Innovation",
+    description: "Technology adoption, digital transformation, AI tools, and innovation reshaping fashion and retail.",
+    stats: { sources: "800+", reports: "60+", signals: "Real-time" },
+    queries: [
       "Research AI adoption in fashion supply chains",
       "What 3D design tools are brands adopting?",
       "Analyze virtual try-on technology providers"
@@ -82,11 +97,15 @@ const DOMAINS = [
     slug: "catwalks",
     name: "Catwalks",
     icon: Sparkles,
-    description: "Live runway coverage, backstage energy, and designer analysis from global fashion weeks.",
-    examples: [
-      "Key moments from Paris Fashion Week",
-      "Designer collections making headlines",
-      "Runway styling trends this season"
+    image: "/images/domains/catwalks.jpg",
+    color: "#F4D35E",
+    tagline: "Front Row Access",
+    description: "Live runway coverage, backstage energy, designer analysis, and collection breakdowns from global fashion weeks.",
+    stats: { sources: "600+", reports: "50+", signals: "Real-time" },
+    queries: [
+      "Key moments from Paris Fashion Week SS26",
+      "Designer collections making headlines this season",
+      "Runway styling trends and emerging designers"
     ]
   },
   {
@@ -94,8 +113,12 @@ const DOMAINS = [
     slug: "culture",
     name: "Culture",
     icon: Palette,
-    description: "Art, exhibitions, and social signals shaping fashion narratives and brand positioning.",
-    examples: [
+    image: "/images/domains/culture.jpg",
+    color: "#E8998D",
+    tagline: "Art Meets Fashion",
+    description: "Art, exhibitions, music, and social signals shaping fashion narratives and brand positioning.",
+    stats: { sources: "700+", reports: "45+", signals: "Real-time" },
+    queries: [
       "Cultural shifts influencing luxury positioning",
       "Art collaborations in fashion this year",
       "Social movements shaping brand narratives"
@@ -106,11 +129,15 @@ const DOMAINS = [
     slug: "textile",
     name: "Textile",
     icon: Factory,
-    description: "Fibers, mills, material innovation, and sourcing intelligence for production.",
-    examples: [
+    image: "/images/domains/textile.jpg",
+    color: "#B5838D",
+    tagline: "Material Intelligence",
+    description: "Fibers, mills, material innovation, sourcing intelligence, and production capabilities worldwide.",
+    stats: { sources: "500+", reports: "40+", signals: "Real-time" },
+    queries: [
       "Find European mills with sustainable certifications",
-      "Innovative materials in development",
-      "Textile sourcing trends in Asia"
+      "Innovative materials in development for 2026",
+      "Textile sourcing trends across Asia-Pacific"
     ]
   },
   {
@@ -118,79 +145,370 @@ const DOMAINS = [
     slug: "lifestyle",
     name: "Lifestyle",
     icon: Users,
-    description: "Consumer culture, wellness, and lifestyle signals influencing fashion consumption.",
-    examples: [
-      "Wellness and fashion convergence",
-      "Luxury consumer behavior shifts",
-      "Travel and leisure influencing style"
+    image: "/images/domains/lifestyle.jpg",
+    color: "#D4A373",
+    tagline: "Culture & Commerce",
+    description: "Consumer culture, wellness, travel, and lifestyle signals influencing fashion consumption patterns.",
+    stats: { sources: "600+", reports: "35+", signals: "Real-time" },
+    queries: [
+      "Wellness and fashion convergence trends",
+      "Luxury consumer behavior shifts post-2025",
+      "Travel and leisure influencing global style"
     ]
   }
 ];
 
 export default function DomainsPage() {
   return (
-    <div className="min-h-screen bg-[#070707] flex flex-col">
-      <WorkspaceNavigation showSectorTabs={false} />
+    <div className="min-h-screen bg-[#070707]">
+      <TopNavigation variant="marketing" />
+      <div className="h-16 lg:h-[72px]" />
 
-      <main className="pt-24 pb-16 flex-1">
-        <div className="container mx-auto px-6">
-          {/* Hero */}
-          <div className="max-w-3xl mx-auto text-center mb-16">
-            <h1 className="font-serif text-4xl md:text-5xl text-white mb-6">
-              Intelligence Domains
-            </h1>
-            <p className="text-white/70 text-lg leading-relaxed">
-              McLeuker AI organizes intelligence into specialized domains, each with curated data sources 
-              and domain-specific analysis capabilities. Choose a domain to focus your research.
-            </p>
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* HERO — Immersive domain showcase */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="relative py-24 lg:py-32 overflow-hidden">
+        {/* Background: Mosaic of domain images */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute inset-0 grid grid-cols-3 md:grid-cols-5 gap-1 opacity-[0.06]">
+            {DOMAINS.map((d, i) => (
+              <div key={i} className="relative aspect-square overflow-hidden">
+                <Image src={d.image} alt="" fill className="object-cover" />
+              </div>
+            ))}
           </div>
+          <div className="absolute inset-0 bg-gradient-to-b from-[#070707] via-[#070707]/80 to-[#070707]" />
+        </div>
 
-          {/* Domain Grid */}
-          <div className="max-w-6xl mx-auto grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
-            {DOMAINS.map((domain) => {
-              const IconComponent = domain.icon;
-              return (
-                <Link
-                  key={domain.id}
-                  href={domain.id === "all" ? "/dashboard" : `/domain/${domain.slug}`}
-                  className="bg-gradient-to-b from-[#1A1A1A] to-[#141414] rounded-2xl p-6 border border-white/[0.08] hover:border-white/[0.15] transition-colors group"
+        <div className="relative z-10 container mx-auto px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.06] mb-8">
+              <Globe className="w-3.5 h-3.5 text-[#6b9b8a]/60" />
+              <span className="text-[11px] text-white/40 uppercase tracking-[0.15em]">Specialized Intelligence</span>
+            </div>
+
+            <h1 className="font-editorial text-5xl md:text-6xl lg:text-7xl text-white/[0.95] tracking-tight leading-[1.05] mb-6">
+              10 Domains.<br />
+              <span className="bg-gradient-to-r from-[#C9A96E] via-[#E07A5F] to-[#8ECAE6] bg-clip-text text-transparent">One Intelligence.</span>
+            </h1>
+
+            <p className="text-white/45 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed mb-10">
+              Each domain is powered by curated data sources, specialized AI models, and industry-specific analysis frameworks. Choose your world.
+            </p>
+
+            {/* Domain pills — scrollable */}
+            <div className="flex flex-wrap justify-center gap-2 mb-8">
+              {DOMAINS.map((d) => (
+                <a
+                  key={d.id}
+                  href={`#${d.id}`}
+                  className="group flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-300 hover:scale-105"
+                  style={{
+                    borderColor: `${d.color}20`,
+                    backgroundColor: `${d.color}06`,
+                  }}
                 >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-lg bg-white/[0.06] flex items-center justify-center group-hover:bg-white/[0.10] transition-colors">
-                      <IconComponent className="h-5 w-5 text-white/80" />
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: `${d.color}80` }} />
+                  <span className="text-sm text-white/50 group-hover:text-white/80 transition-colors">{d.name}</span>
+                </a>
+              ))}
+            </div>
+
+            {/* Live counter */}
+            <div className="flex items-center justify-center gap-6 text-center">
+              {[
+                { value: "10K+", label: "Data Sources" },
+                { value: "9", label: "Domains" },
+                { value: "24/7", label: "Live Signals" },
+              ].map((s, i) => (
+                <div key={i} className="px-4">
+                  <div className="text-2xl font-light text-white/80">{s.value}</div>
+                  <div className="text-[10px] text-white/25 uppercase tracking-wider mt-0.5">{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* DOMAIN CARDS — Full-width immersive cards */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="relative pb-16 lg:pb-24">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-[1200px] mx-auto space-y-6">
+            {DOMAINS.map((domain, index) => {
+              const Icon = domain.icon;
+              const isEven = index % 2 === 0;
+              return (
+                <div
+                  key={domain.id}
+                  id={domain.id}
+                  className="group relative rounded-2xl overflow-hidden border border-white/[0.04] hover:border-white/[0.10] transition-all duration-500"
+                  style={{ background: `linear-gradient(135deg, ${domain.color}06 0%, #0a0a0a 60%)` }}
+                >
+                  <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r to-transparent" style={{ backgroundImage: `linear-gradient(to right, ${domain.color}40, transparent)` }} />
+
+                  <div className={cn(
+                    "grid lg:grid-cols-5 gap-0",
+                    !isEven && "lg:direction-rtl"
+                  )}>
+                    {/* Image column */}
+                    <div className={cn(
+                      "relative lg:col-span-2 aspect-[16/10] lg:aspect-auto overflow-hidden",
+                      !isEven && "lg:order-2"
+                    )}>
+                      <Image
+                        src={domain.image}
+                        alt={domain.name}
+                        fill
+                        className="object-cover transition-transform duration-700 group-hover:scale-105"
+                      />
+                      <div className={cn(
+                        "absolute inset-0",
+                        isEven
+                          ? "bg-gradient-to-r from-transparent via-transparent to-[#0a0a0a]"
+                          : "bg-gradient-to-l from-transparent via-transparent to-[#0a0a0a]"
+                      )} />
+                      {/* Domain number overlay */}
+                      <div className="absolute bottom-4 left-4 lg:bottom-6 lg:left-6">
+                        <span className="text-6xl lg:text-7xl font-editorial text-white/[0.08]">
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                      </div>
                     </div>
-                    <h3 className="text-lg font-medium text-white">{domain.name}</h3>
-                  </div>
-                  <p className="text-white/60 text-sm leading-relaxed mb-4">
-                    {domain.description}
-                  </p>
-                  <div className="space-y-2">
-                    <p className="text-white/40 text-xs uppercase tracking-wider">Example queries</p>
-                    {domain.examples.map((example, i) => (
-                      <p key={i} className="text-white/50 text-sm">
-                        &ldquo;{example}&rdquo;
+
+                    {/* Content column */}
+                    <div className={cn(
+                      "lg:col-span-3 p-6 lg:p-10 flex flex-col justify-center",
+                      !isEven && "lg:order-1"
+                    )}>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div
+                          className="w-10 h-10 rounded-xl flex items-center justify-center border"
+                          style={{ backgroundColor: `${domain.color}10`, borderColor: `${domain.color}20` }}
+                        >
+                          <Icon className="w-5 h-5" style={{ color: `${domain.color}90` }} />
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase tracking-wider" style={{ color: `${domain.color}70` }}>{domain.tagline}</span>
+                          <h3 className="text-2xl font-editorial text-white/90">{domain.name}</h3>
+                        </div>
+                      </div>
+
+                      <p className="text-white/45 text-sm leading-relaxed mb-5 max-w-lg">
+                        {domain.description}
                       </p>
-                    ))}
+
+                      {/* Stats row */}
+                      <div className="flex gap-4 mb-5">
+                        {[
+                          { label: "Sources", value: domain.stats.sources },
+                          { label: "Reports", value: domain.stats.reports },
+                          { label: "Signals", value: domain.stats.signals },
+                        ].map((s, i) => (
+                          <div key={i} className="px-3 py-2 rounded-lg border" style={{ borderColor: `${domain.color}10`, backgroundColor: `${domain.color}04` }}>
+                            <div className="text-sm font-medium" style={{ color: `${domain.color}bb` }}>{s.value}</div>
+                            <div className="text-[9px] text-white/25 uppercase tracking-wider">{s.label}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Example queries */}
+                      <div className="space-y-1.5 mb-6">
+                        <span className="text-[9px] text-white/25 uppercase tracking-wider">Example Queries</span>
+                        {domain.queries.map((q, i) => (
+                          <div key={i} className="flex items-start gap-2">
+                            <Search className="w-3 h-3 text-white/15 mt-1 flex-shrink-0" />
+                            <span className="text-[12px] text-white/35 leading-relaxed">&ldquo;{q}&rdquo;</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* CTA */}
+                      <Link
+                        href={`/domain/${domain.slug}`}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all w-fit group/btn"
+                        style={{
+                          backgroundColor: `${domain.color}15`,
+                          borderColor: `${domain.color}25`,
+                          color: `${domain.color}cc`,
+                          border: `1px solid ${domain.color}25`,
+                        }}
+                      >
+                        Explore {domain.name}
+                        <ArrowRight className="w-4 h-4 transition-transform group-hover/btn:translate-x-1" />
+                      </Link>
+                    </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
+        </div>
+      </section>
 
-          {/* CTA */}
-          <div className="text-center">
-            <Link 
-              href="/dashboard"
-              className="inline-flex items-center bg-white text-black hover:bg-white/90 px-8 py-4 rounded-lg text-base font-medium transition-colors"
-            >
-              Try the Dashboard
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* HOW DOMAINS WORK — Visual pipeline */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="py-20 lg:py-28 bg-[#0a0a0a]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-[1200px] mx-auto">
+            <div className="text-center mb-14">
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <div className="h-px w-12 bg-gradient-to-r from-transparent to-[#C9A96E]/30" />
+                <span className="text-[11px] text-[#C9A96E]/60 uppercase tracking-[0.2em] font-medium">How It Works</span>
+                <div className="h-px w-12 bg-gradient-to-l from-transparent to-[#C9A96E]/30" />
+              </div>
+              <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight">
+                Domain-Specific Intelligence
+              </h2>
+              <p className="text-white/40 text-base max-w-xl mx-auto mt-4 leading-relaxed">
+                Each domain has its own curated pipeline — from specialized data sources to tailored analysis frameworks.
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-4 gap-4">
+              {[
+                { icon: Search, title: "Curated Sources", desc: "Each domain pulls from vetted, industry-specific data sources — trade publications, runway feeds, regulatory databases.", color: "#6b9b8a" },
+                { icon: Brain, title: "Domain Models", desc: "AI models fine-tuned for each domain's vocabulary, context, and analytical requirements.", color: "#C9A96E" },
+                { icon: Layers, title: "Structured Analysis", desc: "Domain-specific frameworks transform raw data into comparisons, matrices, and actionable insights.", color: "#8ECAE6" },
+                { icon: FileText, title: "Professional Output", desc: "Reports formatted for each domain's stakeholders — from buyer decks to sustainability audits.", color: "#A78BFA" },
+              ].map((step, i) => {
+                const StepIcon = step.icon;
+                return (
+                  <div key={i} className="relative group">
+                    {i < 3 && (
+                      <div className="hidden md:block absolute top-12 right-0 translate-x-1/2 w-8 h-px bg-white/[0.06] z-10" />
+                    )}
+                    <div className="p-6 rounded-2xl bg-[#0d0d0d] border border-white/[0.04] hover:border-white/[0.10] transition-all h-full">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4 border" style={{ backgroundColor: `${step.color}08`, borderColor: `${step.color}15` }}>
+                        <StepIcon className="w-5 h-5" style={{ color: `${step.color}70` }} />
+                      </div>
+                      <div className="text-[10px] font-mono text-white/20 mb-2">0{i + 1}</div>
+                      <h3 className="text-base font-medium text-white/85 mb-2">{step.title}</h3>
+                      <p className="text-sm text-white/35 leading-relaxed">{step.desc}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </main>
+      </section>
 
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* CROSS-DOMAIN — Global intelligence */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="py-20 lg:py-28 bg-[#070707]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-[1200px] mx-auto">
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-white/[0.03] border border-white/[0.06] mb-5">
+                  <Globe className="w-3.5 h-3.5 text-white/30" />
+                  <span className="text-[11px] text-white/35 uppercase tracking-wider">Cross-Domain</span>
+                </div>
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-5">
+                  Or research<br />across all domains
+                </h2>
+                <p className="text-white/40 text-base leading-relaxed mb-6 max-w-lg">
+                  Don&apos;t limit yourself to one domain. Our Global mode combines intelligence from all 9 specialized domains for cross-industry analysis.
+                </p>
+                <div className="space-y-3 mb-8">
+                  {[
+                    "How is sustainability impacting luxury fashion pricing?",
+                    "Compare AI adoption across beauty, fashion, and textile sectors",
+                    "What cultural trends are driving Gen Z purchasing in 2026?"
+                  ].map((q, i) => (
+                    <div key={i} className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                      <Search className="w-3.5 h-3.5 text-white/20 mt-0.5 flex-shrink-0" />
+                      <span className="text-[12px] text-white/40">{q}</span>
+                    </div>
+                  ))}
+                </div>
+                <Link
+                  href="/dashboard"
+                  className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-[#6b9b8a] text-[#070707] font-medium text-sm hover:bg-[#7dab9a] transition-all shadow-lg shadow-[#6b9b8a]/20"
+                >
+                  Try Global Research
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
 
+              {/* Visual: Domain constellation */}
+              <div className="relative h-[400px] lg:h-[500px]">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  {/* Center hub */}
+                  <div className="absolute w-20 h-20 rounded-full bg-white/[0.03] border border-white/[0.08] flex items-center justify-center z-10">
+                    <Brain className="w-8 h-8 text-white/30" />
+                  </div>
+                  {/* Orbiting domains */}
+                  {DOMAINS.map((d, i) => {
+                    const angle = (i / DOMAINS.length) * 2 * Math.PI - Math.PI / 2;
+                    const radius = 160;
+                    const x = Math.cos(angle) * radius;
+                    const y = Math.sin(angle) * radius;
+                    const DIcon = d.icon;
+                    return (
+                      <div
+                        key={d.id}
+                        className="absolute flex flex-col items-center gap-1 group/orb"
+                        style={{ transform: `translate(${x}px, ${y}px)` }}
+                      >
+                        {/* Connection line */}
+                        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+                          <line x1="50%" y1="50%" x2={-x} y2={-y} stroke={`${d.color}15`} strokeWidth="1" />
+                        </svg>
+                        <div
+                          className="relative z-10 w-11 h-11 rounded-xl flex items-center justify-center border transition-all group-hover/orb:scale-110"
+                          style={{ backgroundColor: `${d.color}10`, borderColor: `${d.color}25` }}
+                        >
+                          <DIcon className="w-5 h-5" style={{ color: `${d.color}80` }} />
+                        </div>
+                        <span className="text-[9px] text-white/30 group-hover/orb:text-white/60 transition-colors">{d.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* CTA */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="py-24 lg:py-32 bg-[#0a0a0a]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-5">
+              Start exploring your domain
+            </h2>
+            <p className="text-white/40 text-lg mb-10">
+              Choose a domain and get your first research report in under 5 minutes.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link
+                href="/signup"
+                className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-white text-[#070707] font-medium text-sm hover:bg-white/90 transition-all"
+              >
+                Get Started Free
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/70 text-sm hover:bg-white/[0.08] transition-all"
+              >
+                Try the Dashboard
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <Footer />
     </div>
   );
 }

@@ -1,152 +1,279 @@
 'use client';
 
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { TopNavigation } from "@/components/layout/TopNavigation";
 import { Footer } from "@/components/layout/Footer";
-import { MessageSquare, Brain, FileText, ArrowRight, Check } from "lucide-react";
+import {
+  MessageSquare, Brain, Globe, Layers, Zap, ArrowRight, ArrowDown,
+  Sparkles, FileText, BarChart3, Search, Check, Shield, Clock
+} from "lucide-react";
 
-const STEPS = [
+const architectureLayers = [
   {
-    number: "01",
-    title: "Ask",
+    id: 1,
     icon: MessageSquare,
-    description: "Pose your research question in natural language. Be specific about the domain, timeframe, and depth of analysis you need.",
-    examples: [
-      "Analyze SS26 womenswear trends from Milan Fashion Week",
-      "Find certified sustainable denim suppliers in Portugal with MOQ under 500 units",
-      "Compare luxury handbag pricing strategies across Asian markets"
-    ]
+    title: "Task Interpretation",
+    subtitle: "Understanding your intent",
+    description: "Your natural language query is parsed, classified by domain, and decomposed into structured research sub-tasks.",
+    color: "blue",
+    detail: "Domain classification, intent extraction, task decomposition",
+    example: "\"Analyze SS26 womenswear trends from Milan\" → Domain: Fashion, Task: Trend Analysis, Scope: Milan FW SS26",
   },
   {
-    number: "02",
-    title: "Analyze",
+    id: 2,
     icon: Brain,
-    description: "McLeuker AI processes your query through specialized domain models, cross-referencing industry data sources, trend signals, and market intelligence.",
-    features: [
-      "Domain-specific data sources",
-      "Real-time market signals",
-      "Cross-reference validation",
-      "Contextual understanding"
-    ]
+    title: "LLM Layer",
+    subtitle: "Multi-model intelligence",
+    description: "The best AI model is selected per sub-task — GPT-4 for synthesis, Grok for real-time data, Gemini for speed, Kimi for long documents.",
+    color: "purple",
+    detail: "GPT-4, Grok, Gemini Flash, Kimi — routed by task type",
+    example: "Trend synthesis → GPT-4 | Live signals → Grok | Quick facts → Gemini Flash",
   },
   {
-    number: "03",
-    title: "Deliver",
-    icon: FileText,
-    description: "Receive structured, actionable intelligence formatted for immediate use in presentations, reports, and strategic decisions.",
-    outputs: [
-      "Trend analysis reports",
-      "Supplier comparison sheets",
-      "Market sizing data",
-      "Competitive intelligence briefs"
-    ]
-  }
+    id: 3,
+    icon: Globe,
+    title: "Real-Time Web Research",
+    subtitle: "Live intelligence gathering",
+    description: "AI agents search the web in real-time, pulling data from fashion weeks, trade publications, social media, and industry databases.",
+    color: "cyan",
+    detail: "Perplexity, Grok Search, curated industry sources",
+    example: "47 runway shows analyzed, 2,300 social posts scanned, 15 trade reports cross-referenced",
+  },
+  {
+    id: 4,
+    icon: Layers,
+    title: "Logic & Structuring",
+    subtitle: "Making sense of data",
+    description: "Raw intelligence is validated, cross-referenced, and organized into structured formats — tables, charts, comparisons, and narratives.",
+    color: "amber",
+    detail: "Validation, deduplication, ranking, formatting",
+    example: "Trend heatmap generated, supplier matrix built, competitive landscape mapped",
+  },
+  {
+    id: 5,
+    icon: Zap,
+    title: "Execution Layer",
+    subtitle: "Professional deliverables",
+    description: "Final outputs are generated as professional documents — PDF reports, Excel spreadsheets, PowerPoint decks, and Word documents.",
+    color: "green",
+    detail: "PDF, Excel, PPTX, DOCX — formatted and ready to share",
+    example: "12-page PDF with executive summary, charts, and source citations",
+  },
+];
+
+const colorMap: Record<string, { bg: string; border: string; text: string; glow: string; dot: string }> = {
+  blue: { bg: "bg-blue-500/10", border: "border-blue-500/20", text: "text-blue-400", glow: "bg-blue-500/[0.02]", dot: "bg-blue-400" },
+  purple: { bg: "bg-purple-500/10", border: "border-purple-500/20", text: "text-purple-400", glow: "bg-purple-500/[0.02]", dot: "bg-purple-400" },
+  cyan: { bg: "bg-cyan-500/10", border: "border-cyan-500/20", text: "text-cyan-400", glow: "bg-cyan-500/[0.02]", dot: "bg-cyan-400" },
+  amber: { bg: "bg-amber-500/10", border: "border-amber-500/20", text: "text-amber-400", glow: "bg-amber-500/[0.02]", dot: "bg-amber-400" },
+  green: { bg: "bg-green-500/10", border: "border-green-500/20", text: "text-green-400", glow: "bg-green-500/[0.02]", dot: "bg-green-400" },
+};
+
+const differentiators = [
+  { icon: Sparkles, title: "Multi-Model AI", desc: "Best model selected per task — not one-size-fits-all" },
+  { icon: Globe, title: "Real-Time Data", desc: "Live web research, not stale training data" },
+  { icon: BarChart3, title: "Structured Outputs", desc: "Tables, charts, and comparisons — not just text" },
+  { icon: FileText, title: "Professional Exports", desc: "PDF, Excel, PPTX, Word — ready to share" },
+  { icon: Shield, title: "Source Transparency", desc: "Every claim cited, every source traceable" },
+  { icon: Clock, title: "Minutes, Not Weeks", desc: "Research that took days, delivered in minutes" },
+];
+
+const examplePrompts = [
+  { domain: "Fashion", prompt: "Analyze SS26 womenswear trends from Milan and Paris Fashion Weeks", output: "12-page PDF trend report" },
+  { domain: "Suppliers", prompt: "Find GOTS-certified denim suppliers in Europe with MOQ under 500", output: "Excel with 30+ suppliers" },
+  { domain: "Market", prompt: "Size the European sustainable fashion market for DTC brands", output: "18-page market analysis" },
+  { domain: "Sustainability", prompt: "Assess our brand's readiness for CSRD reporting", output: "Gap analysis with roadmap" },
 ];
 
 export default function HowItWorksPage() {
   return (
-    <div className="min-h-screen bg-[#070707] flex flex-col">
+    <div className="min-h-screen bg-[#070707]">
       <TopNavigation variant="marketing" />
+      <div className="h-16 lg:h-[72px]" />
 
-      <main className="pt-24 pb-16 flex-1">
-        <div className="container mx-auto px-6">
-          {/* Hero */}
-          <div className="max-w-3xl mx-auto text-center mb-20">
-            <h1 className="font-editorial text-4xl md:text-5xl text-white mb-6">
-              How McLeuker AI Works
+      {/* Hero */}
+      <section className="relative pt-20 lg:pt-28 pb-12 lg:pb-16 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-white/[0.015] rounded-full blur-[120px]" />
+        
+        <div className="container mx-auto px-6 lg:px-12 relative">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.04] border border-white/[0.08] mb-6">
+              <Sparkles className="w-3.5 h-3.5 text-white/50" />
+              <span className="text-xs text-white/50 uppercase tracking-[0.15em]">5-Layer Architecture</span>
+            </div>
+            <h1 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.92] mb-5 leading-[1.1]">
+              How McLeuker AI works
             </h1>
-            <p className="text-white/70 text-lg leading-relaxed">
-              Transform complex research into actionable intelligence through our streamlined 
-              three-step process. No data science expertise required.
+            <p className="text-white/55 text-lg lg:text-xl max-w-2xl mx-auto mb-6">
+              A purpose-built agentic architecture that transforms natural language questions into structured, professional intelligence — in minutes.
+            </p>
+            <p className="text-white/35 text-sm max-w-xl mx-auto">
+              Five specialized layers work in sequence: understanding your intent, selecting the best AI model, gathering live data, structuring findings, and generating professional deliverables.
             </p>
           </div>
+        </div>
+      </section>
 
-          {/* Steps */}
-          <div className="max-w-4xl mx-auto space-y-16 mb-20">
-            {STEPS.map((step) => {
-              const IconComponent = step.icon;
-              return (
-                <div key={step.number} className="flex flex-col md:flex-row gap-8 items-start">
-                  <div className="flex-shrink-0">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-b from-[#1A1A1A] to-[#141414] border border-white/[0.08] flex items-center justify-center">
-                      <IconComponent className="h-7 w-7 text-white/80" />
+      {/* Architecture Visualization */}
+      <section className="py-8 lg:py-12">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-xs text-white/40 uppercase tracking-[0.2em] mb-8 text-center">The 5-Layer Pipeline</h2>
+            
+            <div className="space-y-0">
+              {architectureLayers.map((layer, i) => {
+                const Icon = layer.icon;
+                const colors = colorMap[layer.color];
+                return (
+                  <div key={layer.id}>
+                    {/* Layer card */}
+                    <div className={cn(
+                      "relative rounded-2xl overflow-hidden",
+                      "bg-[#0C0C0C] border border-white/[0.06]",
+                      "hover:border-white/[0.12] transition-all duration-300",
+                      "group"
+                    )}>
+                      <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity", colors.glow)} />
+                      
+                      <div className="relative p-6 lg:p-8">
+                        <div className="flex flex-col lg:flex-row lg:items-start gap-6">
+                          {/* Left: Icon + Number */}
+                          <div className="flex items-center gap-4 lg:w-48 shrink-0">
+                            <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", colors.bg, colors.border, "border")}>
+                              <Icon className={cn("w-5 h-5", colors.text)} />
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-white/25 uppercase tracking-wider">Layer {layer.id}</span>
+                              <h3 className="text-lg font-medium text-white/[0.85]">{layer.title}</h3>
+                            </div>
+                          </div>
+
+                          {/* Right: Content */}
+                          <div className="flex-1 space-y-3">
+                            <p className={cn("text-xs uppercase tracking-wider", colors.text)}>{layer.subtitle}</p>
+                            <p className="text-white/55 leading-relaxed">{layer.description}</p>
+                            
+                            {/* Technical detail */}
+                            <div className="flex items-start gap-2 pt-1">
+                              <div className={cn("w-1.5 h-1.5 rounded-full mt-1.5 shrink-0", colors.dot)} />
+                              <span className="text-xs text-white/35">{layer.detail}</span>
+                            </div>
+
+                            {/* Example */}
+                            <div className="bg-white/[0.02] rounded-lg p-3 border border-white/[0.04]">
+                              <span className="text-[10px] text-white/25 uppercase tracking-wider">Example</span>
+                              <p className="text-xs text-white/45 mt-1 font-mono">{layer.example}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-baseline gap-3 mb-3">
-                      <span className="text-white/30 text-sm font-mono">{step.number}</span>
-                      <h3 className="text-2xl font-medium text-white">{step.title}</h3>
-                    </div>
-                    <p className="text-white/60 text-base leading-relaxed mb-4">
-                      {step.description}
-                    </p>
-                    
-                    {step.examples && (
-                      <div className="bg-[#0D0D0D] rounded-xl p-4 border border-white/[0.05]">
-                        <p className="text-white/40 text-xs uppercase tracking-wider mb-3">Example prompts</p>
-                        <div className="space-y-2">
-                          {step.examples.map((example, i) => (
-                            <p key={i} className="text-white/50 text-sm">&ldquo;{example}&rdquo;</p>
-                          ))}
+
+                    {/* Connector arrow */}
+                    {i < architectureLayers.length - 1 && (
+                      <div className="flex justify-center py-2">
+                        <div className="flex flex-col items-center">
+                          <div className="w-px h-4 bg-white/[0.08]" />
+                          <ArrowDown className="w-4 h-4 text-white/15" />
                         </div>
                       </div>
                     )}
-                    
-                    {step.features && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {step.features.map((feature, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <Check className="h-4 w-4 text-white/40" />
-                            <span className="text-white/60 text-sm">{feature}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {step.outputs && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {step.outputs.map((output, i) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-white/40" />
-                            <span className="text-white/60 text-sm">{output}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Methodology */}
-          <div className="max-w-3xl mx-auto mb-16">
-            <div className="bg-gradient-to-b from-[#1A1A1A] to-[#141414] rounded-2xl p-8 border border-white/[0.08]">
-              <h3 className="text-xl font-medium text-white mb-4">Our Methodology</h3>
-              <p className="text-white/60 leading-relaxed mb-4">
-                McLeuker AI combines large language models with curated industry data sources to deliver 
-                accurate, contextual intelligence. Our systems are trained on fashion, beauty, and 
-                sustainability-specific terminology and frameworks.
-              </p>
-              <p className="text-white/60 leading-relaxed">
-                We continuously validate outputs against primary sources and industry benchmarks to ensure 
-                reliability. When data is uncertain or unavailable, we clearly indicate limitations.
-              </p>
+                );
+              })}
             </div>
           </div>
+        </div>
+      </section>
 
-          {/* CTA */}
-          <div className="text-center">
-            <Link 
-              href="/signup"
-              className="inline-flex items-center bg-white text-black hover:bg-white/90 px-8 py-4 rounded-lg text-base font-medium transition-colors"
-            >
-              Start Free Trial
-              <ArrowRight className="ml-2 h-4 w-4" />
+      {/* What makes it different */}
+      <section className="py-12 lg:py-16 border-y border-white/[0.04]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-6xl mx-auto">
+            <h2 className="text-xs text-white/40 uppercase tracking-[0.2em] mb-8">What makes it different</h2>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {differentiators.map((item, i) => {
+                const Icon = item.icon;
+                return (
+                  <div key={i} className="group p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.12] transition-all">
+                    <Icon className="w-5 h-5 text-white/40 group-hover:text-white/60 transition-colors mb-3" />
+                    <h3 className="text-sm font-medium text-white/[0.8] mb-1.5">{item.title}</h3>
+                    <p className="text-xs text-white/40 leading-relaxed">{item.desc}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Example Prompts → Outputs */}
+      <section className="py-12 lg:py-16">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-xs text-white/40 uppercase tracking-[0.2em] mb-8">From question to deliverable</h2>
+            <div className="space-y-3">
+              {examplePrompts.map((item, i) => (
+                <div key={i} className="group flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] transition-all">
+                  <span className="text-[10px] text-white/25 uppercase tracking-wider shrink-0 w-20">{item.domain}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white/60 truncate">&ldquo;{item.prompt}&rdquo;</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <ArrowRight className="w-3 h-3 text-white/20" />
+                    <span className="text-xs text-white/40 bg-white/[0.04] px-3 py-1 rounded-full">{item.output}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Methodology */}
+      <section className="py-12 lg:py-16 border-t border-white/[0.04]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-xs text-white/40 uppercase tracking-[0.2em] mb-8">Our methodology</h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
+                <h3 className="text-sm font-medium text-white/[0.8] mb-3">Domain-Specific Intelligence</h3>
+                <p className="text-xs text-white/45 leading-relaxed">
+                  McLeuker AI combines large language models with curated fashion industry data sources. Our systems understand domain-specific terminology, frameworks, and context — from Pantone references to certification standards.
+                </p>
+              </div>
+              <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
+                <h3 className="text-sm font-medium text-white/[0.8] mb-3">Continuous Validation</h3>
+                <p className="text-xs text-white/45 leading-relaxed">
+                  Every output is validated against primary sources and industry benchmarks. When data is uncertain or unavailable, we clearly indicate limitations. Source citations are included in every report.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-16 lg:py-24">
+        <div className="container mx-auto px-6 lg:px-12 text-center">
+          <h2 className="font-editorial text-3xl md:text-4xl text-white/[0.92] mb-4">
+            See it in action
+          </h2>
+          <p className="text-white/50 text-lg mb-8 max-w-xl mx-auto">
+            Try your first research query. No setup required.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link href="/dashboard" className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full bg-white text-black font-medium hover:bg-white/90 transition-colors">
+              Start Research <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link href="/solutions" className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full border border-white/[0.15] text-white/80 hover:bg-white/[0.06] transition-colors">
+              View Solutions
             </Link>
           </div>
         </div>
-      </main>
+      </section>
 
       <Footer />
     </div>

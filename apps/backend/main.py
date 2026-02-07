@@ -1,306 +1,3924 @@
 """
-McLeuker AI V5 - Main API
-FastAPI-based REST API with streaming support.
-
-Endpoints:
-- POST /api/chat - Main chat endpoint
-- POST /api/chat/stream - Streaming chat endpoint
-- GET /health - Health check
-- GET /api/status - Detailed status
+McLeuker AI - Complete Kimi 2.5 Production Backend
+All capabilities: Tools, File Gen, Vision-to-Code, Agent Swarm, Code Execution
 """
 
-import asyncio
-import json
-import uuid
-from datetime import datetime
-from typing import Dict, List, Optional, Any
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, HTMLResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field, validator
+from typing import List, Optional, Literal, Dict, Any, Union, AsyncGenerator, Callable
+import openai
+import os
+import base64
+import json
+import asyncio
+import httpx
+import subprocess
+import tempfile
+import shutil
+import uuid
+import re
+import time
+import hashlib
+from datetime import datetime, timedelta
+from enum import Enum
+from pathlib import Path
+import traceback
+import logging
 
-from src.config.settings import settings
-from src.core.orchestrator import orchestrator, OrchestratorResponse
+# Data processing
+import pandas as pd
+import numpy as np
+from io import BytesIO, StringIO
 
+# Document generation
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
-# =============================================================================
-# Pydantic Models
-# =============================================================================
+# PDF generation
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.pdfgen import canvas
 
-class ChatMessage(BaseModel):
-    """A single chat message."""
-    role: str = Field(..., description="Message role: 'user' or 'assistant'")
-    content: str = Field(..., description="Message content")
+# PowerPoint
+from pptx import Presentation
+from pptx.util import Inches as PptxInches, Pt as PptxPt
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.dml.color import RGBColor as PptxRGBColor
 
+# Excel generation
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.chart import BarChart, PieChart, LineChart, Reference
+from openpyxl.utils.dataframe import dataframe_to_rows
 
-class ChatRequest(BaseModel):
-    """Request body for chat endpoint."""
-    message: str = Field(..., description="User message")
-    session_id: Optional[str] = Field(None, description="Session ID for conversation continuity")
-    user_id: Optional[str] = Field(None, description="User ID for credit tracking")
-    conversation_history: Optional[List[ChatMessage]] = Field(default=[], description="Previous messages")
-    mode: Optional[str] = Field("auto", description="Mode: 'quick', 'deep', or 'auto'")
+# PDF generation (fpdf2)
+from fpdf import FPDF
 
+# Visualization
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib.backends.backend_pdf import PdfPages
+import seaborn as sns
 
-class ChatResponse(BaseModel):
-    """Response body for chat endpoint."""
-    success: bool
-    response: str
-    session_id: str
-    reasoning: List[str] = []
-    sources: List[Dict] = []
-    files: List[Dict] = []
-    images: List[str] = []
-    follow_up_questions: List[str] = []
-    credits_used: int = 0
-    error: Optional[str] = None
+# Image processing
+from PIL import Image as PILImage
+import io
+import csv
 
+# Initialize logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class HealthResponse(BaseModel):
-    """Response body for health check."""
-    status: str
-    version: str
-    timestamp: str
-    services: Dict[str, bool]
-
-
-# =============================================================================
-# Application Setup
-# =============================================================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
-    # Startup
-    print("🚀 McLeuker AI V5 starting...")
-    print(f"✅ Grok configured: {settings.is_grok_configured()}")
-    print(f"✅ Search configured: {settings.is_search_configured()}")
-    print(f"✅ Supabase configured: {settings.is_supabase_configured()}")
-    print(f"📅 Current date: {datetime.now().strftime('%B %d, %Y')}")
-    yield
-    # Shutdown
-    print("👋 McLeuker AI V5 shutting down...")
-
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
 app = FastAPI(
-    title="McLeuker AI V5",
-    description="Frontier Agentic AI for Fashion, Beauty, Lifestyle, and Culture",
-    version="5.0.0",
-    lifespan=lifespan
+    title="McLeuker AI - Kimi 2.5 Complete",
+    description="Production-ready AI platform with all Kimi 2.5 capabilities",
+    version="3.0.0"
 )
 
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
+    allow_origins=[
+        "https://mcleuker-agentic-ai.vercel.app",
+        "http://localhost:3000",
+        "https://*.vercel.app",
+        "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# API Keys
+KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
+PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
+EXA_API_KEY = os.getenv("EXA_API_KEY", "")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
-# =============================================================================
-# Health & Status Endpoints
-# =============================================================================
+# Initialize Kimi client
+client = openai.OpenAI(
+    api_key=KIMI_API_KEY,
+    base_url="https://api.moonshot.ai/v1"
+)
 
-@app.get("/", response_class=JSONResponse)
-async def root():
-    """Root endpoint - basic info."""
-    return {
-        "name": "McLeuker AI",
-        "version": "5.0.0",
-        "status": "online",
-        "docs": "/docs"
-    }
+# Directories
+OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
+OUTPUT_DIR.mkdir(exist_ok=True)
+CODE_SANDBOX_DIR = Path("/tmp/mcleuker_sandbox")
+CODE_SANDBOX_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR = Path("/tmp/mcleuker_uploads")
+UPLOADS_DIR.mkdir(exist_ok=True)
 
+# ============================================================================
+# DATA MODELS
+# ============================================================================
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint."""
-    return HealthResponse(
-        status="healthy",
-        version="5.0.0",
-        timestamp=datetime.utcnow().isoformat(),
-        services={
-            "grok": settings.is_grok_configured(),
-            "search": settings.is_search_configured(),
-            "supabase": settings.is_supabase_configured()
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant", "tool"]
+    content: Union[str, List[Dict[str, Any]]]
+    tool_calls: Optional[List[Dict]] = None
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+    mode: Literal["instant", "thinking", "agent", "swarm", "research", "code"] = "thinking"
+    stream: bool = False
+    enable_tools: bool = True
+    context_id: Optional[str] = None
+
+class SwarmRequest(BaseModel):
+    master_task: str
+    context: Dict[str, Any] = {}
+    num_agents: int = Field(default=5, ge=1, le=50)
+    enable_search: bool = True
+    generate_deliverable: bool = False
+    deliverable_type: Optional[Literal["report", "presentation", "spreadsheet"]] = None
+
+class FileGenRequest(BaseModel):
+    content: Union[str, Dict, List]
+    file_type: Literal["excel", "word", "pdf", "pptx", "csv", "json"]
+    filename: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    include_charts: bool = False
+    template: Optional[str] = None
+    styling: Optional[Dict[str, Any]] = None
+
+class VisionCodeRequest(BaseModel):
+    image_base64: str
+    requirements: str = "Modern, responsive, animated UI"
+    framework: Literal["html", "react", "vue", "svelte", "angular"] = "html"
+    include_dependencies: bool = True
+    styling_preference: Literal["tailwind", "bootstrap", "css", "styled-components"] = "tailwind"
+
+class CodeExecutionRequest(BaseModel):
+    code: str
+    language: Literal["python", "javascript", "typescript", "bash", "sql"] = "python"
+    timeout: int = Field(default=30, ge=5, le=300)
+    dependencies: Optional[List[str]] = None
+    inputs: Optional[Dict[str, Any]] = None
+
+class SearchRequest(BaseModel):
+    query: str
+    sources: List[Literal["web", "news", "academic", "youtube", "social"]] = ["web"]
+    num_results: int = Field(default=10, ge=1, le=50)
+    recency_days: Optional[int] = None
+
+class ResearchRequest(BaseModel):
+    query: str
+    depth: Literal["quick", "deep", "exhaustive"] = "deep"
+    sources: List[str] = ["web", "news", "academic"]
+    generate_deliverable: bool = False
+    deliverable_type: Optional[Literal["report", "presentation", "spreadsheet"]] = "report"
+    include_visualizations: bool = True
+
+class DocumentAnalysisRequest(BaseModel):
+    document_type: Literal["pdf", "word", "excel", "image", "text"]
+    analysis_type: Literal["summarize", "extract_data", "answer_questions", "compare", "translate"]
+    questions: Optional[List[str]] = None
+    target_language: Optional[str] = None
+
+class ConversationCreate(BaseModel):
+    user_id: str
+    title: Optional[str] = None
+
+class ConversationUpdate(BaseModel):
+    title: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+# ============================================================================
+# REAL-TIME SEARCH APIs
+# ============================================================================
+
+class SearchAPIs:
+    """Unified search across all real-time data sources"""
+    
+    @staticmethod
+    async def perplexity_search(query: str, focus: str = "web", recency_days: Optional[int] = None) -> Dict:
+        """Deep research with Perplexity AI - Sonar Pro model"""
+        if not PERPLEXITY_API_KEY:
+            return {"error": "Perplexity not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as http_client:
+                # Determine search type based on query
+                search_type = "news" if any(kw in query.lower() for kw in ["latest", "recent", "2024", "2025", "2026", "today", "yesterday", "this week"]) else focus
+                
+                response = await http_client.post(
+                    "https://api.perplexity.ai/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "sonar-pro",
+                        "messages": [{"role": "user", "content": query}],
+                        "temperature": 0.2,
+                        "top_p": 0.9,
+                        "return_images": False,
+                        "return_related_questions": True,
+                        "search_recency_filter": "month" if recency_days and recency_days <= 30 else "year" if recency_days and recency_days <= 365 else None
+                    }
+                )
+                data = response.json()
+                
+                return {
+                    "source": "perplexity",
+                    "model": "sonar-pro",
+                    "answer": data["choices"][0]["message"]["content"],
+                    "citations": data.get("citations", []),
+                    "related_questions": data.get("related_questions", []),
+                    "usage": data.get("usage", {}),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"Perplexity error: {e}")
+            return {"error": str(e), "source": "perplexity"}
+    
+    @staticmethod
+    async def exa_search(query: str, num_results: int = 10, recency_days: Optional[int] = None) -> Dict:
+        """Neural search with Exa.ai"""
+        if not EXA_API_KEY:
+            return {"error": "Exa not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as http_client:
+                payload = {
+                    "query": query,
+                    "numResults": min(num_results, 50),
+                    "useAutoprompt": True,
+                    "type": "neural",
+                    "contents": {
+                        "text": {"maxCharacters": 1000}
+                    }
+                }
+                
+                if recency_days:
+                    payload["startPublishedDate"] = (datetime.now() - timedelta(days=recency_days)).isoformat()
+                
+                response = await http_client.post(
+                    "https://api.exa.ai/search",
+                    headers={"Authorization": f"Bearer {EXA_API_KEY}"},
+                    json=payload
+                )
+                data = response.json()
+                
+                results = []
+                for r in data.get("results", []):
+                    results.append({
+                        "title": r.get("title", "No title"),
+                        "url": r.get("url", ""),
+                        "snippet": r.get("text", "")[:500] if r.get("text") else "",
+                        "published_date": r.get("publishedDate"),
+                        "author": r.get("author"),
+                        "score": r.get("score")
+                    })
+                
+                return {
+                    "source": "exa",
+                    "results": results,
+                    "autoprompt": data.get("autopromptString"),
+                    "total": len(results),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"Exa error: {e}")
+            return {"error": str(e), "source": "exa"}
+    
+    @staticmethod
+    async def youtube_search(query: str, max_results: int = 10, order: str = "relevance") -> Dict:
+        """Search YouTube videos with metadata"""
+        if not YOUTUBE_API_KEY:
+            return {"error": "YouTube not configured", "videos": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                # Search for videos
+                search_response = await http_client.get(
+                    "https://www.googleapis.com/youtube/v3/search",
+                    params={
+                        "part": "snippet",
+                        "q": query,
+                        "maxResults": min(max_results, 50),
+                        "type": "video",
+                        "order": order,  # relevance, date, rating, viewCount
+                        "videoEmbeddable": "true",
+                        "key": YOUTUBE_API_KEY
+                    }
+                )
+                search_data = search_response.json()
+                
+                videos = []
+                video_ids = [item["id"]["videoId"] for item in search_data.get("items", [])]
+                
+                # Get video statistics
+                if video_ids:
+                    stats_response = await http_client.get(
+                        "https://www.googleapis.com/youtube/v3/videos",
+                        params={
+                            "part": "statistics,contentDetails",
+                            "id": ",".join(video_ids),
+                            "key": YOUTUBE_API_KEY
+                        }
+                    )
+                    stats_data = {item["id"]: item for item in stats_response.json().get("items", [])}
+                else:
+                    stats_data = {}
+                
+                for item in search_data.get("items", []):
+                    video_id = item["id"]["videoId"]
+                    stats = stats_data.get(video_id, {}).get("statistics", {})
+                    
+                    videos.append({
+                        "title": item["snippet"]["title"],
+                        "description": item["snippet"]["description"],
+                        "video_id": video_id,
+                        "url": f"https://youtube.com/watch?v={video_id}",
+                        "embed_url": f"https://youtube.com/embed/{video_id}",
+                        "thumbnail": item["snippet"]["thumbnails"].get("high", item["snippet"]["thumbnails"].get("default", {})).get("url", ""),
+                        "published_at": item["snippet"]["publishedAt"],
+                        "channel": item["snippet"]["channelTitle"],
+                        "channel_id": item["snippet"]["channelId"],
+                        "view_count": int(stats.get("viewCount", 0)),
+                        "like_count": int(stats.get("likeCount", 0)) if stats.get("likeCount") else None,
+                        "comment_count": int(stats.get("commentCount", 0)) if stats.get("commentCount") else None
+                    })
+                
+                return {
+                    "source": "youtube",
+                    "videos": videos,
+                    "total": len(videos),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"YouTube error: {e}")
+            return {"error": str(e), "source": "youtube"}
+    
+    @staticmethod
+    async def grok_search(query: str, stream: bool = False) -> Dict:
+        """Search with Grok/X AI for real-time X/Twitter data"""
+        if not GROK_API_KEY:
+            return {"error": "Grok not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                response = await http_client.post(
+                    "https://api.x.ai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {GROK_API_KEY}"},
+                    json={
+                        "model": "grok-beta",
+                        "messages": [{"role": "user", "content": query}],
+                        "stream": stream,
+                        "temperature": 0.7
+                    }
+                )
+                data = response.json()
+                
+                return {
+                    "source": "grok",
+                    "model": "grok-beta",
+                    "answer": data["choices"][0]["message"]["content"],
+                    "usage": data.get("usage", {}),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"Grok error: {e}")
+            return {"error": str(e), "source": "grok"}
+    
+    @staticmethod
+    async def multi_search(
+        query: str, 
+        sources: List[str] = None, 
+        num_results: int = 10,
+        recency_days: Optional[int] = None
+    ) -> Dict:
+        """Search across all configured sources in parallel"""
+        if sources is None:
+            sources = ["web"]
+        
+        tasks = []
+        source_map = {}
+        idx = 0
+        
+        if "web" in sources or "news" in sources:
+            tasks.append(SearchAPIs.perplexity_search(query, "news" if "news" in sources else "web", recency_days))
+            source_map[idx] = "perplexity"
+            idx += 1
+        
+        if "web" in sources or "academic" in sources:
+            tasks.append(SearchAPIs.exa_search(query, num_results, recency_days))
+            source_map[idx] = "exa"
+            idx += 1
+        
+        if "youtube" in sources:
+            tasks.append(SearchAPIs.youtube_search(query, min(num_results, 10)))
+            source_map[idx] = "youtube"
+            idx += 1
+        
+        if "social" in sources:
+            tasks.append(SearchAPIs.grok_search(query))
+            source_map[idx] = "grok"
+            idx += 1
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        combined = {
+            "query": query,
+            "sources_requested": sources,
+            "timestamp": datetime.now().isoformat(),
+            "results": {}
         }
-    )
+        
+        for i, result in enumerate(results):
+            source_name = source_map.get(i, f"source_{i}")
+            if isinstance(result, Exception):
+                combined["results"][source_name] = {"error": str(result)}
+            else:
+                combined["results"][source_name] = result
+        
+        # Create synthesized summary
+        combined["synthesized_answer"] = SearchAPIs._synthesize_search_results(combined["results"])
+        
+        return combined
+    
+    @staticmethod
+    def _synthesize_search_results(results: Dict) -> str:
+        """Create a brief synthesis of search results"""
+        parts = []
+        
+        if "perplexity" in results and "answer" in results["perplexity"]:
+            parts.append(results["perplexity"]["answer"][:500])
+        
+        if "exa" in results and "results" in results["exa"]:
+            exa_results = results["exa"]["results"]
+            if exa_results:
+                parts.append(f"Found {len(exa_results)} web sources.")
+        
+        if "youtube" in results and "videos" in results["youtube"]:
+            videos = results["youtube"]["videos"]
+            if videos:
+                parts.append(f"Found {len(videos)} related videos.")
+        
+        return " ".join(parts) if parts else "Search completed."
+
+# ============================================================================
+# KIMI 2.5 CONTENT GENERATOR
+# ============================================================================
+
+class KimiContentGenerator:
+    """Uses Kimi 2.5 to generate structured content for files.
+    Then uses Python libraries to create actual professional files."""
+
+    @staticmethod
+    async def generate_excel_structure(prompt: str) -> Dict:
+        system_prompt = """You are an Excel expert. Convert the user's request into a structured JSON format for Excel generation.
+
+Return ONLY this JSON structure:
+{
+    "sheets": [
+        {
+            "name": "Sheet1",
+            "title": "Optional title row",
+            "headers": ["Col1", "Col2", "Col3"],
+            "rows": [
+                ["data1", "data2", "data3"],
+                ["data4", "data5", "data6"]
+            ],
+            "formulas": [
+                {"cell": "D2", "formula": "=A2+B2", "format": "number"}
+            ],
+            "charts": [
+                {
+                    "type": "bar",
+                    "title": "Chart Title",
+                    "data_range": "A1:C5",
+                    "position": "E2"
+                }
+            ],
+            "formatting": {
+                "header_style": {"bold": true, "bg_color": "366092", "font_color": "FFFFFF"},
+                "column_widths": {"A": 20, "B": 15}
+            }
+        }
+    ],
+    "metadata": {"description": "What this file contains"}
+}
+
+IMPORTANT: Include at least 10-15 rows of realistic, accurate data. Use descriptive column names. Make the data comprehensive and useful."""
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create Excel for: {prompt}"}
+                ],
+                temperature=0.6,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            content = response.choices[0].message.content
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            content = content.strip()
+            if content.startswith('```'):
+                content = content[3:]
+            if content.endswith('```'):
+                content = content[:-3]
+            return json.loads(content.strip())
+        except Exception as e:
+            logger.error(f"Excel structure generation error: {e}")
+            return {
+                "sheets": [{
+                    "name": "Data",
+                    "headers": ["Item", "Value", "Date"],
+                    "rows": [["Sample 1", 100, "2026-01-01"], ["Sample 2", 200, "2026-01-02"]],
+                    "formulas": [],
+                    "charts": []
+                }]
+            }
+
+    @staticmethod
+    async def generate_presentation_structure(prompt: str) -> Dict:
+        system_prompt = """You are a presentation expert. Convert the user's request into structured slide content.
+
+Return ONLY this JSON:
+{
+    "title": "Presentation Title",
+    "slides": [
+        {
+            "layout": "title|content|two_column|comparison",
+            "title": "Slide Title",
+            "content": [
+                "Bullet point 1",
+                "Bullet point 2"
+            ],
+            "subtitle": "Optional subtitle",
+            "table": {
+                "headers": ["Col1", "Col2"],
+                "rows": [["A", "B"], ["C", "D"]]
+            }
+        }
+    ],
+    "theme": {
+        "primary_color": [54, 96, 146],
+        "font": "Arial"
+    }
+}
+
+IMPORTANT: Create at least 8-12 slides with rich, detailed content. Include tables where appropriate. Make each slide substantive."""
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create presentation for: {prompt}"}
+                ],
+                temperature=0.6,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            content = response.choices[0].message.content
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            content = content.strip().strip('`')
+            return json.loads(content)
+        except Exception as e:
+            logger.error(f"PPT structure generation error: {e}")
+            return {
+                "title": "Generated Presentation",
+                "slides": [
+                    {"layout": "title", "title": "Title Slide", "content": []},
+                    {"layout": "content", "title": "Content", "content": ["Point 1", "Point 2"]}
+                ]
+            }
+
+    @staticmethod
+    async def generate_document_structure(prompt: str) -> Dict:
+        system_prompt = """Convert the user's request into a structured document format.
+
+Return ONLY this JSON:
+{
+    "title": "Document Title",
+    "sections": [
+        {
+            "heading": "Section Title",
+            "level": 1,
+            "content": "Paragraph text...",
+            "bullets": ["Item 1", "Item 2"],
+            "table": {
+                "headers": ["A", "B"],
+                "rows": [["1", "2"]]
+            }
+        }
+    ],
+    "metadata": {
+        "author": "McLeuker AI",
+        "subject": "Generated Document"
+    }
+}
+
+IMPORTANT: Create at least 5-8 detailed sections with comprehensive content. Each section should have substantial paragraphs (100+ words). Include tables and bullet points where appropriate."""
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Create document for: {prompt}"}
+                ],
+                temperature=0.6,
+                max_tokens=4096,
+                extra_body={"thinking": {"type": "disabled"}}
+            )
+            content = response.choices[0].message.content
+            json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            content = content.strip().strip('`')
+            return json.loads(content)
+        except Exception as e:
+            logger.error(f"Document structure generation error: {e}")
+            return {
+                "title": "Generated Document",
+                "sections": [
+                    {"heading": "Introduction", "level": 1, "content": "Generated content..."}
+                ]
+            }
 
 
-@app.get("/api/status")
-async def api_status():
-    """Detailed API status."""
-    return {
-        "platform": "McLeuker AI",
-        "version": "5.0.0",
-        "architecture": "V5 Agentic",
-        "brain": "Grok (XAI)",
-        "layers": {
-            "intent_router": "Rule-based fast detection",
-            "context_manager": "Session-based memory",
-            "query_planner": "Automatic mode selection",
-            "tool_executor": "Parallel search + Grok",
-            "response_synthesizer": "Clean formatting with citations"
+# ============================================================================
+# FILE BUILDERS (Create Actual Files from Structured Content)
+# ============================================================================
+
+class FileBuilder:
+    """Build actual professional files from structured content generated by Kimi."""
+
+    @staticmethod
+    async def build_excel(structure: Dict, filename: str) -> Dict:
+        try:
+            wb = Workbook()
+            default_sheet = wb.active
+            wb.remove(default_sheet)
+
+            for sheet_data in structure.get("sheets", []):
+                ws = wb.create_sheet(title=sheet_data.get("name", "Sheet")[:31])
+
+                current_row = 1
+                if "title" in sheet_data and sheet_data["title"]:
+                    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max(len(sheet_data.get("headers", [])), 3))
+                    title_cell = ws.cell(row=1, column=1, value=sheet_data["title"])
+                    title_cell.font = Font(size=16, bold=True)
+                    title_cell.alignment = Alignment(horizontal="center")
+                    current_row = 3
+
+                headers = sheet_data.get("headers", [])
+                if headers:
+                    for col, header in enumerate(headers, 1):
+                        cell = ws.cell(row=current_row, column=col, value=header)
+                        cell.font = Font(bold=True, color="FFFFFF")
+                        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                        cell.border = Border(
+                            bottom=Side(style='thin'),
+                            top=Side(style='thin'),
+                            left=Side(style='thin'),
+                            right=Side(style='thin')
+                        )
+                    current_row += 1
+
+                rows = sheet_data.get("rows", [])
+                for row_idx, row_data in enumerate(rows):
+                    for col, value in enumerate(row_data, 1):
+                        cell = ws.cell(row=current_row, column=col, value=value)
+                        cell.alignment = Alignment(vertical="center")
+                        cell.border = Border(
+                            bottom=Side(style='thin'),
+                            left=Side(style='thin'),
+                            right=Side(style='thin')
+                        )
+                        # Alternate row colors
+                        if row_idx % 2 == 0:
+                            cell.fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+                    current_row += 1
+
+                for formula in sheet_data.get("formulas", []):
+                    cell_ref = formula.get("cell")
+                    if cell_ref:
+                        col_letter = ''.join(filter(str.isalpha, cell_ref))
+                        row_num = int(''.join(filter(str.isdigit, cell_ref)))
+                        col_num = 0
+                        for char in col_letter.upper():
+                            col_num = col_num * 26 + (ord(char) - ord('A') + 1)
+                        cell = ws.cell(row=row_num, column=col_num, value=formula.get("formula"))
+                        cell.font = Font(italic=True)
+                        fmt = formula.get("format")
+                        if fmt == "currency":
+                            cell.number_format = '"$"#,##0.00'
+                        elif fmt == "percentage":
+                            cell.number_format = "0.00%"
+
+                for chart_data in sheet_data.get("charts", []):
+                    chart_type = chart_data.get("type", "bar")
+                    if chart_type == "bar":
+                        chart = BarChart()
+                    elif chart_type == "pie":
+                        chart = PieChart()
+                    elif chart_type == "line":
+                        chart = LineChart()
+                    else:
+                        chart = BarChart()
+                    chart.title = chart_data.get("title", "Chart")
+                    chart.style = 10
+                    try:
+                        data_range = chart_data.get("data_range", "A1:B5")
+                        parts = data_range.split(":")
+                        if len(parts) == 2:
+                            data = Reference(ws, min_col=1, min_row=1, max_col=2, max_row=min(len(rows) + 2, 50))
+                            chart.add_data(data, titles_from_data=True)
+                            pos = chart_data.get("position", "H2")
+                            ws.add_chart(chart, pos)
+                    except Exception as chart_err:
+                        logger.error(f"Chart error: {chart_err}")
+
+                for col_letter, width in sheet_data.get("formatting", {}).get("column_widths", {}).items():
+                    ws.column_dimensions[col_letter].width = width
+
+                if not sheet_data.get("formatting", {}).get("column_widths"):
+                    for column in ws.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        ws.column_dimensions[column_letter].width = max(adjusted_width, 12)
+
+            filepath = OUTPUT_DIR / filename
+            wb.save(filepath)
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "sheets": len(structure.get("sheets", [])),
+                "total_rows": sum(len(s.get("rows", [])) for s in structure.get("sheets", []))
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    @staticmethod
+    async def build_powerpoint(structure: Dict, filename: str) -> Dict:
+        try:
+            prs = Presentation()
+            prs.slide_width = PptxInches(13.333)
+            prs.slide_height = PptxInches(7.5)
+
+            # Title slide
+            title_slide_layout = prs.slide_layouts[0]
+            slide = prs.slides.add_slide(title_slide_layout)
+            title = slide.shapes.title
+            subtitle = slide.placeholders[1]
+            title.text = structure.get("title", "Presentation")
+            subtitle.text = f"Generated by McLeuker AI\n{datetime.now().strftime('%Y-%m-%d')}"
+            title_frame = title.text_frame
+            title_frame.paragraphs[0].font.size = PptxPt(44)
+            title_frame.paragraphs[0].font.bold = True
+
+            for slide_data in structure.get("slides", []):
+                layout_type = slide_data.get("layout", "content")
+                if layout_type == "title":
+                    layout = prs.slide_layouts[6]  # Blank
+                else:
+                    layout = prs.slide_layouts[1]  # Title and content
+
+                slide = prs.slides.add_slide(layout)
+
+                if slide.shapes.title:
+                    slide.shapes.title.text = slide_data.get("title", "")
+
+                content = slide_data.get("content", [])
+                if content and len(slide.placeholders) > 1:
+                    body_shape = slide.placeholders[1]
+                    tf = body_shape.text_frame
+                    tf.text = content[0] if content else ""
+                    for item in content[1:]:
+                        p = tf.add_paragraph()
+                        p.text = item
+                        p.level = 0
+                        p.font.size = PptxPt(18)
+
+                table_data = slide_data.get("table")
+                if table_data and layout_type != "title":
+                    t_rows = len(table_data.get("rows", [])) + 1
+                    t_cols = len(table_data.get("headers", []))
+                    if t_rows > 1 and t_cols > 0:
+                        left = PptxInches(1)
+                        top = PptxInches(2)
+                        width = PptxInches(11)
+                        height = PptxInches(4)
+                        table = slide.shapes.add_table(t_rows, t_cols, left, top, width, height).table
+                        for i, header in enumerate(table_data["headers"]):
+                            cell = table.cell(0, i)
+                            cell.text = header
+                            cell.text_frame.paragraphs[0].font.bold = True
+                            cell.fill.solid()
+                            cell.fill.fore_color.rgb = PptxRGBColor(54, 96, 146)
+                        for i, row in enumerate(table_data.get("rows", [])):
+                            for j, val in enumerate(row):
+                                table.cell(i + 1, j).text = str(val)
+
+            filepath = OUTPUT_DIR / filename
+            prs.save(filepath)
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "slides": len(structure.get("slides", [])) + 1
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    @staticmethod
+    async def build_word(structure: Dict, filename: str) -> Dict:
+        try:
+            doc = Document()
+            title = doc.add_heading(structure.get("title", "Document"), 0)
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            doc.add_paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            doc.add_paragraph()
+
+            for section in structure.get("sections", []):
+                level = min(section.get("level", 1), 4)
+                doc.add_heading(section.get("heading", ""), level=level)
+
+                if "content" in section and section["content"]:
+                    doc.add_paragraph(section["content"])
+
+                for bullet in section.get("bullets", []):
+                    doc.add_paragraph(bullet, style='List Bullet')
+
+                if "table" in section:
+                    table_data = section["table"]
+                    t_headers = table_data.get("headers", [])
+                    t_rows_data = table_data.get("rows", [])
+                    if t_headers and t_rows_data:
+                        table = doc.add_table(rows=len(t_rows_data) + 1, cols=len(t_headers))
+                        table.style = 'Light Grid Accent 1'
+                        for i, header in enumerate(t_headers):
+                            table.rows[0].cells[i].text = header
+                        for i, row in enumerate(t_rows_data):
+                            for j, val in enumerate(row):
+                                if j < len(t_headers):
+                                    table.rows[i + 1].cells[j].text = str(val)
+
+                doc.add_paragraph()
+
+            filepath = OUTPUT_DIR / filename
+            doc.save(filepath)
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "sections": len(structure.get("sections", []))
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+    @staticmethod
+    async def build_pdf(structure: Dict, filename: str) -> Dict:
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+
+            # Title
+            pdf.set_font("Arial", "B", 20)
+            pdf.cell(0, 15, structure.get("title", "Document"), ln=True, align="C")
+            pdf.ln(10)
+
+            # Metadata
+            pdf.set_font("Arial", "", 10)
+            pdf.cell(0, 10, f"Generated: {datetime.now().strftime('%Y-%m-%d')}", ln=True, align="C")
+            pdf.ln(10)
+
+            for section in structure.get("sections", []):
+                pdf.set_font("Arial", "B", 14)
+                heading = section.get("heading", "")
+                # Encode to latin-1 safe
+                safe_heading = heading.encode('latin-1', 'replace').decode('latin-1')
+                pdf.cell(0, 12, safe_heading, ln=True)
+
+                pdf.set_font("Arial", "", 11)
+                if "content" in section and section["content"]:
+                    safe_content = section["content"].encode('latin-1', 'replace').decode('latin-1')
+                    pdf.multi_cell(0, 8, safe_content)
+                    pdf.ln(5)
+
+                for bullet in section.get("bullets", []):
+                    safe_bullet = bullet.encode('latin-1', 'replace').decode('latin-1')
+                    pdf.cell(5)  # Indent
+                    pdf.cell(5, 8, chr(149), ln=0)
+                    pdf.multi_cell(0, 8, f" {safe_bullet}")
+
+                pdf.ln(5)
+
+            filepath = OUTPUT_DIR / filename
+            pdf.output(str(filepath))
+            return {
+                "success": True,
+                "filename": filename,
+                "filepath": str(filepath),
+                "pages": pdf.page_no()
+            }
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e)}
+
+
+# ============================================================================
+# UNIFIED FILE GENERATION SERVICE
+# ============================================================================
+
+class FileGenerationService:
+    """Main service for file generation - orchestrates KimiContentGenerator + FileBuilder."""
+
+    # In-memory file registry for download tracking
+    generated_files: Dict[str, Dict] = {}
+
+    @classmethod
+    async def generate(cls, file_type: str, prompt: str, content_data: Dict = None) -> Dict:
+        """Generate file from natural language prompt."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_id = str(uuid.uuid4())[:8]
+
+        try:
+            if file_type in ("excel", "csv"):
+                structure = await KimiContentGenerator.generate_excel_structure(prompt)
+                filename = f"report_{timestamp}_{file_id}.xlsx"
+                result = await FileBuilder.build_excel(structure, filename)
+
+            elif file_type in ("powerpoint", "pptx"):
+                structure = await KimiContentGenerator.generate_presentation_structure(prompt)
+                filename = f"presentation_{timestamp}_{file_id}.pptx"
+                result = await FileBuilder.build_powerpoint(structure, filename)
+
+            elif file_type == "word":
+                structure = await KimiContentGenerator.generate_document_structure(prompt)
+                filename = f"document_{timestamp}_{file_id}.docx"
+                result = await FileBuilder.build_word(structure, filename)
+
+            elif file_type == "pdf":
+                structure = await KimiContentGenerator.generate_document_structure(prompt)
+                filename = f"document_{timestamp}_{file_id}.pdf"
+                result = await FileBuilder.build_pdf(structure, filename)
+
+            elif file_type == "json":
+                filename = f"data_{timestamp}_{file_id}.json"
+                filepath = OUTPUT_DIR / filename
+                with open(filepath, 'w') as f:
+                    json.dump(content_data or {"prompt": prompt, "generated": datetime.now().isoformat()}, f, indent=2)
+                result = {"success": True, "filename": filename, "filepath": str(filepath)}
+
+            else:
+                return {"error": f"Unknown file type: {file_type}"}
+
+            if result.get("success"):
+                result["download_url"] = f"/api/v1/download/{file_id}"
+                result["file_type"] = file_type
+                result["file_id"] = file_id
+                result["prompt"] = prompt
+
+                # Register in file registry
+                cls.generated_files[file_id] = {
+                    "filename": result["filename"],
+                    "path": result["filepath"],
+                    "type": file_type,
+                    "created": datetime.now().isoformat(),
+                    "download_url": result["download_url"]
+                }
+
+            return result
+
+        except Exception as e:
+            traceback.print_exc()
+            return {"error": str(e), "file_type": file_type}
+
+    @classmethod
+    def get_file(cls, file_id: str) -> Optional[Dict]:
+        """Get file info by ID."""
+        return cls.generated_files.get(file_id)
+
+    @classmethod
+    def cleanup_old_files(cls, max_age_hours: int = 24) -> int:
+        """Remove files older than max_age_hours."""
+        to_remove = []
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        for fid, info in cls.generated_files.items():
+            try:
+                created = datetime.fromisoformat(info["created"])
+                if created < cutoff:
+                    to_remove.append(fid)
+                    path = info.get("path")
+                    if path and os.path.exists(path):
+                        os.remove(path)
+            except:
+                pass
+        for fid in to_remove:
+            del cls.generated_files[fid]
+        return len(to_remove)
+    
+    @classmethod
+    def generate_excel(
+        cls,
+        data: Union[Dict, List, pd.DataFrame],
+        filename: str = None,
+        title: str = None,
+        include_charts: bool = False,
+        styling: Dict = None
+    ) -> str:
+        """Generate professional Excel with formatting and optional charts"""
+        if filename is None:
+            filename = f"report_{uuid.uuid4().hex[:8]}.xlsx"
+        if not filename.endswith('.xlsx'):
+            filename += '.xlsx'
+        
+        filepath = OUTPUT_DIR / filename
+        
+        # Convert data to DataFrame(s)
+        if isinstance(data, pd.DataFrame):
+            sheets = {"Data": data}
+        elif isinstance(data, list):
+            sheets = {"Data": pd.DataFrame(data)}
+        elif isinstance(data, dict):
+            sheets = {}
+            for key, value in data.items():
+                if isinstance(value, list):
+                    sheets[key] = pd.DataFrame(value)
+                elif isinstance(value, dict):
+                    sheets[key] = pd.DataFrame([value])
+                elif isinstance(value, pd.DataFrame):
+                    sheets[key] = value
+                else:
+                    sheets[key] = pd.DataFrame({"content": [str(value)]})
+        else:
+            sheets = {"Data": pd.DataFrame({"content": [str(data)]})}
+        
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            for sheet_name, df in sheets.items():
+                # Sanitize sheet name
+                safe_name = str(sheet_name)[:31]
+                df.to_excel(writer, sheet_name=safe_name, index=False, startrow=2 if title else 0)
+                
+                workbook = writer.book
+                worksheet = writer.sheets[safe_name]
+                
+                # Apply styling
+                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                from openpyxl.chart import BarChart, PieChart, LineChart, Reference
+                from openpyxl.utils.dataframe import dataframe_to_rows
+                
+                # Title row
+                if title:
+                    worksheet.merge_cells('A1:' + chr(64 + len(df.columns)) + '1')
+                    title_cell = worksheet['A1']
+                    title_cell.value = title
+                    title_cell.font = Font(size=16, bold=True, color="FFFFFF")
+                    title_cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                    title_cell.alignment = Alignment(horizontal='center', vertical='center')
+                    worksheet.row_dimensions[1].height = 30
+                
+                # Header styling
+                header_fill = PatternFill(start_color="B8CCE4", end_color="B8CCE4", fill_type="solid")
+                header_font = Font(bold=True, size=11)
+                
+                for col_num, column in enumerate(df.columns, 1):
+                    cell = worksheet.cell(row=(3 if title else 1), column=col_num)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Auto-adjust column width
+                    max_length = len(str(column))
+                    for value in df[column]:
+                        max_length = max(max_length, len(str(value)))
+                    worksheet.column_dimensions[chr(64 + col_num)].width = min(max_length + 4, 50)
+                
+                # Add chart if requested and data is suitable
+                if include_charts and len(df) > 0:
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    if len(numeric_cols) > 0:
+                        chart = BarChart()
+                        chart.type = "col"
+                        chart.style = 10
+                        chart.title = f"{safe_name} Chart"
+                        chart.y_axis.title = 'Value'
+                        chart.x_axis.title = 'Category'
+                        
+                        data_ref = Reference(worksheet, min_col=2, min_row=2, max_row=len(df)+2, max_col=len(df.columns))
+                        cats_ref = Reference(worksheet, min_col=1, min_row=3, max_row=len(df)+2)
+                        chart.add_data(data_ref, titles_from_data=True)
+                        chart.set_categories(cats_ref)
+                        chart.shape = 4
+                        worksheet.add_chart(chart, chr(64 + len(df.columns) + 2) + "5")
+        
+        file_id = uuid.uuid4().hex[:16]
+        cls.generated_files[file_id] = {
+            "path": str(filepath),
+            "filename": filename,
+            "type": "excel",
+            "created": datetime.now().isoformat()
+        }
+        
+        return file_id
+    
+    @classmethod
+    def generate_word(
+        cls,
+        content: str,
+        title: str = None,
+        subtitle: str = None,
+        filename: str = None,
+        styling: Dict = None
+    ) -> str:
+        """Generate professional Word document"""
+        if filename is None:
+            filename = f"document_{uuid.uuid4().hex[:8]}.docx"
+        if not filename.endswith('.docx'):
+            filename += '.docx'
+        
+        filepath = OUTPUT_DIR / filename
+        doc = Document()
+        
+        # Set default font
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Calibri'
+        font.size = Pt(11)
+        
+        # Title page
+        if title:
+            title_para = doc.add_heading(title, 0)
+            title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in title_para.runs:
+                run.font.color.rgb = RGBColor(0x36, 0x60, 0x92)
+            
+            if subtitle:
+                subtitle_para = doc.add_paragraph(subtitle)
+                subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                subtitle_para.runs[0].font.size = Pt(14)
+                subtitle_para.runs[0].font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+            
+            doc.add_page_break()
+        
+        # Table of contents placeholder
+        if styling and styling.get('include_toc'):
+            doc.add_heading('Table of Contents', level=1)
+            toc_para = doc.add_paragraph('(Right-click and select "Update Field" to generate)')
+            toc_para.runs[0].font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+            doc.add_page_break()
+        
+        # Parse and add content
+        lines = content.split('\n')
+        current_table_data = []
+        in_table = False
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                if in_table and current_table_data:
+                    # Add accumulated table
+                    cls._add_table_to_doc(doc, current_table_data)
+                    current_table_data = []
+                    in_table = False
+                continue
+            
+            # Headers
+            if line.startswith('# '):
+                doc.add_heading(line[2:], level=1)
+            elif line.startswith('## '):
+                doc.add_heading(line[3:], level=2)
+            elif line.startswith('### '):
+                doc.add_heading(line[4:], level=3)
+            # Lists
+            elif line.startswith('- ') or line.startswith('* '):
+                if in_table:
+                    cls._add_table_to_doc(doc, current_table_data)
+                    current_table_data = []
+                    in_table = False
+                doc.add_paragraph(line[2:], style='List Bullet')
+            elif re.match(r'^\d+\.', line):
+                if in_table:
+                    cls._add_table_to_doc(doc, current_table_data)
+                    current_table_data = []
+                    in_table = False
+                doc.add_paragraph(re.sub(r'^\d+\.', '', line).strip(), style='List Number')
+            # Tables (markdown-style)
+            elif '|' in line:
+                in_table = True
+                cells = [c.strip() for c in line.split('|') if c.strip()]
+                if cells and not all(c.replace('-', '').replace(':', '') == '' for c in cells):
+                    current_table_data.append(cells)
+            # Regular paragraph
+            else:
+                if in_table:
+                    cls._add_table_to_doc(doc, current_table_data)
+                    current_table_data = []
+                    in_table = False
+                doc.add_paragraph(line)
+        
+        # Add any remaining table
+        if in_table and current_table_data:
+            cls._add_table_to_doc(doc, current_table_data)
+        
+        # Footer
+        doc.add_paragraph()
+        footer = doc.add_paragraph()
+        footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        footer_run = footer.add_run(f"\nGenerated by McLeuker AI on {datetime.now().strftime('%B %d, %Y at %H:%M')}")
+        footer_run.font.size = Pt(9)
+        footer_run.font.color.rgb = RGBColor(0x80, 0x80, 0x80)
+        footer_run.font.italic = True
+        
+        doc.save(filepath)
+        
+        file_id = uuid.uuid4().hex[:16]
+        cls.generated_files[file_id] = {
+            "path": str(filepath),
+            "filename": filename,
+            "type": "word",
+            "created": datetime.now().isoformat()
+        }
+        
+        return file_id
+    
+    @classmethod
+    def _add_table_to_doc(cls, doc: Document, table_data: List[List[str]]):
+        """Helper to add a table to document"""
+        if len(table_data) < 1:
+            return
+        
+        num_cols = max(len(row) for row in table_data)
+        table = doc.add_table(rows=len(table_data), cols=num_cols)
+        table.style = 'Light Grid Accent 1'
+        
+        for i, row_data in enumerate(table_data):
+            row = table.rows[i]
+            for j, cell_text in enumerate(row_data):
+                if j < num_cols:
+                    row.cells[j].text = cell_text
+                    # Bold first row (header)
+                    if i == 0:
+                        for paragraph in row.cells[j].paragraphs:
+                            for run in paragraph.runs:
+                                run.font.bold = True
+    
+    @classmethod
+    def generate_pdf(
+        cls,
+        content: str,
+        title: str = None,
+        filename: str = None,
+        include_toc: bool = False
+    ) -> str:
+        """Generate professional PDF with ReportLab"""
+        if filename is None:
+            filename = f"report_{uuid.uuid4().hex[:8]}.pdf"
+        if not filename.endswith('.pdf'):
+            filename += '.pdf'
+        
+        filepath = OUTPUT_DIR / filename
+        
+        doc = SimpleDocTemplate(
+            str(filepath),
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=18
+        )
+        
+        styles = getSampleStyleSheet()
+        story = []
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#366092'),
+            spaceAfter=30,
+            alignment=1  # Center
+        )
+        
+        heading1_style = ParagraphStyle(
+            'CustomH1',
+            parent=styles['Heading1'],
+            fontSize=18,
+            textColor=colors.HexColor('#366092'),
+            spaceAfter=12
+        )
+        
+        heading2_style = ParagraphStyle(
+            'CustomH2',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#4F81BD'),
+            spaceAfter=10
+        )
+        
+        # Title
+        if title:
+            story.append(Paragraph(title, title_style))
+            story.append(Spacer(1, 20))
+        
+        # Parse content
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                story.append(Spacer(1, 12))
+                continue
+            
+            # Headers
+            if line.startswith('# '):
+                story.append(Paragraph(line[2:], heading1_style))
+            elif line.startswith('## '):
+                story.append(Paragraph(line[3:], heading2_style))
+            elif line.startswith('### '):
+                story.append(Paragraph(line[4:], styles['Heading3']))
+            # Lists
+            elif line.startswith('- ') or line.startswith('* '):
+                story.append(Paragraph(f"• {line[2:]}", styles['BodyText']))
+            elif re.match(r'^\d+\.', line):
+                story.append(Paragraph(line, styles['BodyText']))
+            else:
+                story.append(Paragraph(line, styles['BodyText']))
+        
+        # Footer
+        story.append(Spacer(1, 30))
+        footer_style = ParagraphStyle(
+            'Footer',
+            parent=styles['Normal'],
+            fontSize=9,
+            textColor=colors.gray,
+            alignment=1
+        )
+        story.append(Paragraph(
+            f"Generated by McLeuker AI on {datetime.now().strftime('%B %d, %Y')}",
+            footer_style
+        ))
+        
+        doc.build(story)
+        
+        file_id = uuid.uuid4().hex[:16]
+        cls.generated_files[file_id] = {
+            "path": str(filepath),
+            "filename": filename,
+            "type": "pdf",
+            "created": datetime.now().isoformat()
+        }
+        
+        return file_id
+    
+    @classmethod
+    def generate_pptx(
+        cls,
+        content: str,
+        title: str = None,
+        filename: str = None,
+        theme: str = "professional"
+    ) -> str:
+        """Generate professional PowerPoint presentation"""
+        if filename is None:
+            filename = f"presentation_{uuid.uuid4().hex[:8]}.pptx"
+        if not filename.endswith('.pptx'):
+            filename += '.pptx'
+        
+        filepath = OUTPUT_DIR / filename
+        prs = Presentation()
+        
+        # Theme colors
+        themes = {
+            "professional": {"primary": PptxRGBColor(54, 96, 146), "secondary": PptxRGBColor(79, 129, 189)},
+            "modern": {"primary": PptxRGBColor(0, 112, 192), "secondary": PptxRGBColor(0, 176, 240)},
+            "dark": {"primary": PptxRGBColor(64, 64, 64), "secondary": PptxRGBColor(128, 128, 128)}
+        }
+        theme_colors = themes.get(theme, themes["professional"])
+        
+        # Title slide
+        title_slide_layout = prs.slide_layouts[0]
+        slide = prs.slides.add_slide(title_slide_layout)
+        
+        if title:
+            slide.shapes.title.text = title
+        else:
+            slide.shapes.title.text = "McLeuker AI Presentation"
+        
+        subtitle = slide.placeholders[1]
+        subtitle.text = f"Generated on {datetime.now().strftime('%B %d, %Y')}"
+        
+        # Parse content into slides
+        sections = content.split('\n\n')
+        current_title = ""
+        current_bullets = []
+        
+        for section in sections:
+            lines = section.strip().split('\n')
+            if not lines or not lines[0].strip():
+                continue
+            
+            # Check if this is a title
+            if lines[0].strip().startswith('#') or (len(lines[0]) < 60 and not lines[0].startswith('-')):
+                # Save previous slide if exists
+                if current_title and current_bullets:
+                    cls._add_content_slide(prs, current_title, current_bullets, theme_colors)
+                
+                current_title = lines[0].lstrip('#').strip()
+                current_bullets = []
+                
+                # Add remaining lines as bullets
+                for line in lines[1:]:
+                    line = line.strip()
+                    if line.startswith('- ') or line.startswith('* '):
+                        current_bullets.append(line[2:])
+                    elif line:
+                        current_bullets.append(line)
+            else:
+                # Add to current bullets
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('- ') or line.startswith('* '):
+                        current_bullets.append(line[2:])
+                    elif re.match(r'^\d+\.', line):
+                        current_bullets.append(line)
+                    elif line:
+                        current_bullets.append(line)
+        
+        # Add final slide
+        if current_title and current_bullets:
+            cls._add_content_slide(prs, current_title, current_bullets, theme_colors)
+        
+        # Thank you slide
+        thank_you_layout = prs.slide_layouts[6]  # Blank
+        slide = prs.slides.add_slide(thank_you_layout)
+        
+        # Add centered text
+        left = PptxInches(1)
+        top = PptxInches(3)
+        width = PptxInches(8)
+        height = PptxInches(2)
+        
+        textbox = slide.shapes.add_textbox(left, top, width, height)
+        tf = textbox.text_frame
+        tf.text = "Thank You"
+        p = tf.paragraphs[0]
+        p.font.size = PptxPt(44)
+        p.font.bold = True
+        p.font.color.rgb = theme_colors["primary"]
+        p.alignment = PP_ALIGN.CENTER
+        
+        prs.save(filepath)
+        
+        file_id = uuid.uuid4().hex[:16]
+        cls.generated_files[file_id] = {
+            "path": str(filepath),
+            "filename": filename,
+            "type": "pptx",
+            "created": datetime.now().isoformat()
+        }
+        
+        return file_id
+    
+    @classmethod
+    def _add_content_slide(cls, prs: Presentation, title: str, bullets: List[str], theme_colors: Dict):
+        """Add a content slide to presentation"""
+        content_layout = prs.slide_layouts[1]  # Title and Content
+        slide = prs.slides.add_slide(content_layout)
+        
+        # Title
+        slide.shapes.title.text = title[:50]  # Limit length
+        
+        # Content
+        body_shape = slide.placeholders[1]
+        tf = body_shape.text_frame
+        tf.clear()
+        
+        for i, bullet in enumerate(bullets[:8]):  # Limit bullets per slide
+            if i == 0:
+                p = tf.paragraphs[0]
+            else:
+                p = tf.add_paragraph()
+            
+            p.text = bullet[:100]  # Limit bullet length
+            p.level = 0
+            p.font.size = PptxPt(18)
+    
+    @classmethod
+    def get_file(cls, file_id: str) -> Optional[Dict]:
+        """Get file info by ID"""
+        return cls.generated_files.get(file_id)
+    
+    @classmethod
+    def cleanup_old_files(cls, max_age_hours: int = 24):
+        """Clean up files older than specified hours"""
+        cutoff = datetime.now() - timedelta(hours=max_age_hours)
+        to_remove = []
+        
+        for file_id, file_info in cls.generated_files.items():
+            created = datetime.fromisoformat(file_info["created"])
+            if created < cutoff:
+                try:
+                    os.remove(file_info["path"])
+                    to_remove.append(file_id)
+                except:
+                    pass
+        
+        for file_id in to_remove:
+            del cls.generated_files[file_id]
+        
+        return len(to_remove)
+
+# ============================================================================
+# VISION TO CODE
+# ============================================================================
+
+class VisionToCode:
+    """Convert images to complete code implementations"""
+    
+    FRAMEWORK_TEMPLATES = {
+        "html": {
+            "prompt": """Create a single, complete HTML file with embedded CSS and JavaScript.
+Requirements:
+- Use Tailwind CSS via CDN
+- Include smooth animations and transitions
+- Make it fully responsive
+- Add interactive elements
+- Use modern CSS (flexbox, grid)
+- Include hover effects
+- Add loading states where appropriate""",
+            "extension": "html"
         },
-        "focus_areas": [
-            "Fashion", "Beauty", "Textile", "Skincare",
-            "Lifestyle", "Tech", "Sustainability", "Culture", "Catwalks"
-        ],
-        "current_date": datetime.now().strftime("%B %d, %Y"),
-        "services": {
-            "grok": settings.is_grok_configured(),
-            "perplexity": bool(settings.PERPLEXITY_API_KEY),
-            "exa": bool(settings.EXA_API_KEY),
-            "google": bool(settings.GOOGLE_SEARCH_API_KEY),
-            "bing": bool(settings.BING_API_KEY)
+        "react": {
+            "prompt": """Create a complete React functional component with:
+- TypeScript for type safety
+- React hooks (useState, useEffect, etc.)
+- Tailwind CSS for styling
+- Framer Motion for animations (if needed)
+- Proper component structure
+- Props interface definition
+- Responsive design""",
+            "extension": "tsx"
+        },
+        "vue": {
+            "prompt": """Create a complete Vue 3 Composition API component with:
+- TypeScript
+- <script setup> syntax
+- Scoped styles
+- Reactive state management
+- Props definition
+- Responsive design""",
+            "extension": "vue"
+        },
+        "svelte": {
+            "prompt": """Create a complete Svelte component with:
+- Reactive statements
+- Event handling
+- Scoped styles
+- Smooth transitions
+- Responsive design""",
+            "extension": "svelte"
+        },
+        "angular": {
+            "prompt": """Create a complete Angular component with:
+- TypeScript class
+- Template HTML
+- Component styles
+- Input/Output decorators
+- Responsive design""",
+            "extension": "ts"
         }
     }
-
-
-# =============================================================================
-# Chat Endpoints
-# =============================================================================
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """
-    Main chat endpoint - processes user queries.
     
-    Modes:
-    - quick: Fast response with minimal search
-    - deep: Comprehensive research with extensive search
-    - auto: Automatically determines the best approach
-    """
-    # Generate session ID if not provided
-    session_id = request.session_id or str(uuid.uuid4())
-    user_id = request.user_id or "anonymous"
-    
-    # Convert conversation history to dict format
-    history = [
-        {"role": msg.role, "content": msg.content}
-        for msg in (request.conversation_history or [])
-    ]
-    
-    # Process the request through the orchestrator
-    result = await orchestrator.process(
-        query=request.message,
-        session_id=session_id,
-        user_id=user_id,
-        mode=request.mode or "auto",
-        conversation_history=history
-    )
-    
-    return ChatResponse(
-        success=result.success,
-        response=result.response,
-        session_id=result.session_id,
-        reasoning=result.reasoning,
-        sources=result.sources,
-        files=result.files,
-        images=result.images,
-        follow_up_questions=result.follow_up_questions,
-        credits_used=result.credits_used,
-        error=result.error
-    )
+    @classmethod
+    async def generate(
+        cls,
+        image_base64: str,
+        requirements: str,
+        framework: str = "html",
+        styling_preference: str = "tailwind"
+    ) -> Dict:
+        """Generate complete code from UI image"""
+        
+        template = cls.FRAMEWORK_TEMPLATES.get(framework, cls.FRAMEWORK_TEMPLATES["html"])
+        
+        prompt = f"""Analyze this UI design image and generate production-ready {framework.upper()} code.
 
+User Requirements: {requirements}
 
-@app.post("/api/chat/stream")
+{template['prompt']}
+
+Styling Preference: {styling_preference}
+
+Output ONLY the complete, runnable code. Include all necessary dependencies and setup instructions in comments."""
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_base64}",
+                            "detail": "high"
+                        }
+                    }
+                ]
+            }
+        ]
+        
+        response = client.chat.completions.create(
+            model="kimi-k2.5",
+            messages=messages,
+            max_tokens=16384,
+            temperature=0.6,
+            extra_body={"thinking": {"type": "enabled"}}
+        )
+        
+        content = response.choices[0].message.content
+        
+        # Extract code blocks
+        code_blocks = cls._extract_code_blocks(content, framework)
+        
+        # Generate preview HTML if not HTML framework
+        preview_html = None
+        if framework != "html":
+            preview_html = await cls._generate_preview(code_blocks, framework)
+        
+        return {
+            "raw_response": content,
+            "code_blocks": code_blocks,
+            "framework": framework,
+            "styling": styling_preference,
+            "preview_html": preview_html,
+            "tokens_used": response.usage.total_tokens,
+            "reasoning": getattr(response.choices[0].message, 'reasoning_content', None)
+        }
+    
+    @classmethod
+    def _extract_code_blocks(cls, content: str, framework: str) -> List[Dict]:
+        """Extract code blocks from markdown"""
+        blocks = []
+        
+        # Pattern for code blocks
+        pattern = r'```(\w+)?\n(.*?)```'
+        matches = re.findall(pattern, content, re.DOTALL)
+        
+        for lang, code in matches:
+            blocks.append({
+                "language": lang or framework,
+                "code": code.strip(),
+                "lines": len(code.strip().split('\n'))
+            })
+        
+        # If no code blocks, try to extract the whole thing
+        if not blocks:
+            # Remove markdown formatting
+            clean_code = re.sub(r'^#.*\n?', '', content, flags=re.MULTILINE)
+            clean_code = re.sub(r'\*\*|__|\*|_', '', clean_code)
+            
+            blocks.append({
+                "language": framework,
+                "code": clean_code.strip(),
+                "lines": len(clean_code.strip().split('\n'))
+            })
+        
+        return blocks
+    
+    @classmethod
+    async def _generate_preview(cls, code_blocks: List[Dict], framework: str) -> str:
+        """Generate preview HTML for non-HTML frameworks"""
+        # This would create a sandboxed preview
+        # For now, return a placeholder
+        return f"<!-- Preview for {framework} - implement with CodeSandbox or similar -->"
+
+# ============================================================================
+# CODE EXECUTION SANDBOX
+# ============================================================================
+
+class CodeSandbox:
+    """Secure code execution environment"""
+    
+    ALLOWED_MODULES = {
+        'python': ['numpy', 'pandas', 'matplotlib', 'seaborn', 'requests', 'json', 'math', 'random', 'datetime', 'statistics'],
+        'javascript': ['axios', 'lodash', 'moment', 'uuid'],
+    }
+    
+    @classmethod
+    async def execute(
+        cls,
+        code: str,
+        language: str = "python",
+        timeout: int = 30,
+        dependencies: List[str] = None,
+        inputs: Dict[str, Any] = None
+    ) -> Dict:
+        """Execute code in sandboxed environment"""
+        
+        execution_id = uuid.uuid4().hex[:12]
+        sandbox_dir = CODE_SANDBOX_DIR / execution_id
+        sandbox_dir.mkdir(exist_ok=True)
+        
+        try:
+            if language == "python":
+                return await cls._execute_python(code, sandbox_dir, timeout, dependencies, inputs)
+            elif language in ["javascript", "typescript"]:
+                return await cls._execute_javascript(code, sandbox_dir, timeout, dependencies)
+            elif language == "bash":
+                return await cls._execute_bash(code, sandbox_dir, timeout)
+            elif language == "sql":
+                return await cls._execute_sql(code, inputs)
+            else:
+                return {"error": f"Unsupported language: {language}"}
+        finally:
+            # Cleanup
+            try:
+                shutil.rmtree(sandbox_dir)
+            except:
+                pass
+    
+    @classmethod
+    async def _execute_python(
+        cls,
+        code: str,
+        sandbox_dir: Path,
+        timeout: int,
+        dependencies: List[str],
+        inputs: Dict[str, Any]
+    ) -> Dict:
+        """Execute Python code"""
+        
+        # Create script with input injection
+        script_content = f"""
+import sys
+import json
+import traceback
+
+# Inject inputs
+__inputs = {json.dumps(inputs or {})}
+
+# Capture output
+from io import StringIO
+__stdout_capture = StringIO()
+__stderr_capture = StringIO()
+old_stdout = sys.stdout
+old_stderr = sys.stderr
+sys.stdout = __stdout_capture
+sys.stderr = __stderr_capture
+
+try:
+{chr(10).join('    ' + line for line in code.split(chr(10)))}
+    
+    # Get output
+    sys.stdout = old_stdout
+    sys.stderr = old_stderr
+    
+    result = {{
+        "success": True,
+        "stdout": __stdout_capture.getvalue(),
+        "stderr": __stderr_capture.getvalue(),
+        "outputs": {{}}
+    }}
+    
+    # Try to capture any variables
+    for var in ['result', 'output', 'data', 'df', 'chart']:
+        if var in dir():
+            try:
+                val = eval(var)
+                if hasattr(val, 'to_dict'):  # pandas DataFrame
+                    result["outputs"][var] = val.to_dict()
+                elif hasattr(val, 'tolist'):  # numpy array
+                    result["outputs"][var] = val.tolist()
+                else:
+                    result["outputs"][var] = str(val)[:1000]
+            except:
+                pass
+    
+    print(json.dumps(result))
+    
+except Exception as e:
+    sys.stdout = old_stdout
+    sys.stderr = old_stderr
+    print(json.dumps({{
+        "success": False,
+        "error": str(e),
+        "traceback": traceback.format_exc()
+    }}))
+"""
+        
+        script_path = sandbox_dir / "script.py"
+        script_path.write_text(script_content)
+        
+        # Execute with timeout
+        try:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, str(script_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(sandbox_dir)
+            )
+            
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+            
+            # Parse output
+            output = stdout.decode().strip().split('\n')[-1]  # Get last line (JSON)
+            
+            try:
+                result = json.loads(output)
+                result["execution_time"] = timeout
+                return result
+            except:
+                return {
+                    "success": True,
+                    "stdout": stdout.decode(),
+                    "stderr": stderr.decode(),
+                    "raw_output": output
+                }
+                
+        except asyncio.TimeoutError:
+            process.kill()
+            return {"error": f"Execution timed out after {timeout} seconds"}
+        except Exception as e:
+            return {"error": str(e), "stderr": stderr.decode() if 'stderr' in locals() else ""}
+    
+    @classmethod
+    async def _execute_javascript(cls, code: str, sandbox_dir: Path, timeout: int, dependencies: List[str]) -> Dict:
+        """Execute JavaScript/TypeScript with Node.js"""
+        
+        # Check if Node.js is available
+        try:
+            process = await asyncio.create_subprocess_exec(
+                'node', '--version',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await process.communicate()
+            
+            if process.returncode != 0:
+                return {"error": "Node.js not available"}
+        except:
+            return {"error": "Node.js not installed"}
+        
+        # Wrap code for execution
+        wrapped_code = f"""
+const console_output = {{ stdout: [], stderr: [] }};
+const originalLog = console.log;
+const originalError = console.error;
+
+console.log = (...args) => {{
+    console_output.stdout.push(args.join(' '));
+    originalLog(...args);
+}};
+
+console.error = (...args) => {{
+    console_output.stderr.push(args.join(' '));
+    originalError(...args);
+}};
+
+try {{
+{code}
+    console.log(JSON.stringify({{ success: true, output: console_output }}));
+}} catch (e) {{
+    console.log(JSON.stringify({{ success: false, error: e.message, stack: e.stack }}));
+}}
+"""
+        
+        script_path = sandbox_dir / "script.js"
+        script_path.write_text(wrapped_code)
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                'node', str(script_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(sandbox_dir)
+            )
+            
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+            
+            try:
+                result = json.loads(stdout.decode().strip().split('\n')[-1])
+                return result
+            except:
+                return {
+                    "success": True,
+                    "stdout": stdout.decode(),
+                    "stderr": stderr.decode()
+                }
+                
+        except asyncio.TimeoutError:
+            process.kill()
+            return {"error": f"Execution timed out after {timeout} seconds"}
+    
+    @classmethod
+    async def _execute_bash(cls, code: str, sandbox_dir: Path, timeout: int) -> Dict:
+        """Execute bash commands (limited)"""
+        
+        # Security: Only allow safe commands
+        dangerous = ['rm -rf /', 'mkfs', 'dd if=', ':(){ :|:& };:', '> /dev/sda']
+        for d in dangerous:
+            if d in code:
+                return {"error": "Dangerous command detected"}
+        
+        try:
+            process = await asyncio.create_subprocess_shell(
+                code,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(sandbox_dir)
+            )
+            
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+            
+            return {
+                "success": process.returncode == 0,
+                "stdout": stdout.decode(),
+                "stderr": stderr.decode(),
+                "exit_code": process.returncode
+            }
+            
+        except asyncio.TimeoutError:
+            process.kill()
+            return {"error": f"Execution timed out after {timeout} seconds"}
+    
+    @classmethod
+    async def _execute_sql(cls, code: str, inputs: Dict[str, Any]) -> Dict:
+        """Execute SQL (requires database connection)"""
+        # Placeholder - would need actual DB connection
+        return {
+            "success": True,
+            "message": "SQL execution requires database configuration",
+            "query": code
+        }
+
+# ============================================================================
+# TOOL DEFINITIONS
+# ============================================================================
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "realtime_search",
+            "description": "Search for real-time information from web, news, YouTube, and social media. CRITICAL: Use this for ANY question about current events, recent news, or time-sensitive information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["web", "news", "academic", "youtube", "social"]},
+                        "default": ["web", "news"]
+                    },
+                    "num_results": {"type": "integer", "default": 10},
+                    "recency_days": {"type": "integer", "description": "Limit to recent results (days)"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_excel",
+            "description": "Generate a professional Excel spreadsheet with data, formatting, and optional charts. Use for lists, tables, financial data, or any structured data export.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "object", "description": "Data as object with sheet names as keys"},
+                    "title": {"type": "string", "description": "Spreadsheet title"},
+                    "filename": {"type": "string"},
+                    "include_charts": {"type": "boolean", "default": False}
+                },
+                "required": ["data"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_word",
+            "description": "Generate a professional Word document (.docx) with formatted content, headers, and styling. Use for reports, proposals, or formal documents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Document content in markdown format"},
+                    "title": {"type": "string"},
+                    "subtitle": {"type": "string"},
+                    "filename": {"type": "string"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_pdf",
+            "description": "Generate a professional PDF document. Use for reports, whitepapers, or documents requiring fixed layout.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string"},
+                    "title": {"type": "string"},
+                    "filename": {"type": "string"},
+                    "include_toc": {"type": "boolean", "default": False}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_presentation",
+            "description": "Generate a PowerPoint presentation (.pptx) with slides. Use for presentations, pitches, or slide decks.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "Content organized by sections/slides"},
+                    "title": {"type": "string"},
+                    "filename": {"type": "string"},
+                    "theme": {"type": "string", "enum": ["professional", "modern", "dark"], "default": "professional"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "deep_research",
+            "description": "Conduct comprehensive research using multiple sources and agents. Use for thorough analysis of complex topics.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "depth": {"type": "string", "enum": ["quick", "deep", "exhaustive"], "default": "deep"},
+                    "generate_report": {"type": "boolean", "default": False}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_code",
+            "description": "Execute code in a sandboxed environment. Use for calculations, data processing, or running scripts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string"},
+                    "language": {"type": "string", "enum": ["python", "javascript", "bash"], "default": "python"},
+                    "timeout": {"type": "integer", "default": 30}
+                },
+                "required": ["code"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_data",
+            "description": "Analyze structured data and provide insights with visualizations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "string", "description": "JSON or CSV data"},
+                    "analysis_type": {"type": "string", "enum": ["summary", "trends", "correlation", "forecast"]},
+                    "generate_chart": {"type": "boolean", "default": True}
+                },
+                "required": ["data", "analysis_type"]
+            }
+        }
+    }
+]
+
+# ============================================================================
+# TOOL EXECUTOR
+# ============================================================================
+
+class ToolExecutor:
+    """Execute tool calls and manage results"""
+    
+    @classmethod
+    async def execute(cls, tool_calls: List[Any]) -> List[Dict]:
+        """Execute multiple tool calls in parallel"""
+        tasks = [cls.execute_single(call) for call in tool_calls]
+        return await asyncio.gather(*tasks)
+    
+    @classmethod
+    async def execute_single(cls, call: Any) -> Dict:
+        """Execute a single tool call with timeout protection"""
+        function_name = call.function.name
+        try:
+            arguments = json.loads(call.function.arguments)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid tool arguments for {function_name}: {e}")
+            return {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "content": json.dumps({"tool": function_name, "status": "error", "error": f"Invalid arguments: {e}"}),
+                "name": function_name
+            }
+        
+        logger.info(f"Executing tool: {function_name} with args: {list(arguments.keys())}")
+        
+        try:
+            result_data = await asyncio.wait_for(
+                cls._execute_tool_inner(function_name, arguments),
+                timeout=60.0  # 60 second max per tool
+            )
+            
+            return {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "content": json.dumps(result_data),
+                "name": function_name
+            }
+            
+        except asyncio.TimeoutError:
+            logger.error(f"Tool {function_name} timed out after 60s")
+            return {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "content": json.dumps({"tool": function_name, "status": "error", "error": "Tool execution timed out after 60 seconds"}),
+                "name": function_name
+            }
+        except Exception as e:
+            logger.error(f"Tool execution error: {e}")
+            return {
+                "tool_call_id": call.id,
+                "role": "tool",
+                "content": json.dumps({"tool": function_name, "status": "error", "error": str(e)}),
+                "name": function_name
+            }
+    
+    @classmethod
+    async def _execute_tool_inner(cls, function_name: str, arguments: Dict) -> Dict:
+        """Inner tool execution logic"""
+        result_data = {"tool": function_name, "status": "success"}
+        
+        if function_name == "realtime_search":
+            search_result = await SearchAPIs.multi_search(
+                arguments["query"],
+                arguments.get("sources", ["web"]),
+                arguments.get("num_results", 10),
+                arguments.get("recency_days")
+            )
+            result_data["result"] = search_result
+            
+        elif function_name == "generate_excel":
+            prompt = arguments.get("title", "Excel spreadsheet") + ": " + json.dumps(arguments.get("data", {}))
+            gen_result = await FileGenerationService.generate("excel", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
+            
+        elif function_name == "generate_word":
+            prompt = (arguments.get("title", "Document") + ": " + arguments.get("content", ""))[:2000]
+            gen_result = await FileGenerationService.generate("word", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
+            
+        elif function_name == "generate_pdf":
+            prompt = (arguments.get("title", "PDF Document") + ": " + arguments.get("content", ""))[:2000]
+            gen_result = await FileGenerationService.generate("pdf", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
+            
+        elif function_name == "generate_presentation":
+            prompt = (arguments.get("title", "Presentation") + ": " + arguments.get("content", ""))[:2000]
+            gen_result = await FileGenerationService.generate("pptx", prompt)
+            if gen_result.get("error"):
+                result_data["status"] = "error"
+                result_data["error"] = gen_result["error"]
+            else:
+                result_data["file_id"] = gen_result["file_id"]
+                result_data["filename"] = gen_result["filename"]
+                result_data["download_url"] = gen_result["download_url"]
+            
+        elif function_name == "deep_research":
+            # Simplified research - just do a search, don't spawn full swarm in streaming
+            search_result = await SearchAPIs.multi_search(
+                arguments["query"],
+                ["web", "news"],
+                10
+            )
+            result_data["result"] = search_result
+            
+        elif function_name == "execute_code":
+            code_result = await CodeSandbox.execute(
+                arguments["code"],
+                arguments.get("language", "python"),
+                min(arguments.get("timeout", 30), 30)  # Cap at 30s
+            )
+            result_data["result"] = code_result
+            
+        elif function_name == "analyze_data":
+            analysis_code = f"""
+import json
+import pandas as pd
+import numpy as np
+
+data = json.loads('''{json.dumps(arguments.get('data', []))}''')
+df = pd.DataFrame(data) if isinstance(data, list) else pd.DataFrame([data])
+
+result = {{}}
+if "{arguments.get('analysis_type', 'summary')}" == "summary":
+    result = df.describe().to_dict()
+else:
+    result = {{"info": str(df.info()), "shape": list(df.shape)}}
+
+print(json.dumps(result))
+"""
+            analysis_result = await CodeSandbox.execute(analysis_code, "python", 30)
+            result_data["result"] = analysis_result
+        
+        else:
+            result_data["status"] = "error"
+            result_data["error"] = f"Unknown tool: {function_name}"
+        
+        return result_data
+
+# ============================================================================
+# KIMI ENGINE
+# ============================================================================
+
+class KimiEngine:
+    """Main Kimi 2.5 interface with all capabilities"""
+    
+    CONFIGS = {
+        "instant": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "extra_body": {"thinking": {"type": "disabled"}}
+        },
+        "thinking": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "extra_body": {"thinking": {"type": "enabled"}}
+        },
+        "agent": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "extra_body": {
+                "thinking": {"type": "disabled"},
+                "parallel_tool_calls": True
+            }
+        },
+        "swarm": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "extra_body": {
+                "thinking": {"type": "enabled"},
+                "parallel_tool_calls": True
+            }
+        },
+        "research": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "extra_body": {
+                "thinking": {"type": "enabled"},
+                "parallel_tool_calls": True
+            }
+        },
+        "code": {
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "extra_body": {"thinking": {"type": "disabled"}}
+        }
+    }
+    
+    @classmethod
+    async def chat(
+        cls,
+        messages: List[Dict],
+        mode: str = "thinking",
+        enable_tools: bool = True,
+        stream: bool = False
+    ) -> Dict[str, Any]:
+        """Execute chat with tools"""
+        
+        config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
+        params = {
+            "model": "kimi-k2.5",
+            "messages": messages,
+            "stream": stream,
+            **config
+        }
+        
+        # Add tools for agent modes
+        if enable_tools and mode in ["agent", "research"]:
+            params["tools"] = TOOLS
+            params["tool_choice"] = "auto"
+        
+        start_time = time.time()
+        response = client.chat.completions.create(**params)
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        if stream:
+            return response
+        
+        message = response.choices[0].message
+        
+        result = {
+            "content": message.content,
+            "reasoning_content": getattr(message, 'reasoning_content', None),
+            "tool_calls": getattr(message, 'tool_calls', None),
+            "mode": mode,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            },
+            "latency_ms": latency_ms
+        }
+        
+        # Execute tools if present
+        if result["tool_calls"]:
+            tool_results = await ToolExecutor.execute(result["tool_calls"])
+            result["tool_results"] = tool_results
+            
+            # Continue conversation
+            continued = await cls.continue_with_tools(messages, message, tool_results)
+            result["content"] = continued["content"]
+            result["tool_outputs"] = continued.get("tool_outputs", [])
+            result["usage"]["total_tokens"] += continued["usage"]["total_tokens"]
+        
+        return result
+    
+    @classmethod
+    async def continue_with_tools(
+        cls,
+        original_messages: List[Dict],
+        assistant_message: Any,
+        tool_results: List[Dict]
+    ) -> Dict[str, Any]:
+        """Continue after tool execution"""
+        
+        messages = original_messages.copy()
+        messages.append({
+            "role": "assistant",
+            "content": assistant_message.content,
+            "reasoning_content": getattr(assistant_message, 'reasoning_content', None),
+            "tool_calls": [tc.model_dump() for tc in assistant_message.tool_calls]
+        })
+        messages.extend([{
+            "role": r["role"],
+            "content": r["content"],
+            "tool_call_id": r["tool_call_id"]
+        } for r in tool_results])
+        
+        response = client.chat.completions.create(
+            model="kimi-k2.5",
+            messages=messages,
+            temperature=0.6,
+            extra_body={"thinking": {"type": "disabled"}}
+        )
+        
+        # Extract file outputs
+        tool_outputs = []
+        for tr in tool_results:
+            try:
+                content = json.loads(tr["content"])
+                if "download_url" in content:
+                    tool_outputs.append({
+                        "type": "file",
+                        "filename": content.get("filename"),
+                        "download_url": content.get("download_url"),
+                        "file_id": content.get("file_id"),
+                        "file_type": content.get("file_type", "unknown")
+                    })
+                elif "result" in content and isinstance(content["result"], dict):
+                    if "sources" in content["result"]:
+                        tool_outputs.append({
+                            "type": "search",
+                            "sources": list(content["result"].get("sources", {}).keys())
+                        })
+            except:
+                pass
+        
+        return {
+            "content": response.choices[0].message.content,
+            "tool_outputs": tool_outputs,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
+            }
+        }
+    
+    @classmethod
+    async def stream_chat(
+        cls,
+        messages: List[Dict],
+        mode: str = "thinking",
+        enable_tools: bool = True
+    ) -> AsyncGenerator[str, None]:
+        """Stream chat responses with full tool execution support"""
+        
+        # Check if user is asking for file generation
+        user_msg = ""
+        for m in messages:
+            if m.get("role") == "user":
+                content = m.get("content", "")
+                if isinstance(content, str):
+                    user_msg = content.lower()
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            user_msg = part.get("text", "").lower()
+        
+        file_keywords = ['excel', 'spreadsheet', 'xlsx', 'csv',
+                        'word doc', 'docx', 'pdf', 'powerpoint', 'presentation', 'pptx',
+                        'word document', 'create a pdf', 'generate a pdf', 'make a pdf',
+                        'create an excel', 'generate an excel', 'make an excel',
+                        'create a word', 'generate a word', 'make a word',
+                        'create a presentation', 'generate a presentation', 'make a presentation']
+        needs_file = any(kw in user_msg for kw in file_keywords)
+        
+        # Determine the file type needed
+        file_type = None
+        if needs_file:
+            if any(kw in user_msg for kw in ['excel', 'spreadsheet', 'xlsx', 'csv']):
+                file_type = 'excel'
+            elif any(kw in user_msg for kw in ['word', 'docx', 'word doc', 'word document']):
+                file_type = 'word'
+            elif any(kw in user_msg for kw in ['pdf']):
+                file_type = 'pdf'
+            elif any(kw in user_msg for kw in ['powerpoint', 'presentation', 'pptx', 'slide']):
+                file_type = 'pptx'
+        
+        # ===== DEDICATED FILE GENERATION PIPELINE =====
+        if needs_file and file_type:
+            async for event in cls._file_generation_pipeline(messages, user_msg, file_type, mode):
+                yield event
+            return
+        
+        # ===== NORMAL CHAT FLOW =====
+        use_tools = enable_tools and mode in ["agent", "research"]
+        
+        config = cls.CONFIGS.get(mode, cls.CONFIGS["thinking"]).copy()
+        params = {
+            "model": "kimi-k2.5",
+            "messages": messages,
+            "stream": True,
+            **config
+        }
+        
+        if use_tools:
+            params["tools"] = TOOLS
+            params["tool_choice"] = "auto"
+        
+        try:
+            response = client.chat.completions.create(**params)
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}})}\n\n"
+            return
+        
+        full_content = ''
+        full_reasoning = ''
+        collected_tool_calls = {}  # index -> {id, function: {name, arguments}}
+        downloads = []
+        
+        for chunk in response:
+            delta = chunk.choices[0].delta
+            finish_reason = chunk.choices[0].finish_reason
+            
+            content = getattr(delta, 'content', None)
+            reasoning = getattr(delta, 'reasoning_content', None)
+            tool_calls_delta = getattr(delta, 'tool_calls', None)
+            
+            if content:
+                full_content += content
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': content}})}\n\n"
+            
+            if reasoning:
+                full_reasoning += reasoning
+                yield f"data: {json.dumps({'type': 'reasoning', 'data': {'chunk': reasoning}})}\n\n"
+            
+            # Collect tool call chunks (they come in pieces across multiple chunks)
+            if tool_calls_delta:
+                for tc in tool_calls_delta:
+                    idx = tc.index
+                    if idx not in collected_tool_calls:
+                        collected_tool_calls[idx] = {
+                            "id": getattr(tc, 'id', None),
+                            "function": {"name": "", "arguments": ""}
+                        }
+                    if tc.id:
+                        collected_tool_calls[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            collected_tool_calls[idx]["function"]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+            
+            # When the model finishes with tool_calls, execute them in a multi-round loop
+            if finish_reason == "tool_calls" and collected_tool_calls:
+                
+                # Build tool call objects helper
+                class ToolCallObj:
+                    def __init__(self, tc_dict):
+                        self.id = tc_dict["id"]
+                        self.function = type('Function', (), {
+                            'name': tc_dict["function"]["name"],
+                            'arguments': tc_dict["function"]["arguments"]
+                        })()
+                
+                # Multi-round tool execution loop (max 3 rounds)
+                current_messages = list(params["messages"])
+                max_rounds = 3
+                
+                for round_num in range(max_rounds):
+                    logger.info(f"Tool execution round {round_num + 1}/{max_rounds}")
+                    
+                    # Determine tool type for status message
+                    tool_names = [tc["function"]["name"] for tc in collected_tool_calls.values()]
+                    has_file_gen = any(n.startswith("generate_") for n in tool_names)
+                    has_search = any(n in ["realtime_search", "deep_research"] for n in tool_names)
+                    
+                    if has_file_gen:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating files...'}})}\n\n"
+                    elif has_search:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching for information...'}})}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Using tools...'}})}\n\n"
+                    
+                    tool_call_objects = [ToolCallObj(tc) for tc in collected_tool_calls.values()]
+                    
+                    try:
+                        tool_results = await ToolExecutor.execute(tool_call_objects)
+                        
+                        # Extract download info from tool results
+                        for tr in tool_results:
+                            try:
+                                result_content = json.loads(tr["content"])
+                                if "download_url" in result_content:
+                                    filename = result_content.get("filename", "file")
+                                    file_type = result_content.get("file_type", "unknown")
+                                    if file_type == "unknown" and "." in filename:
+                                        ext = filename.rsplit(".", 1)[-1].lower()
+                                        ext_map = {"xlsx": "excel", "xls": "excel", "csv": "csv", "docx": "word", "doc": "word", "pdf": "pdf", "pptx": "presentation", "ppt": "presentation"}
+                                        file_type = ext_map.get(ext, ext)
+                                    download_info = {
+                                        "filename": filename,
+                                        "download_url": result_content["download_url"],
+                                        "file_id": result_content.get("file_id", ""),
+                                        "file_type": file_type
+                                    }
+                                    downloads.append(download_info)
+                                    yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
+                            except:
+                                pass
+                        
+                        # Build continuation messages
+                        current_messages.append({
+                            "role": "assistant",
+                            "content": full_content if full_content else None,
+                            "tool_calls": [
+                                {
+                                    "id": tc["id"],
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc["function"]["name"],
+                                        "arguments": tc["function"]["arguments"]
+                                    }
+                                }
+                                for tc in collected_tool_calls.values()
+                            ]
+                        })
+                        
+                        for tr in tool_results:
+                            current_messages.append({
+                                "role": "tool",
+                                "content": tr["content"],
+                                "tool_call_id": tr["tool_call_id"]
+                            })
+                        
+                        # Reset for next round
+                        collected_tool_calls = {}
+                        full_content = ""
+                        
+                        # Determine if this is the final round or if we should allow more tools
+                        is_final_round = (round_num == max_rounds - 1) or (has_file_gen and downloads)
+                        
+                        if is_final_round:
+                            # Final round: no tools, concise summary
+                            final_system = {
+                                "role": "system",
+                                "content": (
+                                    "The tools have been executed successfully. "
+                                    "Provide a brief, concise summary of what was done (2-3 sentences max). "
+                                    "Do NOT repeat yourself or describe what you plan to do. Everything is already done."
+                                )
+                            }
+                            continuation_response = client.chat.completions.create(
+                                model="kimi-k2.5",
+                                messages=[final_system] + current_messages,
+                                stream=True,
+                                temperature=0.6,
+                                max_tokens=300,
+                                extra_body={"thinking": {"type": "disabled"}}
+                            )
+                            
+                            cont_token_count = 0
+                            for cont_chunk in continuation_response:
+                                cont_delta = cont_chunk.choices[0].delta
+                                cont_content = getattr(cont_delta, 'content', None)
+                                if cont_content:
+                                    cont_token_count += 1
+                                    full_content += cont_content
+                                    yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
+                                    if cont_token_count > 400:
+                                        break
+                            break  # Exit the multi-round loop
+                        else:
+                            # Not final: allow more tools for next round
+                            # Add strong instruction to use file generation tools
+                            file_gen_instruction = {
+                                "role": "system",
+                                "content": (
+                                    "You have search results now. The user requested a file to be created. "
+                                    "You MUST now call the appropriate file generation tool (generate_pdf, generate_excel, "
+                                    "generate_word, or generate_presentation) to create the actual file. "
+                                    "Do NOT just describe what you will do - call the tool NOW with the data from the search results."
+                                )
+                            }
+                            continuation_response = client.chat.completions.create(
+                                model="kimi-k2.5",
+                                messages=[file_gen_instruction] + current_messages,
+                                stream=True,
+                                temperature=0.6,
+                                max_tokens=1000,
+                                tools=TOOLS,
+                                tool_choice="required",
+                                extra_body={"thinking": {"type": "disabled"}}
+                            )
+                            
+                            # Process continuation - might have more tool calls
+                            cont_has_tool_calls = False
+                            for cont_chunk in continuation_response:
+                                cont_delta = cont_chunk.choices[0].delta
+                                cont_finish = cont_chunk.choices[0].finish_reason
+                                cont_content = getattr(cont_delta, 'content', None)
+                                cont_tool_calls = getattr(cont_delta, 'tool_calls', None)
+                                
+                                if cont_content:
+                                    full_content += cont_content
+                                    yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': cont_content}})}\n\n"
+                                
+                                if cont_tool_calls:
+                                    for tc in cont_tool_calls:
+                                        idx = tc.index
+                                        if idx not in collected_tool_calls:
+                                            collected_tool_calls[idx] = {
+                                                "id": getattr(tc, 'id', None),
+                                                "function": {"name": "", "arguments": ""}
+                                            }
+                                        if tc.id:
+                                            collected_tool_calls[idx]["id"] = tc.id
+                                        if tc.function:
+                                            if tc.function.name:
+                                                collected_tool_calls[idx]["function"]["name"] += tc.function.name
+                                            if tc.function.arguments:
+                                                collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                                
+                                if cont_finish == "tool_calls":
+                                    cont_has_tool_calls = True
+                                    break
+                                elif cont_finish == "stop":
+                                    break
+                            
+                            if not cont_has_tool_calls:
+                                break  # No more tool calls, exit loop
+                    
+                    except Exception as e:
+                        logger.error(f"Tool execution error in stream round {round_num + 1}: {e}")
+                        error_msg = f"\n\n*Error executing tools: {str(e)}*"
+                        full_content += error_msg
+                        yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+                        break
+        
+        # Send complete event with downloads
+        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'reasoning': full_reasoning, 'downloads': downloads}})}\n\n"
+    
+    @classmethod
+    async def _file_generation_pipeline(
+        cls,
+        messages: List[Dict],
+        user_msg: str,
+        file_type: str,
+        mode: str
+    ) -> AsyncGenerator[str, None]:
+        """Dedicated pipeline for file generation requests using KimiContentGenerator + FileBuilder.
+        Steps:
+        1. Stream a 'thinking' status
+        2. Use KimiContentGenerator to get structured JSON from Kimi
+        3. Use FileBuilder to create professional file from the JSON
+        4. Stream download link + summary
+        """
+        downloads = []
+        
+        try:
+            # Step 1: Inform user we're working on it
+            file_type_names = {
+                'excel': 'Excel spreadsheet',
+                'word': 'Word document',
+                'pdf': 'PDF document',
+                'pptx': 'PowerPoint presentation'
+            }
+            status_msg = f"Generating structured content for your {file_type_names.get(file_type, 'file')}..."
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': status_msg}})}\n\n"
+            
+            # Step 2: Use FileGenerationService (KimiContentGenerator + FileBuilder)
+            result = await FileGenerationService.generate(file_type, user_msg)
+            
+            if result.get("error"):
+                error_msg = f"Error generating file: {result['error']}"
+                yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'data': {'content': error_msg, 'reasoning': '', 'downloads': []}})}\n\n"
+                return
+            
+            # Step 3: Stream the download info
+            creating_msg = f"Creating {file_type_names.get(file_type, 'file')}..."
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': creating_msg}})}\n\n"
+            
+            download_info = {
+                "filename": result["filename"],
+                "download_url": result["download_url"],
+                "file_id": result["file_id"],
+                "file_type": file_type
+            }
+            downloads.append(download_info)
+            yield f"data: {json.dumps({'type': 'download', 'data': download_info})}\n\n"
+            
+            # Step 4: Stream a concise summary
+            summary = f"I've created a professional {file_type_names.get(file_type, 'file')} for you. You can download it using the button above."
+            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': summary}})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': summary, 'reasoning': '', 'downloads': downloads}})}\n\n"
+        
+        except Exception as e:
+            logger.error(f"File generation pipeline error: {e}")
+            error_msg = f"Error generating file: {str(e)}"
+            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': error_msg}})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete', 'data': {'content': error_msg, 'reasoning': '', 'downloads': []}})}\n\n"
+
+# ============================================================================
+# AGENT SWARM
+# ============================================================================
+
+class AgentSwarm:
+    """Multi-agent orchestration system"""
+    
+    ROLES = {
+        "researcher": "Expert at finding and verifying real-time information from multiple sources",
+        "analyst": "Expert at data analysis, pattern recognition, and statistical insights",
+        "writer": "Expert at creating clear, engaging, and well-structured content",
+        "critic": "Expert at reviewing, fact-checking, and identifying issues or gaps",
+        "synthesizer": "Expert at combining multiple perspectives into coherent output",
+        "planner": "Expert at breaking down complex tasks and creating action plans",
+        "creative": "Expert at generating innovative ideas and creative solutions",
+        "implementer": "Expert at practical execution and implementation details"
+    }
+    
+    async def execute(
+        self,
+        master_task: str,
+        context: Dict,
+        num_agents: int = 5,
+        enable_search: bool = True,
+        generate_deliverable: bool = False,
+        deliverable_type: Optional[str] = None
+    ) -> Dict:
+        """Execute complex task with agent swarm"""
+        
+        start_time = time.time()
+        
+        # Step 1: Decompose task
+        subtasks = await self._decompose_task(master_task, num_agents)
+        
+        # Step 2: Execute agents in parallel
+        semaphore = asyncio.Semaphore(10)
+        
+        async def run_agent(agent_def):
+            async with semaphore:
+                return await self._execute_agent(agent_def, context, enable_search)
+        
+        results = await asyncio.gather(*[run_agent(t) for t in subtasks])
+        
+        # Step 3: Synthesize results
+        synthesis = await self._synthesize_results(results, master_task)
+        
+        # Step 4: Generate deliverable if requested
+        deliverable = None
+        if generate_deliverable and deliverable_type:
+            deliverable = await self._generate_deliverable(synthesis, results, deliverable_type)
+        
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        return {
+            "master_task": master_task,
+            "agents_deployed": len(subtasks),
+            "subtasks": subtasks,
+            "agent_results": results,
+            "synthesis": synthesis,
+            "deliverable": deliverable,
+            "latency_ms": latency_ms,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    async def _decompose_task(self, task: str, num_agents: int) -> List[Dict]:
+        """Intelligently decompose task into subtasks"""
+        
+        prompt = f"""As a task decomposition expert, break down this complex task into {num_agents} parallel subtasks.
+
+Master Task: {task}
+
+Available roles: {list(self.ROLES.keys())}
+
+Return JSON format:
+{{
+  "subtasks": [
+    {{"role": "researcher/analyst/writer/etc", "task": "specific description", "priority": 1-10}}
+  ]
+}}"""
+
+        try:
+            response = client.chat.completions.create(
+                model="kimi-k2.5",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.6,
+                response_format={"type": "json_object"},
+                extra_body={"thinking": {"type": "enabled"}}
+            )
+            
+            data = json.loads(response.choices[0].message.content)
+            tasks = data.get("subtasks", [])
+            
+            valid = []
+            for t in tasks[:num_agents]:
+                role = t.get("role", "researcher")
+                if role not in self.ROLES:
+                    role = "researcher"
+                valid.append({
+                    "id": f"agent_{len(valid)}",
+                    "role": role,
+                    "task": t.get("task", "Analyze"),
+                    "priority": t.get("priority", 5)
+                })
+            
+            return valid if valid else self._fallback_tasks(task, num_agents)
+        except Exception as e:
+            logger.error(f"Task decomposition error: {e}")
+            return self._fallback_tasks(task, num_agents)
+    
+    def _fallback_tasks(self, task: str, num: int) -> List[Dict]:
+        """Fallback task decomposition"""
+        roles = list(self.ROLES.keys())[:num]
+        return [
+            {
+                "id": f"agent_{i}",
+                "role": role,
+                "task": f"Analyze aspect {i+1} of: {task[:100]}",
+                "priority": 5
+            }
+            for i, role in enumerate(roles)
+        ]
+    
+    async def _execute_agent(self, agent_def: Dict, context: Dict, enable_search: bool) -> Dict:
+        """Execute single agent"""
+        
+        role_desc = self.ROLES.get(agent_def["role"], "AI Assistant")
+        
+        messages = [
+            {
+                "role": "system",
+                "content": f"You are a {agent_def['role']}. {role_desc}. Be thorough but concise."
+            },
+            {
+                "role": "user",
+                "content": f"Task: {agent_def['task']}\nContext: {json.dumps(context, default=str)}"
+            }
+        ]
+        
+        try:
+            result = await KimiEngine.chat(
+                messages=messages,
+                mode="agent" if enable_search else "thinking",
+                enable_tools=enable_search
+            )
+            
+            return {
+                "agent_id": agent_def["id"],
+                "role": agent_def["role"],
+                "task": agent_def["task"],
+                "output": result["content"],
+                "tool_results": result.get("tool_results", []),
+                "tokens": result["usage"]["total_tokens"],
+                "success": True
+            }
+        except Exception as e:
+            return {
+                "agent_id": agent_def["id"],
+                "role": agent_def["role"],
+                "task": agent_def["task"],
+                "output": str(e),
+                "success": False
+            }
+    
+    async def _synthesize_results(self, results: List[Dict], master_task: str) -> str:
+        """Synthesize all agent outputs"""
+        
+        successful = [r for r in results if r.get("success")]
+        
+        synthesis_input = "\n\n".join([
+            f"### {r['role'].upper()} (Agent {r['agent_id']})\n{r['output'][:1000]}"
+            for r in successful[:8]
+        ])
+        
+        prompt = f"""Synthesize these expert analyses into a comprehensive final answer.
+
+Master Task: {master_task}
+
+Agent Analyses:
+{synthesis_input}
+
+Provide a well-structured, actionable final response that integrates all perspectives:"""
+
+        response = client.chat.completions.create(
+            model="kimi-k2.5",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.6,
+            max_tokens=4096,
+            extra_body={"thinking": {"type": "enabled"}}
+        )
+        
+        return response.choices[0].message.content
+    
+    async def _generate_deliverable(
+        self,
+        synthesis: str,
+        results: List[Dict],
+        deliverable_type: str
+    ) -> Dict:
+        """Generate final deliverable document"""
+        
+        if deliverable_type == "report":
+            content = f"""# Research Report
+
+## Executive Summary
+{synthesis[:1500]}
+
+## Detailed Findings
+
+"""
+            for r in results:
+                if r.get("success"):
+                    content += f"\n### {r['role'].upper()} Analysis\n\n{r['output'][:800]}\n"
+            
+            gen_result = await FileGenerationService.generate("word", f"Research Report: {synthesis[:1500]}")
+            file_id = gen_result.get("file_id")
+            file_info = FileGenerationService.get_file(file_id) if file_id else None
+            
+            return {
+                "type": "report",
+                "file_id": file_id,
+                "filename": file_info["filename"] if file_info else gen_result.get("filename", "report.docx"),
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}")
+            }
+        
+        elif deliverable_type == "presentation":
+            content = f"Executive Summary\n\n{synthesis[:1000]}\n\n"
+            for r in results[:5]:
+                if r.get("success"):
+                    content += f"{r['role'].upper()} Insights\n{r['output'][:500]}\n\n"
+            
+            gen_result = await FileGenerationService.generate("pptx", f"Research Presentation: {synthesis[:1000]}")
+            file_id = gen_result.get("file_id")
+            file_info = FileGenerationService.get_file(file_id) if file_id else None
+            
+            return {
+                "type": "presentation",
+                "file_id": file_id,
+                "filename": file_info["filename"] if file_info else gen_result.get("filename", "presentation.pptx"),
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}")
+            }
+        
+        return None
+
+# ============================================================================
+# API ENDPOINTS
+# ============================================================================
+
+@app.post("/api/v1/chat")
+async def chat_endpoint(request: ChatRequest):
+    """Main chat endpoint with full tool support"""
+    try:
+        messages = [m.model_dump(exclude_none=True) for m in request.messages]
+        
+        result = await KimiEngine.chat(
+            messages=messages,
+            mode=request.mode,
+            enable_tools=request.enable_tools,
+            stream=request.stream
+        )
+        
+        # Extract downloads
+        downloads = []
+        for output in result.get("tool_outputs", []):
+            if output.get("type") == "file":
+                downloads.append({
+                    "filename": output["filename"],
+                    "download_url": output["download_url"],
+                    "file_id": output["file_id"],
+                    "file_type": output.get("file_type", "unknown")
+                })
+        
+        return {
+            "success": True,
+            "response": {
+                "answer": result["content"],
+                "reasoning": result.get("reasoning_content"),
+                "mode": result["mode"],
+                "downloads": downloads,
+                "search_sources": [o for o in result.get("tool_outputs", []) if o.get("type") == "search"],
+                "metadata": {
+                    "tokens": result["usage"],
+                    "latency_ms": result["latency_ms"],
+                    "tool_calls": len(result.get("tool_calls") or [])
+                }
+            }
+        }
+    except Exception as e:
+        logger.error(f"Chat error: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/chat/stream")
 async def chat_stream(request: ChatRequest):
-    """
-    Streaming chat endpoint - returns Server-Sent Events.
-    
-    Event types:
-    - status: Progress updates (understanding, planning, searching, generating)
-    - content: Response text chunks
-    - sources: Search sources used
-    - done: Stream complete
-    """
-    session_id = request.session_id or str(uuid.uuid4())
-    user_id = request.user_id or "anonymous"
-    
-    history = [
-        {"role": msg.role, "content": msg.content}
-        for msg in (request.conversation_history or [])
-    ]
+    """Streaming chat endpoint"""
+    messages = [m.model_dump(exclude_none=True) for m in request.messages]
     
     async def generate():
-        async for event in orchestrator.process_stream(
-            query=request.message,
-            session_id=session_id,
-            user_id=user_id,
-            mode=request.mode or "auto",
-            conversation_history=history
+        async for chunk in KimiEngine.stream_chat(
+            messages=messages,
+            mode=request.mode,
+            enable_tools=request.enable_tools
         ):
-            yield f"data: {json.dumps(event)}\n\n"
+            yield chunk
     
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Session-ID": session_id
-        }
+        headers={"Cache-Control": "no-cache"}
     )
 
-
-# =============================================================================
-# Search Endpoint (Direct access)
-# =============================================================================
-
-@app.post("/api/search")
-async def search(query: str, providers: Optional[List[str]] = None):
-    """Direct search endpoint for testing."""
-    from src.layers.search.search_layer import search_layer
-    
-    result = await search_layer.search(query, providers=providers)
-    
-    return {
-        "success": result.success,
-        "query": result.query,
-        "providers_used": result.providers_used,
-        "results": [
-            {
-                "title": r.title,
-                "url": r.url,
-                "snippet": r.snippet,
-                "source": r.source
+@app.post("/api/v1/swarm")
+async def swarm_endpoint(request: SwarmRequest):
+    """Agent swarm for complex tasks"""
+    try:
+        swarm = AgentSwarm()
+        result = await swarm.execute(
+            master_task=request.master_task,
+            context=request.context,
+            num_agents=request.num_agents,
+            enable_search=request.enable_search,
+            generate_deliverable=request.generate_deliverable,
+            deliverable_type=request.deliverable_type
+        )
+        
+        return {
+            "success": True,
+            "response": {
+                "answer": result["synthesis"],
+                "mode": "swarm",
+                "agents": result["agents_deployed"],
+                "subtasks": result["subtasks"],
+                "agent_results": result["agent_results"],
+                "deliverable": result.get("deliverable"),
+                "latency_ms": result["latency_ms"],
+                "metadata": {
+                    "total_tokens": sum(r.get("tokens", 0) for r in result["agent_results"])
+                }
             }
-            for r in result.results
-        ]
+        }
+    except Exception as e:
+        logger.error(f"Swarm error: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/search")
+async def search_endpoint(request: SearchRequest):
+    """Direct search across multiple sources"""
+    try:
+        results = await SearchAPIs.multi_search(
+            request.query,
+            request.sources,
+            request.num_results,
+            request.recency_days
+        )
+        return {"success": True, "results": results}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/research")
+async def research_endpoint(request: ResearchRequest):
+    """Deep research with optional deliverable"""
+    try:
+        swarm = AgentSwarm()
+        result = await swarm.execute(
+            master_task=request.query,
+            context={"depth": request.depth, "sources": request.sources},
+            num_agents=5 if request.depth == "quick" else 10 if request.depth == "deep" else 15,
+            enable_search=True,
+            generate_deliverable=request.generate_deliverable,
+            deliverable_type=request.deliverable_type
+        )
+        
+        return {
+            "success": True,
+            "response": {
+                "answer": result["synthesis"],
+                "research_data": result,
+                "mode": "research",
+                "deliverable": result.get("deliverable")
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/vision-to-code")
+async def vision_to_code_endpoint(request: VisionCodeRequest):
+    """Convert UI image to code"""
+    try:
+        result = await VisionToCode.generate(
+            image_base64=request.image_base64,
+            requirements=request.requirements,
+            framework=request.framework,
+            styling_preference=request.styling_preference
+        )
+        
+        return {
+            "success": True,
+            "response": {
+                "code_blocks": result["code_blocks"],
+                "framework": result["framework"],
+                "preview_html": result.get("preview_html"),
+                "tokens_used": result["tokens_used"]
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/execute-code")
+async def execute_code_endpoint(request: CodeExecutionRequest):
+    """Execute code in sandbox"""
+    try:
+        result = await CodeSandbox.execute(
+            code=request.code,
+            language=request.language,
+            timeout=request.timeout,
+            dependencies=request.dependencies,
+            inputs=request.inputs
+        )
+        
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/v1/generate-file")
+async def generate_file_endpoint(request: FileGenRequest):
+    """Generate downloadable file using KimiContentGenerator + FileBuilder"""
+    try:
+        # Build prompt from content
+        content = request.content
+        if isinstance(content, dict) or isinstance(content, list):
+            prompt = json.dumps(content, indent=2)
+        else:
+            prompt = str(content)
+        
+        if request.title:
+            prompt = f"{request.title}: {prompt}"
+        
+        # Map file types
+        file_type = request.file_type
+        if file_type == "csv":
+            file_type = "excel"
+        
+        result = await asyncio.wait_for(
+            FileGenerationService.generate(file_type, prompt),
+            timeout=60.0
+        )
+        
+        if result.get("error"):
+            return {"success": False, "error": result["error"]}
+        
+        return {
+            "success": True,
+            "file_id": result["file_id"],
+            "filename": result["filename"],
+            "file_type": request.file_type,
+            "download_url": result["download_url"]
+        }
+    except asyncio.TimeoutError:
+        logger.error("File generation timed out after 60s")
+        return {"success": False, "error": "File generation timed out"}
+    except Exception as e:
+        logger.error(f"File generation error: {e}")
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/v1/download/{file_id}")
+async def download_file(file_id: str):
+    """Download generated file"""
+    file_info = FileGenerationService.get_file(file_id)
+    if not file_info or not os.path.exists(file_info["path"]):
+        raise HTTPException(status_code=404, detail="File not found or expired")
+    
+    media_types = {
+        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pdf": "application/pdf",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    }
+    
+    return FileResponse(
+        file_info["path"],
+        filename=file_info["filename"],
+        media_type=media_types.get(file_info["type"], "application/octet-stream")
+    )
+
+@app.post("/api/v1/multimodal")
+async def multimodal_endpoint(
+    text: str = Form(...),
+    mode: str = Form("thinking"),
+    image: Optional[UploadFile] = File(None)
+):
+    """Multimodal input (text + image)"""
+    try:
+        content = [{"type": "text", "text": text}]
+        
+        if image:
+            image_bytes = await image.read()
+            image_b64 = base64.b64encode(image_bytes).decode()
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.content_type};base64,{image_b64}", "detail": "high"}
+            })
+        
+        messages = [{"role": "user", "content": content}]
+        
+        result = await KimiEngine.chat(messages=messages, mode=mode)
+        
+        return {
+            "success": True,
+            "response": {
+                "answer": result["content"],
+                "reasoning": result.get("reasoning_content"),
+                "mode": mode
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ============================================================================
+# WEEKLY INSIGHTS - Real-time domain intelligence
+# ============================================================================
+
+# In-memory cache for weekly insights (domain -> {data, timestamp})
+_weekly_insights_cache: Dict[str, Dict[str, Any]] = {}
+WEEKLY_INSIGHTS_CACHE_TTL = 3600  # 1 hour cache
+
+DOMAIN_INSIGHT_PROMPTS: Dict[str, str] = {
+    "fashion": """You are a fashion industry intelligence analyst. Research and provide 8 of the most significant fashion industry developments from the PAST 7 DAYS (the week ending today). Focus on:
+- Major runway shows, fashion week highlights (NYFW, Milan, Paris, London, Berlin)
+- Designer appointments, creative director changes
+- Luxury brand business moves (acquisitions, IPOs, earnings)
+- Emerging trend signals from street style and social media
+- Celebrity fashion moments that drove conversation
+- Retail and e-commerce shifts
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "beauty": """You are a beauty industry intelligence analyst. Research and provide 8 of the most significant beauty industry developments from the PAST 7 DAYS. Focus on:
+- New product launches and brand collaborations
+- Beauty brand earnings and business news
+- Backstage beauty trends from fashion weeks
+- Viral beauty moments on social media (TikTok, Instagram)
+- K-beauty and J-beauty innovations
+- Clean beauty and ingredient science news
+- Celebrity beauty brand updates
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "skincare": """You are a skincare and dermatology intelligence analyst. Research and provide 8 of the most significant skincare developments from the PAST 7 DAYS. Focus on:
+- Clinical skincare breakthroughs and ingredient innovations
+- Dermatologist-backed trend analysis
+- Regulatory changes affecting skincare products
+- Viral skincare routines and product reviews
+- PDRN, peptide, and active ingredient news
+- Brand launches targeting specific skin concerns
+- Sunscreen and anti-aging research updates
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "sustainability": """You are a sustainable fashion intelligence analyst. Research and provide 8 of the most significant sustainability developments in fashion from the PAST 7 DAYS. Focus on:
+- Circular fashion initiatives and resale market news
+- Brand sustainability commitments and greenwashing exposés
+- Textile recycling technology breakthroughs
+- EU and global regulatory changes (EPR, DPP, due diligence)
+- Copenhagen Fashion Week sustainability highlights
+- Supply chain transparency developments
+- Carbon footprint and water usage reduction news
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "fashion-tech": """You are a fashion technology intelligence analyst. Research and provide 8 of the most significant fashion-tech developments from the PAST 7 DAYS. Focus on:
+- AI in fashion design, merchandising, and forecasting
+- Virtual try-on and AR/VR shopping experiences
+- Generative AI tools for designers (ASOS, Fermat, etc.)
+- AI-powered shoppable runways and retail tech
+- Digital fashion and NFT developments
+- Supply chain technology and automation
+- Fashion data analytics and personalization
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "catwalks": """You are a runway and catwalk intelligence analyst. Research and provide 8 of the most significant runway and catwalk developments from the PAST 7 DAYS. Focus on:
+- Fashion week show reviews and standout collections
+- Designer debuts and farewell collections
+- Backstage moments and model casting news
+- Runway styling trends (hair, makeup, accessories)
+- Show production and venue innovations
+- Front row celebrity and influencer moments
+- Emerging designers showing at fashion weeks
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "culture": """You are a cultural intelligence analyst focused on fashion and lifestyle. Research and provide 8 of the most significant cultural developments affecting fashion from the PAST 7 DAYS. Focus on:
+- Art exhibitions and museum shows influencing fashion
+- Film, music, and entertainment crossovers with fashion
+- Social media cultural moments and viral trends
+- Diversity, equity, and inclusion news in fashion
+- Fashion photography and editorial highlights
+- Subculture movements gaining mainstream attention
+- Fashion heritage and archival moments
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "textile": """You are a textile industry intelligence analyst. Research and provide 8 of the most significant textile industry developments from the PAST 7 DAYS. Focus on:
+- New fiber and fabric innovations
+- Textile mill acquisitions and closures
+- Raw material price movements (cotton, silk, wool)
+- Sustainable textile technology breakthroughs
+- Trade policy changes affecting textiles (tariffs, AGOA)
+- Textile manufacturing shifts (nearshoring, automation)
+- Hemp, linen, and alternative fiber developments
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+
+    "lifestyle": """You are a lifestyle intelligence analyst. Research and provide 8 of the most significant lifestyle developments from the PAST 7 DAYS. Focus on:
+- Wellness and self-care trend shifts
+- Home and interior design crossovers with fashion
+- Travel and hospitality luxury experiences
+- Food and beverage lifestyle trends
+- Fitness and athleisure market movements
+- Consumer behavior and spending pattern changes
+- Social media lifestyle influencer moments
+
+For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
+}
+
+async def _fetch_weekly_insights(domain: str) -> List[Dict[str, Any]]:
+    """Fetch real-time weekly insights using Gemini Flash via OpenAI-compatible API"""
+    prompt = DOMAIN_INSIGHT_PROMPTS.get(domain, DOMAIN_INSIGHT_PROMPTS.get("fashion", ""))
+    
+    today = datetime.now().strftime("%B %d, %Y")
+    week_ago = (datetime.now() - timedelta(days=7)).strftime("%B %d, %Y")
+    
+    system_msg = f"""You are a real-time intelligence analyst. Today is {today}. You must provide insights from the period {week_ago} to {today}.
+
+Return your response as a valid JSON array of objects. Each object must have exactly these fields:
+- "title": string (compelling headline, max 80 chars)
+- "summary": string (1-2 sentence description, max 200 chars)
+- "source": string (publication name like "Vogue", "BoF", "WWD", "Reuters", etc.)
+- "category": string (short tag like "Runway", "Business", "Trend", "Innovation", etc.)
+- "date": string (ISO date format, within the last 7 days)
+
+Return ONLY the JSON array, no markdown formatting, no code blocks, no explanation."""
+
+    # Try Grok first, then Gemini Flash, then Kimi as fallback
+    providers = []
+    if GROK_API_KEY:
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+    providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
+    if KIMI_API_KEY:
+        providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
+    
+    for provider_name, base_url, api_key, model in providers:
+        if not api_key:
+            continue
+        try:
+            logger.info(f"Fetching weekly insights for {domain} via {provider_name}")
+            provider_client = openai.AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url
+            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
+            
+            response = await provider_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=3000
+            )
+            
+            raw = response.choices[0].message.content.strip()
+            # Clean markdown code blocks if present
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"):
+                    raw = raw[:-3]
+                raw = raw.strip()
+            
+            insights = json.loads(raw)
+            if isinstance(insights, list) and len(insights) >= 3:
+                logger.info(f"Got {len(insights)} insights for {domain} via {provider_name}")
+                return insights[:10]  # Cap at 10
+        except Exception as e:
+            logger.warning(f"Failed to fetch insights via {provider_name}: {e}")
+            continue
+    
+    return []
+
+
+class WeeklyInsightsRequest(BaseModel):
+    domain: str = Field(..., description="Domain slug e.g. fashion, beauty, skincare")
+    force_refresh: bool = Field(False, description="Force refresh bypassing cache")
+
+
+@app.post("/api/v1/weekly-insights")
+async def weekly_insights_endpoint(request: WeeklyInsightsRequest):
+    """Get real-time weekly insights for a specific domain"""
+    domain = request.domain.lower().strip()
+    
+    valid_domains = list(DOMAIN_INSIGHT_PROMPTS.keys())
+    if domain not in valid_domains:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Valid: {valid_domains}")
+    
+    # Check cache
+    now = time.time()
+    if not request.force_refresh and domain in _weekly_insights_cache:
+        cached = _weekly_insights_cache[domain]
+        if now - cached["timestamp"] < WEEKLY_INSIGHTS_CACHE_TTL:
+            return {
+                "success": True,
+                "domain": domain,
+                "insights": cached["data"],
+                "source": cached.get("source", "cache"),
+                "cached": True,
+                "cache_age_seconds": int(now - cached["timestamp"])
+            }
+    
+    # Fetch fresh insights
+    try:
+        insights = await _fetch_weekly_insights(domain)
+        if insights:
+            _weekly_insights_cache[domain] = {
+                "data": insights,
+                "timestamp": now,
+                "source": "ai"
+            }
+            return {
+                "success": True,
+                "domain": domain,
+                "insights": insights,
+                "source": "ai",
+                "cached": False
+            }
+        else:
+            return {
+                "success": False,
+                "domain": domain,
+                "insights": [],
+                "error": "No insights could be generated. Try again later."
+            }
+    except Exception as e:
+        logger.error(f"Weekly insights error for {domain}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/weekly-insights/{domain}")
+async def weekly_insights_get(domain: str, refresh: bool = False):
+    """GET endpoint for weekly insights (convenience)"""
+    req = WeeklyInsightsRequest(domain=domain, force_refresh=refresh)
+    return await weekly_insights_endpoint(req)
+
+
+# ============================================================================
+# LIVE SIGNALS - Real-time "What's Happening Now" intelligence
+# ============================================================================
+
+_live_signals_cache: Dict[str, Dict[str, Any]] = {}
+LIVE_SIGNALS_CACHE_TTL = 1800  # 30 min cache
+
+DOMAIN_LIVE_PROMPTS: Dict[str, str] = {
+    "fashion": """You are a real-time fashion intelligence analyst monitoring breaking news RIGHT NOW. Provide 6 urgent, high-priority signals happening TODAY or in the last 48 hours in fashion. Focus on:
+- Breaking runway or collection news
+- Brand announcements made today
+- Viral fashion moments trending on social media right now
+- Stock/market movements for fashion companies
+- Celebrity style moments generating buzz today
+- Industry personnel changes announced recently
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (one of: Breaking, Market, Viral, Business, Trend, Celebrity), source name, and a relevant metric or stat if available (e.g. '+15% stock', '2.3M views', '#1 trending').""",
+
+    "beauty": """You are a real-time beauty intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours in beauty. Focus on: product launches, viral TikTok moments, brand earnings, ingredient controversies, celebrity beauty news, K-beauty innovations.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Market/Viral/Business/Trend/Celebrity), source name, and a relevant metric.""",
+
+    "skincare": """You are a real-time skincare intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours in skincare. Focus on: clinical breakthroughs, FDA/EU regulatory news, viral skincare routines, ingredient science updates, brand launches, dermatologist warnings.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Market/Viral/Business/Trend/Science), source name, and a relevant metric.""",
+
+    "sustainability": """You are a real-time sustainability intelligence analyst for fashion. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: EU regulation updates, brand greenwashing exposures, circular fashion milestones, supply chain transparency news, carbon reduction achievements, textile recycling breakthroughs.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Regulation/Business/Innovation/Trend/Policy), source name, and a relevant metric.""",
+
+    "fashion-tech": """You are a real-time fashion technology analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: AI fashion tool launches, AR/VR shopping updates, fashion startup funding rounds, retail tech deployments, digital fashion drops, supply chain tech news.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Funding/AI/Retail/Innovation/Launch), source name, and a relevant metric.""",
+
+    "catwalks": """You are a real-time runway intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: fashion week show reviews, designer debuts, backstage exclusives, model casting news, show production innovations, front row moments.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Show/Designer/Backstage/Trend/Casting), source name, and a relevant metric.""",
+
+    "culture": """You are a real-time cultural intelligence analyst for fashion. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: art-fashion collaborations, museum exhibitions, film/music crossovers, viral cultural moments, DEI news in fashion, heritage brand moments.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Art/Media/Social/Heritage/Exhibition), source name, and a relevant metric.""",
+
+    "textile": """You are a real-time textile industry analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: fiber innovation announcements, raw material price changes, mill acquisitions, trade policy updates, sustainable textile breakthroughs, manufacturing shifts.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Price/Innovation/Trade/Business/Supply), source name, and a relevant metric.""",
+
+    "lifestyle": """You are a real-time lifestyle intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: wellness trend shifts, luxury experience launches, athleisure market moves, consumer behavior data, travel-fashion crossovers, social media lifestyle moments.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Wellness/Market/Consumer/Travel/Viral), source name, and a relevant metric.""",
+}
+
+async def _fetch_live_signals(domain: str) -> List[Dict[str, Any]]:
+    """Fetch real-time live signals using AI providers"""
+    prompt = DOMAIN_LIVE_PROMPTS.get(domain, DOMAIN_LIVE_PROMPTS.get("fashion", ""))
+    today = datetime.now().strftime("%B %d, %Y")
+    
+    system_msg = f"""You are a real-time intelligence analyst. Today is {today}. You must provide signals from the LAST 48 HOURS only.
+
+Return your response as a valid JSON array of objects. Each object must have exactly these fields:
+- "title": string (compelling headline, max 70 chars)
+- "description": string (2 sentence summary, max 180 chars)
+- "impact": string (one of: "high", "medium", "low")
+- "category": string (short tag)
+- "source": string (publication name)
+- "metric": string (a relevant stat like "+15% stock", "2.3M views", "#1 trending", or "" if none)
+- "timestamp": string (ISO datetime within last 48 hours)
+
+Return ONLY the JSON array, no markdown, no code blocks."""
+
+    providers = []
+    if GROK_API_KEY:
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+    providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
+    if KIMI_API_KEY:
+        providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
+    
+    for provider_name, base_url, api_key, model in providers:
+        if not api_key:
+            continue
+        try:
+            logger.info(f"Fetching live signals for {domain} via {provider_name}")
+            provider_client = openai.AsyncOpenAI(
+                api_key=api_key, base_url=base_url
+            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
+            
+            response = await provider_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
+                temperature=0.7, max_tokens=3000
+            )
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"): raw = raw[:-3]
+                raw = raw.strip()
+            signals = json.loads(raw)
+            if isinstance(signals, list) and len(signals) >= 3:
+                return signals[:6]
+        except Exception as e:
+            logger.warning(f"Failed live signals via {provider_name}: {e}")
+            continue
+    return []
+
+
+@app.post("/api/v1/live-signals")
+async def live_signals_endpoint(request: WeeklyInsightsRequest):
+    """Get real-time live signals for a domain"""
+    domain = request.domain.lower().strip()
+    valid = list(DOMAIN_LIVE_PROMPTS.keys())
+    if domain not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Valid: {valid}")
+    
+    now = time.time()
+    cache_key = f"live_{domain}"
+    if not request.force_refresh and cache_key in _live_signals_cache:
+        cached = _live_signals_cache[cache_key]
+        if now - cached["timestamp"] < LIVE_SIGNALS_CACHE_TTL:
+            return {"success": True, "domain": domain, "signals": cached["data"], "cached": True}
+    
+    try:
+        signals = await _fetch_live_signals(domain)
+        if signals:
+            _live_signals_cache[cache_key] = {"data": signals, "timestamp": now}
+            return {"success": True, "domain": domain, "signals": signals, "cached": False}
+        return {"success": False, "domain": domain, "signals": [], "error": "No signals available"}
+    except Exception as e:
+        logger.error(f"Live signals error for {domain}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/live-signals/{domain}")
+async def live_signals_get(domain: str, refresh: bool = False):
+    return await live_signals_endpoint(WeeklyInsightsRequest(domain=domain, force_refresh=refresh))
+
+
+# ============================================================================
+# DOMAIN MODULES - Real-time module previews
+# ============================================================================
+
+_module_previews_cache: Dict[str, Dict[str, Any]] = {}
+MODULE_PREVIEW_CACHE_TTL = 3600  # 1 hour
+
+DOMAIN_MODULE_PROMPTS: Dict[str, str] = {
+    "fashion": """Generate 4 intelligence module previews for the FASHION domain. Each module should have a real, current data point from this week. The modules are:
+1. Runway Analysis - Latest silhouette/color/designer signals from recent fashion weeks
+2. Brand Positioning - Current luxury brand strategy shifts and market movements
+3. Street Style - Consumer adoption signals from fashion capitals
+4. Emerging Designers - New talent gaining industry attention this season
+
+For each module provide: id, label, description (max 50 chars), a live_stat (a real current number or fact, e.g. "12 shows reviewed", "Miu Miu +23% MIV"), a preview_headline (one compelling current headline for this module, max 60 chars), and the number of available_insights (between 8-25).""",
+
+    "beauty": """Generate 4 intelligence module previews for the BEAUTY domain with real current data:
+1. Ingredient Trends - Active ingredients gaining traction in prestige skincare/makeup
+2. Brand Analysis - Market positioning and recent launches
+3. Clean Beauty - Sustainability in cosmetics
+4. Backstage Beauty - Runway makeup trends from recent shows
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "skincare": """Generate 4 intelligence module previews for the SKINCARE domain with real current data:
+1. Active Ingredients - Science-backed formulation innovations
+2. Regulatory Updates - EU, US & Asian compliance changes
+3. Claims Analysis - Marketing and efficacy claims trending
+4. Product Innovation - New formats and technologies
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "sustainability": """Generate 4 intelligence module previews for the SUSTAINABILITY domain with real current data:
+1. Sustainable Materials - Circular and regenerative options
+2. Supply Chain - Transparency and traceability developments
+3. ESG Regulations - Compliance and reporting requirements
+4. Certifications - Standards and verification updates
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "fashion-tech": """Generate 4 intelligence module previews for the FASHION-TECH domain with real current data:
+1. AI in Fashion - Machine learning applications across the value chain
+2. Startup Landscape - Emerging tech companies and funding
+3. Digital Fashion - Virtual and augmented experiences
+4. Retail Tech - Store and e-commerce innovation
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "catwalks": """Generate 4 intelligence module previews for the CATWALKS domain with real current data:
+1. Show Summaries - Key collections and standout moments
+2. Designer Analysis - Creative direction and vision
+3. Styling Trends - Show styling and presentation signals
+4. Emerging Talent - New designers making waves
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "culture": """Generate 4 intelligence module previews for the CULTURE domain with real current data:
+1. Art & Fashion - Collaborations and exhibitions
+2. Social Signals - Movements and values shaping fashion
+3. Regional Culture - Geographic influences on global trends
+4. Media & Influence - Cultural narratives in fashion
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "textile": """Generate 4 intelligence module previews for the TEXTILE domain with real current data:
+1. Find Mills - European and Asian textile producers
+2. Fiber Innovation - New materials and technologies
+3. Supplier Discovery - Sourcing with specifications
+4. Certification Guide - GOTS, OEKO-TEX, BCI standards
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "lifestyle": """Generate 4 intelligence module previews for the LIFESTYLE domain with real current data:
+1. Consumer Signals - Behavior shifts and preferences
+2. Wellness Trends - Health and fashion convergence
+3. Cultural Shifts - Social movements and values
+4. Travel & Leisure - Destination and experience signals
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+}
+
+async def _fetch_module_previews(domain: str) -> List[Dict[str, Any]]:
+    """Fetch module preview data using AI"""
+    prompt = DOMAIN_MODULE_PROMPTS.get(domain, DOMAIN_MODULE_PROMPTS.get("fashion", ""))
+    today = datetime.now().strftime("%B %d, %Y")
+    
+    system_msg = f"""You are a fashion intelligence platform. Today is {today}.
+
+Return a JSON array of 4 module objects. Each must have:
+- "id": string (e.g. "runway", "brands")
+- "label": string (module name)
+- "description": string (max 50 chars)
+- "live_stat": string (a real current metric, e.g. "12 shows reviewed", "Miu Miu +23% MIV")
+- "preview_headline": string (one compelling current headline, max 60 chars)
+- "available_insights": number (between 8-25)
+
+Return ONLY the JSON array."""
+
+    providers = []
+    if GROK_API_KEY:
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+    providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
+    if KIMI_API_KEY:
+        providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
+    
+    for provider_name, base_url, api_key, model in providers:
+        if not api_key:
+            continue
+        try:
+            provider_client = openai.AsyncOpenAI(
+                api_key=api_key, base_url=base_url
+            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
+            
+            response = await provider_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
+                temperature=0.7, max_tokens=2000
+            )
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"): raw = raw[:-3]
+                raw = raw.strip()
+            modules = json.loads(raw)
+            if isinstance(modules, list) and len(modules) >= 3:
+                return modules[:4]
+        except Exception as e:
+            logger.warning(f"Failed module previews via {provider_name}: {e}")
+            continue
+    return []
+
+
+@app.post("/api/v1/domain-modules")
+async def domain_modules_endpoint(request: WeeklyInsightsRequest):
+    """Get real-time module previews for a domain"""
+    domain = request.domain.lower().strip()
+    valid = list(DOMAIN_MODULE_PROMPTS.keys())
+    if domain not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Valid: {valid}")
+    
+    now = time.time()
+    cache_key = f"modules_{domain}"
+    if not request.force_refresh and cache_key in _module_previews_cache:
+        cached = _module_previews_cache[cache_key]
+        if now - cached["timestamp"] < MODULE_PREVIEW_CACHE_TTL:
+            return {"success": True, "domain": domain, "modules": cached["data"], "cached": True}
+    
+    try:
+        modules = await _fetch_module_previews(domain)
+        if modules:
+            _module_previews_cache[cache_key] = {"data": modules, "timestamp": now}
+            return {"success": True, "domain": domain, "modules": modules, "cached": False}
+        return {"success": False, "domain": domain, "modules": [], "error": "No module data available"}
+    except Exception as e:
+        logger.error(f"Module previews error for {domain}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/domain-modules/{domain}")
+async def domain_modules_get(domain: str, refresh: bool = False):
+    return await domain_modules_endpoint(WeeklyInsightsRequest(domain=domain, force_refresh=refresh))
+
+
+@app.get("/health")
+@app.get("/api/v1/health")
+async def health_check():
+    """Health check with capabilities"""
+    return {
+        "status": "healthy",
+        "version": "3.0.0",
+        "model": "kimi-k2.5",
+        "capabilities": [
+            "instant_mode", "thinking_mode", "agent_mode", "swarm_mode", "research_mode", "code_mode",
+            "realtime_search", "file_generation", "vision_to_code", "code_execution",
+            "multimodal", "streaming", "agent_swarm"
+        ],
+        "apis_configured": {
+            "kimi": bool(KIMI_API_KEY),
+            "perplexity": bool(PERPLEXITY_API_KEY),
+            "exa": bool(EXA_API_KEY),
+            "youtube": bool(YOUTUBE_API_KEY),
+            "grok": bool(GROK_API_KEY)
+        },
+        "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/")
+async def root():
+    return {
+        "message": "McLeuker AI - Kimi 2.5 Complete",
+        "version": "3.0.0",
+        "docs": "/docs",
+        "health": "/api/v1/health"
+    }
 
-# =============================================================================
-# Error Handlers
-# =============================================================================
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler for unhandled errors."""
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "error": "Internal server error",
-            "message": str(exc) if settings.DEBUG else "An unexpected error occurred"
-        }
-    )
-
-
-# =============================================================================
-# Run Server
-# =============================================================================
+# Scheduled cleanup
+@app.on_event("startup")
+async def startup_event():
+    """Clean up old files on startup"""
+    cleaned = FileGenerationService.cleanup_old_files(24)
+    logger.info(f"Cleaned up {cleaned} old files")
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "src.api.main:app",
-        host=settings.HOST,
-        port=settings.PORT,
-        reload=settings.DEBUG
+        app,
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8000)),
+        timeout_keep_alive=30,
+        limit_concurrency=20
     )

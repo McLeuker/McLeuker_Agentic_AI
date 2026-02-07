@@ -57,23 +57,23 @@ export function WorkspaceNavigation({
       const { data } = await supabase
         .from("users")
         .select("name, profile_image")
-        .eq("user_id", user.id)
+        .eq("id", user.id)
         .single();
       
       if (data) {
         setUserProfile(data);
       }
 
-      // Fetch subscription info
-      const { data: subData } = await supabase
-        .from("subscriptions")
-        .select("plan, credits_remaining")
-        .eq("user_id", user.id)
+      // Fetch subscription info from users table
+      const { data: userData } = await supabase
+        .from("users")
+        .select("subscription_tier, credits_balance")
+        .eq("id", user.id)
         .single();
 
-      if (subData) {
-        setPlan(subData.plan || "free");
-        setCreditBalance(subData.credits_remaining || 50);
+      if (userData) {
+        setPlan(userData.subscription_tier || "free");
+        setCreditBalance(userData.credits_balance || 50);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -99,6 +99,14 @@ export function WorkspaceNavigation({
   const handleSectorClick = (sector: Sector) => {
     setSector(sector);
     if (sector === "all") {
+      // Clear any stored conversation so dashboard opens fresh (landing state)
+      try {
+        localStorage.removeItem('mcleuker_last_conversation_id');
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('autoExecute');
+      } catch (e) {}
+      // Signal dashboard to reset to landing state
+      sessionStorage.setItem('resetDashboard', 'true');
       router.push("/dashboard");
     } else {
       router.push(`/domain/${sector}`);

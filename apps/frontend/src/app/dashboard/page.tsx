@@ -78,6 +78,13 @@ interface AttachedFile {
   base64?: string;
 }
 
+interface DownloadFile {
+  filename: string;
+  download_url: string;
+  file_id: string;
+  file_type: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -89,6 +96,7 @@ interface Message {
   isStreaming: boolean;
   is_favorite?: boolean;
   attachedFiles?: AttachedFile[];
+  downloads?: DownloadFile[];
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -210,12 +218,14 @@ function MessageContent({
   content, 
   sources, 
   followUpQuestions,
-  onFollowUpClick 
+  onFollowUpClick,
+  searchQuery = ''
 }: { 
   content: string; 
   sources: Source[]; 
   followUpQuestions: string[];
   onFollowUpClick: (question: string) => void;
+  searchQuery?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(true);
@@ -235,12 +245,12 @@ function MessageContent({
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
       
       // Step 1: Generate the document and get the download URL
-      const generateResponse = await fetch(`${API_URL}/api/document/generate`, {
+      const generateResponse = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: content,
-          format: format,
+          file_type: format === 'docx' ? 'word' : format,
           title: 'McLeuker AI Report'
         })
       });
@@ -282,20 +292,86 @@ function MessageContent({
     }
   };
 
-  // Enhanced markdown rendering with bullet points, numbered lists, and emojis
+  // Helper to validate and fix URLs
+  const ensureValidUrl = (url: string): string => {
+    if (!url || typeof url !== 'string') return '#';
+    const trimmed = url.trim();
+    // Already a valid absolute URL
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    // Protocol-relative URL
+    if (trimmed.startsWith('//')) return `https:${trimmed}`;
+    // Looks like a domain (e.g. "example.com/path")
+    if (/^[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}/.test(trimmed)) return `https://${trimmed}`;
+    // Relative path or malformed - return as-is with hash fallback
+    return trimmed.startsWith('/') ? trimmed : '#';
+  };
+
+  // Helper: highlight search matches in a text string
+  const highlightSearchInText = (text: string, query: string): React.ReactNode[] => {
+    if (!query || !query.trim()) return [text];
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part)
+        ? <mark key={`hl-${i}`} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</mark>
+        : part
+    );
+  };
+
+  // Enhanced markdown rendering with bullet points, numbered lists, links, and emojis
   const renderContent = (text: string) => {
     const lines = text.split('\n');
     const elements: React.ReactNode[] = [];
     let listItems: string[] = [];
     let listType: 'ul' | 'ol' | null = null;
+    let inCodeBlock = false;
     
     const processInlineFormatting = (line: string) => {
-      // Bold text
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      const parts = line.split(boldRegex);
-      return parts.map((part, j) => 
-        j % 2 === 1 ? <strong key={j} className="text-white font-medium">{part}</strong> : part
-      );
+      // Process markdown links [text](url) and bold **text** together
+      const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\*\*(.*?)\*\*/g;
+      const result: React.ReactNode[] = [];
+      let lastIndex = 0;
+      let match;
+      let keyIdx = 0;
+
+      while ((match = combinedRegex.exec(line)) !== null) {
+        // Add text before this match (apply search highlighting to plain text)
+        if (match.index > lastIndex) {
+          const plainText = line.slice(lastIndex, match.index);
+          result.push(...highlightSearchInText(plainText, searchQuery));
+        }
+
+        if (match[1] && match[2]) {
+          // Markdown link: [text](url) - highlight inside link text
+          const href = ensureValidUrl(match[2]);
+          result.push(
+            <a
+              key={`link-${keyIdx++}`}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#7a8a6e] hover:text-[#9aaa8e] underline underline-offset-2 inline-flex items-center gap-0.5"
+            >
+              {highlightSearchInText(match[1], searchQuery)}
+              <ExternalLink className="h-3 w-3 inline-block" />
+            </a>
+          );
+        } else if (match[3]) {
+          // Bold text: **text** - highlight inside bold
+          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-medium">{highlightSearchInText(match[3], searchQuery)}</strong>);
+        }
+
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Add remaining text (apply search highlighting)
+      if (lastIndex < line.length) {
+        const remaining = line.slice(lastIndex);
+        result.push(...highlightSearchInText(remaining, searchQuery));
+      }
+
+      return result.length > 0 ? result : highlightSearchInText(line, searchQuery);
     };
     
     const flushList = () => {
@@ -316,6 +392,24 @@ function MessageContent({
     };
     
     lines.forEach((line, i) => {
+      // Code block toggle (``` fences) - skip highlighting inside code blocks
+      if (line.trim().startsWith('```')) {
+        flushList();
+        inCodeBlock = !inCodeBlock;
+        elements.push(
+          <div key={i} className="text-xs text-white/30 font-mono">{line}</div>
+        );
+        return;
+      }
+
+      // Inside code block - render as-is without search highlighting
+      if (inCodeBlock) {
+        elements.push(
+          <pre key={i} className="text-sm text-white/70 font-mono bg-white/5 px-3 py-0.5 leading-relaxed">{line}</pre>
+        );
+        return;
+      }
+
       // Empty line
       if (!line.trim()) {
         flushList();
@@ -323,20 +417,20 @@ function MessageContent({
         return;
       }
       
-      // Headers
+      // Headers (apply search highlighting)
       if (line.startsWith('### ')) {
         flushList();
-        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{line.slice(4)}</h3>);
+        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{highlightSearchInText(line.slice(4), searchQuery)}</h3>);
         return;
       }
       if (line.startsWith('## ')) {
         flushList();
-        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{line.slice(3)}</h2>);
+        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{highlightSearchInText(line.slice(3), searchQuery)}</h2>);
         return;
       }
       if (line.startsWith('# ')) {
         flushList();
-        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{line.slice(2)}</h1>);
+        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{highlightSearchInText(line.slice(2), searchQuery)}</h1>);
         return;
       }
       
@@ -473,19 +567,32 @@ function MessageContent({
         <div className="mt-4 pt-4 border-t border-white/10">
           <p className="text-xs font-medium text-white/50 mb-2">Sources ({sources.length})</p>
           <div className="flex flex-wrap gap-2">
-            {sources.map((source, i) => (
-              <a
-                key={i}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
-              >
-                <Globe className="h-3 w-3" />
-                <span className="truncate max-w-[150px]">{source.title}</span>
-                <ExternalLink className="h-3 w-3 flex-shrink-0" />
-              </a>
-            ))}
+            {sources.map((source, i) => {
+              const validUrl = ensureValidUrl(source.url);
+              const isClickable = validUrl !== '#';
+              return isClickable ? (
+                <a
+                  key={i}
+                  href={validUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
+                >
+                  <Globe className="h-3 w-3" />
+                  <span className="truncate max-w-[150px]">{source.title || 'Source'}</span>
+                  <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                </a>
+              ) : (
+                <span
+                  key={i}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs text-white/50 cursor-default"
+                  title={source.url || 'No URL available'}
+                >
+                  <Globe className="h-3 w-3" />
+                  <span className="truncate max-w-[150px]">{source.title || 'Source'}</span>
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -523,6 +630,8 @@ interface ChatSidebarProps {
   onSelectConversation: (conv: Conversation) => void;
   onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
 }
 
 function ChatSidebar({
@@ -533,14 +642,86 @@ function ChatSidebar({
   onSelectConversation,
   onDeleteConversation,
   onNewConversation,
+  searchQuery,
+  onSearchQueryChange,
 }: ChatSidebarProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const { user } = useAuth();
+  const setSearchQuery = onSearchQueryChange;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(new Set());
+  const [messageSnippets, setMessageSnippets] = useState<Record<string, string>>({});
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const filteredConversations = conversations.filter((conv) =>
-    conv.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Debounced search across chat_messages content
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (!searchQuery.trim() || !user) {
+      setMessageMatchIds(new Set());
+      setMessageSnippets({});
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('chat_messages')
+          .select('conversation_id, content, role')
+          .eq('user_id', user.id)
+          .ilike('content', `%${searchQuery.trim()}%`)
+          .limit(200);
+
+        if (!error && data) {
+          const ids = new Set<string>();
+          const snippets: Record<string, string> = {};
+          data.forEach((msg: any) => {
+            ids.add(msg.conversation_id);
+            // Keep first matching snippet per conversation
+            if (!snippets[msg.conversation_id]) {
+              const idx = msg.content.toLowerCase().indexOf(searchQuery.toLowerCase());
+              const start = Math.max(0, idx - 30);
+              const end = Math.min(msg.content.length, idx + searchQuery.length + 30);
+              snippets[msg.conversation_id] = (start > 0 ? '...' : '') + msg.content.slice(start, end) + (end < msg.content.length ? '...' : '');
+            }
+          });
+          setMessageMatchIds(ids);
+          setMessageSnippets(snippets);
+        }
+      } catch (e) {
+        console.error('Search error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchQuery, user]);
+
+  // Filter conversations by title match OR message content match
+  const filteredConversations = conversations.filter((conv) => {
+    if (!searchQuery.trim()) return true;
+    const titleMatch = conv.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const messageMatch = messageMatchIds.has(conv.id);
+    return titleMatch || messageMatch;
+  });
+
+  // Helper to highlight matching text
+  const highlightMatch = (text: string, query: string) => {
+    if (!query.trim()) return text;
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part)
+        ? <span key={i} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</span>
+        : part
+    );
+  };
 
   const handleDeleteClick = (e: React.MouseEvent, conversationId: string) => {
     e.stopPropagation();
@@ -625,6 +806,9 @@ function ChatSidebar({
                 "transition-all"
               )}
             />
+            {isSearching && (
+              <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40 animate-spin" />
+            )}
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
@@ -670,8 +854,13 @@ function ChatSidebar({
                   <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
                   <div className="flex-1 min-w-0 pr-6">
                     <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
-                      {conv.title}
+                      {searchQuery ? highlightMatch(conv.title, searchQuery) : conv.title}
                     </p>
+                    {searchQuery && messageSnippets[conv.id] && (
+                      <p className="text-[10px] text-white/50 mt-1 line-clamp-2 leading-relaxed">
+                        {highlightMatch(messageSnippets[conv.id], searchQuery)}
+                      </p>
+                    )}
                     <p className="text-[10px] text-white/45 mt-1.5">
                       {formatDistanceToNow(conv.updatedAt, { addSuffix: true })}
                     </p>
@@ -781,25 +970,31 @@ function ProfileDropdown() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
+  const fetchUserData = useCallback(async () => {
     if (!user) return;
+    const { data } = await supabase
+      .from("users")
+      .select("name, profile_image, credits_balance, subscription_tier")
+      .eq("id", user.id)
+      .single();
     
-    const fetchUserData = async () => {
-      const { data } = await supabase
-        .from("users")
-        .select("name, profile_image, credit_balance, subscription_plan")
-        .eq("id", user.id)
-        .single();
-      
-      if (data) {
-        setUserProfile({ name: data.name, profile_image: data.profile_image });
-        setCreditBalance(data.credit_balance || 50);
-        setPlan(data.subscription_plan || 'free');
-      }
-    };
-    
-    fetchUserData();
+    if (data) {
+      setUserProfile({ name: data.name, profile_image: data.profile_image });
+      setCreditBalance(data.credits_balance || 50);
+      setPlan(data.subscription_tier || 'free');
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchUserData();
+    
+    // Listen for profile updates from AccountOverview
+    const handleProfileUpdate = () => {
+      fetchUserData();
+    };
+    window.addEventListener('profile-updated', handleProfileUpdate);
+    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
+  }, [fetchUserData]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -1097,7 +1292,7 @@ function ImageGenerationModal({
     setGeneratedImage(null);
     
     try {
-      const response = await fetch(`${API_URL}/api/image/generate`, {
+      const response = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1309,6 +1504,7 @@ function DashboardContent() {
   const [creditBalance, setCreditBalance] = useState(50);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1324,6 +1520,35 @@ function DashboardContent() {
     loadConversations();
   }, [loadConversations]);
 
+  // Auto-restore last conversation on page load (skip if auto-execute pending or reset requested)
+  useEffect(() => {
+    if (conversations.length > 0 && !currentConversation && messages.length === 0) {
+      try {
+        // Don't restore old conversation if we're about to auto-execute a new prompt
+        const pendingAutoExecute = sessionStorage.getItem('autoExecute') === 'true' && sessionStorage.getItem('domainPrompt');
+        if (pendingAutoExecute) return;
+
+        // If Global button was clicked, reset to landing state (no conversation)
+        const shouldReset = sessionStorage.getItem('resetDashboard');
+        if (shouldReset) {
+          sessionStorage.removeItem('resetDashboard');
+          startNewChat();
+          return;
+        }
+
+        const lastConvId = localStorage.getItem('mcleuker_last_conversation_id');
+        if (lastConvId) {
+          const conv = conversations.find(c => c.id === lastConvId);
+          if (conv) {
+            handleSelectConversation(conv);
+          }
+        }
+      } catch (e) {
+        // localStorage not available
+      }
+    }
+  }, [conversations]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1336,6 +1561,38 @@ function DashboardContent() {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [input]);
+
+  // Auto-execute prompt from landing page / domain pages
+  const hasAutoExecuted = useRef(false);
+  useEffect(() => {
+    if (hasAutoExecuted.current) return;
+    try {
+      const pendingPrompt = sessionStorage.getItem('domainPrompt');
+      const shouldAutoExecute = sessionStorage.getItem('autoExecute');
+      const domainContext = sessionStorage.getItem('domainContext');
+
+      if (pendingPrompt && shouldAutoExecute === 'true' && user) {
+        // Clear immediately to prevent re-execution on re-render
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('autoExecute');
+        sessionStorage.removeItem('domainContext');
+        hasAutoExecuted.current = true;
+
+        // Start a fresh new chat, then auto-send the prompt
+        startNewChat();
+        setTimeout(() => {
+          handleSendMessage(pendingPrompt);
+        }, 400);
+      } else if (pendingPrompt && !shouldAutoExecute) {
+        // Legacy: just pre-fill the input without auto-executing
+        setInput(pendingPrompt);
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('domainContext');
+      }
+    } catch (e) {
+      // sessionStorage not available
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle layer expansion
   const toggleLayerExpand = (messageId: string, layerId: string) => {
@@ -1414,6 +1671,7 @@ function DashboardContent() {
       const newConv = await createConversation(messageText.slice(0, 50));
       if (newConv) {
         conversationId = newConv.id;
+        try { localStorage.setItem('mcleuker_last_conversation_id', newConv.id); } catch (e) {}
       }
     }
 
@@ -1468,21 +1726,44 @@ function DashboardContent() {
     let currentSources: Source[] = [];
     let currentContent = '';
     let finalFollowUp: string[] = [];
+    let currentDownloads: DownloadFile[] = [];
 
     try {
-      const response = await fetch(`${API_URL}/api/chat/stream`, {
+      // Map frontend mode names to backend mode names
+      const modeMap: Record<string, string> = { 'quick': 'instant', 'deep': 'thinking' };
+      const backendMode = modeMap[searchMode] || 'thinking';
+      
+      // Build messages array with optional sector context
+      const chatMessages: Array<{role: string; content: string | Array<Record<string, unknown>>}> = [];
+      if (currentSector !== 'all') {
+        chatMessages.push({ role: 'system', content: `Focus on the ${currentSector} sector.` });
+      }
+      
+      // Handle multimodal content (files)
+      if (currentFiles.length > 0) {
+        const contentParts: Array<Record<string, unknown>> = [
+          { type: 'text', text: messageText }
+        ];
+        for (const f of currentFiles) {
+          if (f.base64) {
+            contentParts.push({ type: 'image_url', image_url: { url: `data:${f.type};base64,${f.base64}` } });
+          } else if (f.url) {
+            contentParts.push({ type: 'image_url', image_url: { url: f.url } });
+          }
+        }
+        chatMessages.push({ role: 'user', content: contentParts });
+      } else {
+        chatMessages.push({ role: 'user', content: messageText });
+      }
+      
+      const response = await fetch(`${API_URL}/api/v1/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: messageText,
-          mode: searchMode,
-          sector: currentSector === 'all' ? null : currentSector,
-          files: currentFiles.length > 0 ? currentFiles.map(f => ({
-            name: f.name,
-            type: f.type,
-            base64: f.base64,
-            url: f.url
-          })) : undefined,
+          messages: chatMessages,
+          mode: backendMode,
+          stream: true,
+          enable_tools: true,
         }),
         signal: currentAbortController.signal,
       });
@@ -1577,6 +1858,20 @@ function DashboardContent() {
                     ? { ...m, content: currentContent }
                     : m
                 ));
+              } else if (eventType === 'download') {
+                // Handle file download events from tool execution
+                const downloadInfo: DownloadFile = {
+                  filename: eventData.filename || 'file',
+                  download_url: eventData.download_url || '',
+                  file_id: eventData.file_id || '',
+                  file_type: eventData.file_type || 'unknown',
+                };
+                currentDownloads.push(downloadInfo);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, downloads: [...currentDownloads] }
+                    : m
+                ));
               } else if (eventType === 'follow_up') {
                 finalFollowUp = eventData.questions || [];
                 setMessages(prev => prev.map(m =>
@@ -1591,6 +1886,12 @@ function DashboardContent() {
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
 
+                // Merge downloads from complete event and from stream
+                const completeDownloads = eventData.downloads || [];
+                const allDownloads = [...currentDownloads, ...completeDownloads.filter(
+                  (d: DownloadFile) => !currentDownloads.some(cd => cd.file_id === d.file_id)
+                )];
+
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
                     ? {
@@ -1599,6 +1900,7 @@ function DashboardContent() {
                         reasoning_layers: currentLayers,
                         sources: eventData.sources || currentSources,
                         follow_up_questions: followUpQuestions,
+                        downloads: allDownloads.length > 0 ? allDownloads : undefined,
                         isStreaming: false,
                       }
                     : m
@@ -1624,6 +1926,7 @@ function DashboardContent() {
                       })),
                       follow_up_questions: followUpQuestions,
                       search_mode: searchMode,
+                      downloads: allDownloads.length > 0 ? allDownloads : undefined,
                     });
                     
                     await supabase.from('chat_messages').insert({
@@ -1631,7 +1934,7 @@ function DashboardContent() {
                       user_id: user.id,
                       role: 'assistant',
                       content: finalContent,
-                      model_used: 'grok-4',
+                      model_used: 'kimi-k2.5',
                       credits_used: creditsUsed,
                       metadata: JSON.parse(messageMetadata),
                     });
@@ -1691,6 +1994,7 @@ function DashboardContent() {
     setMessages([]);
     setIsStreaming(false);
     startNewChat();
+    try { localStorage.removeItem('mcleuker_last_conversation_id'); } catch (e) {}
   };
 
   const handleSelectConversation = async (conv: Conversation) => {
@@ -1710,6 +2014,7 @@ function DashboardContent() {
     }
     
     await selectConversation(conv);
+    try { localStorage.setItem('mcleuker_last_conversation_id', conv.id); } catch (e) {}
     // Load messages for this conversation
     const { data, error } = await supabase
       .from("chat_messages")
@@ -1743,6 +2048,14 @@ function DashboardContent() {
           expanded: false,
         }));
         
+        // Parse downloads from metadata
+        const downloads: DownloadFile[] = (metadata.downloads || []).map((dl: any) => ({
+          filename: dl.filename || '',
+          download_url: dl.download_url || '',
+          file_id: dl.file_id || '',
+          file_type: dl.file_type || '',
+        }));
+
         return {
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
@@ -1753,6 +2066,7 @@ function DashboardContent() {
           timestamp: new Date(msg.created_at),
           isStreaming: false,
           is_favorite: msg.is_favorite,
+          downloads: downloads.length > 0 ? downloads : undefined,
         };
       });
       setMessages(loadedMessages);
@@ -1840,6 +2154,8 @@ function DashboardContent() {
         onSelectConversation={handleSelectConversation}
         onDeleteConversation={deleteConversation}
         onNewConversation={handleNewChat}
+        searchQuery={sidebarSearchQuery}
+        onSearchQueryChange={setSidebarSearchQuery}
       />
 
       {/* Main Content */}
@@ -1974,7 +2290,16 @@ function DashboardContent() {
                               ))}
                             </div>
                           )}
-                          <p className="text-white text-sm leading-relaxed">{message.content}</p>
+                          <p className="text-white text-sm leading-relaxed">{sidebarSearchQuery ? (() => {
+                            const escaped = sidebarSearchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const regex = new RegExp(`(${escaped})`, 'gi');
+                            const parts = message.content.split(regex);
+                            return parts.map((part: string, idx: number) =>
+                              regex.test(part)
+                                ? <mark key={idx} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</mark>
+                                : part
+                            );
+                          })() : message.content}</p>
                         </div>
                       )}
                       
@@ -2011,7 +2336,41 @@ function DashboardContent() {
                               sources={message.sources}
                               followUpQuestions={message.follow_up_questions}
                               onFollowUpClick={handleSendMessage}
+                              searchQuery={sidebarSearchQuery}
                             />
+                          )}
+                          
+                          {/* Download Files */}
+                          {message.downloads && message.downloads.length > 0 && (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-xs text-white/40 mb-1">Generated Files</p>
+                              {message.downloads.map((dl, dlIdx) => {
+                                const getFileIcon = (ft: string) => {
+                                  if (ft.includes('excel') || ft.includes('xlsx') || ft.includes('csv')) return <FileSpreadsheet className="h-4 w-4 text-green-400" />;
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return <Presentation className="h-4 w-4 text-orange-400" />;
+                                  if (ft.includes('pdf')) return <FileText className="h-4 w-4 text-red-400" />;
+                                  return <File className="h-4 w-4 text-blue-400" />;
+                                };
+                                return (
+                                  <a
+                                    key={dlIdx}
+                                    href={`${API_URL}${dl.download_url}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-3 px-4 py-3 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.15] rounded-xl transition-all group cursor-pointer"
+                                  >
+                                    <div className="flex-shrink-0 p-2 bg-white/[0.06] rounded-lg">
+                                      {getFileIcon(dl.file_type)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-white/90 truncate">{dl.filename}</p>
+                                      <p className="text-xs text-white/40 uppercase">{dl.file_type}</p>
+                                    </div>
+                                    <Download className="h-4 w-4 text-white/30 group-hover:text-white/70 transition-colors" />
+                                  </a>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       )}

@@ -110,7 +110,7 @@ export function AccountOverview() {
           email: user.email || '',
           name: user.user_metadata?.full_name || user.user_metadata?.name || '',
           auth_provider: user.app_metadata?.provider || 'email',
-          last_login_at: new Date().toISOString(),
+          last_active_at: new Date().toISOString(),
         };
 
         const { data: insertedUser, error: insertError } = await supabase
@@ -126,13 +126,13 @@ export function AccountOverview() {
             name: user.user_metadata?.full_name || user.user_metadata?.name || '',
             email: user.email || '',
             profile_image: null,
-            subscription_plan: 'free',
+            subscription_tier: 'free',
             created_at: user.created_at || new Date().toISOString(),
-            last_login_at: new Date().toISOString(),
+            last_active_at: new Date().toISOString(),
             auth_provider: user.app_metadata?.provider || 'email',
             company: null,
             role: null,
-          };
+          } as UserData;
           setUserData(fallbackData);
           const initialData = {
             name: fallbackData.name || '',
@@ -161,13 +161,13 @@ export function AccountOverview() {
         name: user.user_metadata?.full_name || '',
         email: user.email || '',
         profile_image: null,
-        subscription_plan: 'free',
+        subscription_tier: 'free',
         created_at: user.created_at || new Date().toISOString(),
-        last_login_at: new Date().toISOString(),
+        last_active_at: new Date().toISOString(),
         auth_provider: user.app_metadata?.provider || 'email',
         company: null,
         role: null,
-      };
+      } as UserData;
       setUserData(fallbackData);
       const initialData = {
         name: fallbackData.name || '',
@@ -212,10 +212,14 @@ export function AccountOverview() {
       console.log('Saving profile updates:', updates);
 
       // Update users table
-      const { error: usersError } = await supabase
+      const { data: updatedData, error: usersError } = await supabase
         .from('users')
         .update(updates)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .select('profile_image, name, company, role')
+        .single();
+
+      console.log('Supabase update result:', { updatedData, usersError });
 
       if (usersError) {
         console.error('Users table update failed:', usersError);
@@ -260,33 +264,38 @@ export function AccountOverview() {
         }
       }
 
-      // Update local state
+      // Update local state using the confirmed data from Supabase
+      const confirmedImage = updatedData?.profile_image ?? pendingImage ?? originalData.profile_image;
+      const confirmedName = updatedData?.name ?? formData.name.trim();
+      const confirmedCompany = updatedData?.company ?? formData.company.trim();
+      const confirmedRole = updatedData?.role ?? formData.role;
+
       setUserData((prev) =>
         prev
           ? {
               ...prev,
-              name: formData.name.trim(),
-              company: formData.company.trim(),
-              role: formData.role,
-              profile_image: pendingImage || prev.profile_image,
+              name: confirmedName,
+              company: confirmedCompany,
+              role: confirmedRole,
+              profile_image: confirmedImage,
             }
           : null
       );
 
       const newOriginalData = {
-        name: formData.name.trim(),
-        company: formData.company.trim(),
-        role: formData.role,
-        profile_image: pendingImage || originalData.profile_image,
+        name: confirmedName,
+        company: confirmedCompany,
+        role: confirmedRole,
+        profile_image: confirmedImage,
       };
 
       setOriginalData(newOriginalData);
-      setFormData((prev) => ({ 
-        ...prev, 
-        name: formData.name.trim(),
-        company: formData.company.trim(),
-        profile_image: pendingImage || prev.profile_image 
-      }));
+      setFormData({
+        name: confirmedName,
+        company: confirmedCompany,
+        role: confirmedRole,
+        profile_image: confirmedImage,
+      });
       setPendingImage(null);
 
       toast({
@@ -375,6 +384,7 @@ export function AccountOverview() {
               currentImage={pendingImage || formData.profile_image}
               name={formData.name}
               onImageSelect={(base64) => setPendingImage(base64)}
+              onError={(msg) => toast({ title: 'Image Error', description: msg, variant: 'destructive' })}
               disabled={saving}
             />
 
