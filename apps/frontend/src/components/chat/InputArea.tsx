@@ -183,6 +183,7 @@ export function InputArea({
         Press <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-gray-600">Enter</kbd> to send, 
         <kbd className="px-1.5 py-0.5 bg-gray-200 rounded text-gray-600">Shift + Enter</kbd> for new line
       </p>
+      <p className="text-gray-400/60 text-[11px] text-center mt-1">McLeukerAI can be wrong. Please verify important details.</p>
     </div>
   );
 }

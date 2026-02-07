@@ -249,6 +249,8 @@ export default function LandingPage() {
             </button>
           </form>
 
+          <p className="text-white/20 text-xs text-center mb-4">McLeukerAI can be wrong. Please verify important details.</p>
+
           <div className="flex flex-wrap items-center justify-center gap-2">
             {suggestionPrompts.map((s, i) => {
               const SIcon = s.icon;

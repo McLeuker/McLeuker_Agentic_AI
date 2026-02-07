@@ -201,6 +201,8 @@ export function DomainHero({
               </Button>
             </div>
 
+            <p className="text-white/20 text-[11px] text-center -mt-4 mb-4">McLeukerAI can be wrong. Please verify important details.</p>
+
             {/* Suggestion cards — matching the section card style */}
             {starters.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

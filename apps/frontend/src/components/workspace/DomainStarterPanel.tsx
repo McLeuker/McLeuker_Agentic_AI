@@ -111,6 +111,7 @@ export function DomainStarterPanel({
             <p className="text-white/40 text-xs mt-1 hidden sm:block">
               Shift + Enter for new line
             </p>
+            <p className="text-white/20 text-[11px] mt-2">McLeukerAI can be wrong. Please verify important details.</p>
           </div>
 
           {/* Trending Topics */}

@@ -2240,6 +2240,7 @@ function DashboardContent() {
                       </button>
                     </div>
                   </div>
+                  <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
                 </div>
                 
                 {/* Suggestion Cards - Under search bar */}
@@ -2470,11 +2471,12 @@ function DashboardContent() {
               </div>
               
               {/* Helper Text */}
-              <div className="flex items-center justify-center gap-4 mt-2">
+              <div className="flex items-center justify-center gap-4 mt-1.5">
                 <p className="text-[10px] text-white/30">
                   Press Enter to send • Shift + Enter for new line
                 </p>
               </div>
+              <p className="text-white/20 text-[11px] text-center mt-1">McLeukerAI can be wrong. Please verify important details.</p>
             </div>
           </div>
         )}
