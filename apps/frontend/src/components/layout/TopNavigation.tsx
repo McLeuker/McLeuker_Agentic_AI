@@ -42,7 +42,7 @@ export function TopNavigation({ variant = "marketing" }: TopNavigationProps) {
         <div className="flex items-center gap-4 shrink-0">
           <Link href="/" className="flex items-center">
             <span className="font-editorial text-xl lg:text-2xl text-white tracking-[0.02em]">
-              McLeuker
+              McLeuker<span className="text-white/30">.ai</span>
             </span>
           </Link>
         </div>

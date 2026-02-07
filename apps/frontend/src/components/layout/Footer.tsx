@@ -138,8 +138,8 @@ export function Footer() {
               <div className="flex items-center gap-2.5 mb-6">
                 {[
                   { icon: Linkedin, href: "https://linkedin.com/company/mcleuker", label: "LinkedIn" },
-                  { icon: Instagram, href: "https://instagram.com/mcleukerai", label: "Instagram" },
-                  { icon: Twitter, href: "https://x.com/mcleukerai", label: "X" },
+                  { icon: Instagram, href: "https://www.instagram.com/mcleuker/", label: "Instagram" },
+                  { icon: Twitter, href: "https://x.com/mcleuker", label: "X" },
                 ].map((social) => {
                   const SocialIcon = social.icon;
                   return (
@@ -278,7 +278,7 @@ export function Footer() {
               </p>
               <span className="text-white/10">·</span>
               <p className="text-[12px] text-white/30">
-                © {currentYear} McLeuker AI SAS. All rights reserved.
+                © {currentYear} McLeuker AI. All rights reserved.
               </p>
             </div>
             <div className="flex items-center gap-5 flex-wrap justify-center">
