@@ -358,31 +358,31 @@ export default function LandingPage() {
               {/* Image with Grayscale Filter */}
               <div className="relative rounded-[20px] overflow-hidden shadow-[0_14px_40px_rgba(0,0,0,0.55)] aspect-[4/5]">
                 <Image 
-                  src="/images/fashion-atelier.jpg" 
-                  alt="Fashion atelier workspace" 
+                  src="/images/home/built-for-decisions.jpg" 
+                  alt="Design sketches and fabric swatches" 
                   fill
                   className="object-cover grayscale contrast-105 brightness-90"
                 />
+                {/* Dark overlay for blending into dark UI */}
+                <div className="absolute inset-0 bg-black/[0.15]" />
               </div>
 
               {/* Content */}
               <div className="lg:py-12">
                 <p className="text-sm text-white/50 uppercase tracking-[0.2em] mb-4">
-                  Crafted for Excellence
+                  BUILT FOR DECISIONS
                 </p>
                 <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92] mb-8 leading-[1.1]">
-                  Intelligence meets craftsmanship
+                  From prompt to structured intelligence
                 </h2>
                 <p className="text-white/65 text-lg leading-relaxed mb-8">
-                  Just as the finest ateliers combine tradition with innovation, 
-                  McLeuker AI blends deep fashion expertise with cutting-edge artificial intelligence. 
-                  Every insight is curated, every report is refined.
+                  McLeuker AI uses a multi-model engine to synthesize fashion, beauty, and lifestyle signals into clear takeaways you can act on. No fluff—just structured outputs.
                 </p>
                 <ul className="space-y-4 mb-10">
                   {[
-                    "Professional-grade reports and presentations",
-                    "Structured data exports ready for your workflow",
-                    "Real deliverables, not just conversations"
+                    "Key takeaways + next steps (not long chat)",
+                    "Structured comparisons (pricing, assortments, ingredients, suppliers)",
+                    "Source-backed summaries (where available)"
                   ].map((item, i) => (
                     <li key={i} className="flex items-center gap-3 text-white/[0.85]">
                       <div className="w-1.5 h-1.5 rounded-full bg-[#5c6652]"></div>
@@ -391,7 +391,7 @@ export default function LandingPage() {
                   ))}
                 </ul>
                 <Link
-                  href="/signup"
+                  href="/domains"
                   className={cn(
                     "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
                     "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
@@ -399,7 +399,7 @@ export default function LandingPage() {
                     "shadow-lg shadow-[#2E3524]/15"
                   )}
                 >
-                  Start Your Journey
+                  See Domains
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
