@@ -3576,6 +3576,304 @@ async def weekly_insights_get(domain: str, refresh: bool = False):
     return await weekly_insights_endpoint(req)
 
 
+# ============================================================================
+# LIVE SIGNALS - Real-time "What's Happening Now" intelligence
+# ============================================================================
+
+_live_signals_cache: Dict[str, Dict[str, Any]] = {}
+LIVE_SIGNALS_CACHE_TTL = 1800  # 30 min cache
+
+DOMAIN_LIVE_PROMPTS: Dict[str, str] = {
+    "fashion": """You are a real-time fashion intelligence analyst monitoring breaking news RIGHT NOW. Provide 6 urgent, high-priority signals happening TODAY or in the last 48 hours in fashion. Focus on:
+- Breaking runway or collection news
+- Brand announcements made today
+- Viral fashion moments trending on social media right now
+- Stock/market movements for fashion companies
+- Celebrity style moments generating buzz today
+- Industry personnel changes announced recently
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (one of: Breaking, Market, Viral, Business, Trend, Celebrity), source name, and a relevant metric or stat if available (e.g. '+15% stock', '2.3M views', '#1 trending').""",
+
+    "beauty": """You are a real-time beauty intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours in beauty. Focus on: product launches, viral TikTok moments, brand earnings, ingredient controversies, celebrity beauty news, K-beauty innovations.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Market/Viral/Business/Trend/Celebrity), source name, and a relevant metric.""",
+
+    "skincare": """You are a real-time skincare intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours in skincare. Focus on: clinical breakthroughs, FDA/EU regulatory news, viral skincare routines, ingredient science updates, brand launches, dermatologist warnings.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Market/Viral/Business/Trend/Science), source name, and a relevant metric.""",
+
+    "sustainability": """You are a real-time sustainability intelligence analyst for fashion. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: EU regulation updates, brand greenwashing exposures, circular fashion milestones, supply chain transparency news, carbon reduction achievements, textile recycling breakthroughs.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Regulation/Business/Innovation/Trend/Policy), source name, and a relevant metric.""",
+
+    "fashion-tech": """You are a real-time fashion technology analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: AI fashion tool launches, AR/VR shopping updates, fashion startup funding rounds, retail tech deployments, digital fashion drops, supply chain tech news.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Funding/AI/Retail/Innovation/Launch), source name, and a relevant metric.""",
+
+    "catwalks": """You are a real-time runway intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: fashion week show reviews, designer debuts, backstage exclusives, model casting news, show production innovations, front row moments.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Show/Designer/Backstage/Trend/Casting), source name, and a relevant metric.""",
+
+    "culture": """You are a real-time cultural intelligence analyst for fashion. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: art-fashion collaborations, museum exhibitions, film/music crossovers, viral cultural moments, DEI news in fashion, heritage brand moments.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Art/Media/Social/Heritage/Exhibition), source name, and a relevant metric.""",
+
+    "textile": """You are a real-time textile industry analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: fiber innovation announcements, raw material price changes, mill acquisitions, trade policy updates, sustainable textile breakthroughs, manufacturing shifts.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Price/Innovation/Trade/Business/Supply), source name, and a relevant metric.""",
+
+    "lifestyle": """You are a real-time lifestyle intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: wellness trend shifts, luxury experience launches, athleisure market moves, consumer behavior data, travel-fashion crossovers, social media lifestyle moments.
+
+For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Wellness/Market/Consumer/Travel/Viral), source name, and a relevant metric.""",
+}
+
+async def _fetch_live_signals(domain: str) -> List[Dict[str, Any]]:
+    """Fetch real-time live signals using AI providers"""
+    prompt = DOMAIN_LIVE_PROMPTS.get(domain, DOMAIN_LIVE_PROMPTS.get("fashion", ""))
+    today = datetime.now().strftime("%B %d, %Y")
+    
+    system_msg = f"""You are a real-time intelligence analyst. Today is {today}. You must provide signals from the LAST 48 HOURS only.
+
+Return your response as a valid JSON array of objects. Each object must have exactly these fields:
+- "title": string (compelling headline, max 70 chars)
+- "description": string (2 sentence summary, max 180 chars)
+- "impact": string (one of: "high", "medium", "low")
+- "category": string (short tag)
+- "source": string (publication name)
+- "metric": string (a relevant stat like "+15% stock", "2.3M views", "#1 trending", or "" if none)
+- "timestamp": string (ISO datetime within last 48 hours)
+
+Return ONLY the JSON array, no markdown, no code blocks."""
+
+    providers = []
+    if GROK_API_KEY:
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+    providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
+    if KIMI_API_KEY:
+        providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
+    
+    for provider_name, base_url, api_key, model in providers:
+        if not api_key:
+            continue
+        try:
+            logger.info(f"Fetching live signals for {domain} via {provider_name}")
+            provider_client = openai.AsyncOpenAI(
+                api_key=api_key, base_url=base_url
+            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
+            
+            response = await provider_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
+                temperature=0.7, max_tokens=3000
+            )
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"): raw = raw[:-3]
+                raw = raw.strip()
+            signals = json.loads(raw)
+            if isinstance(signals, list) and len(signals) >= 3:
+                return signals[:6]
+        except Exception as e:
+            logger.warning(f"Failed live signals via {provider_name}: {e}")
+            continue
+    return []
+
+
+@app.post("/api/v1/live-signals")
+async def live_signals_endpoint(request: WeeklyInsightsRequest):
+    """Get real-time live signals for a domain"""
+    domain = request.domain.lower().strip()
+    valid = list(DOMAIN_LIVE_PROMPTS.keys())
+    if domain not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Valid: {valid}")
+    
+    now = time.time()
+    cache_key = f"live_{domain}"
+    if not request.force_refresh and cache_key in _live_signals_cache:
+        cached = _live_signals_cache[cache_key]
+        if now - cached["timestamp"] < LIVE_SIGNALS_CACHE_TTL:
+            return {"success": True, "domain": domain, "signals": cached["data"], "cached": True}
+    
+    try:
+        signals = await _fetch_live_signals(domain)
+        if signals:
+            _live_signals_cache[cache_key] = {"data": signals, "timestamp": now}
+            return {"success": True, "domain": domain, "signals": signals, "cached": False}
+        return {"success": False, "domain": domain, "signals": [], "error": "No signals available"}
+    except Exception as e:
+        logger.error(f"Live signals error for {domain}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/live-signals/{domain}")
+async def live_signals_get(domain: str, refresh: bool = False):
+    return await live_signals_endpoint(WeeklyInsightsRequest(domain=domain, force_refresh=refresh))
+
+
+# ============================================================================
+# DOMAIN MODULES - Real-time module previews
+# ============================================================================
+
+_module_previews_cache: Dict[str, Dict[str, Any]] = {}
+MODULE_PREVIEW_CACHE_TTL = 3600  # 1 hour
+
+DOMAIN_MODULE_PROMPTS: Dict[str, str] = {
+    "fashion": """Generate 4 intelligence module previews for the FASHION domain. Each module should have a real, current data point from this week. The modules are:
+1. Runway Analysis - Latest silhouette/color/designer signals from recent fashion weeks
+2. Brand Positioning - Current luxury brand strategy shifts and market movements
+3. Street Style - Consumer adoption signals from fashion capitals
+4. Emerging Designers - New talent gaining industry attention this season
+
+For each module provide: id, label, description (max 50 chars), a live_stat (a real current number or fact, e.g. "12 shows reviewed", "Miu Miu +23% MIV"), a preview_headline (one compelling current headline for this module, max 60 chars), and the number of available_insights (between 8-25).""",
+
+    "beauty": """Generate 4 intelligence module previews for the BEAUTY domain with real current data:
+1. Ingredient Trends - Active ingredients gaining traction in prestige skincare/makeup
+2. Brand Analysis - Market positioning and recent launches
+3. Clean Beauty - Sustainability in cosmetics
+4. Backstage Beauty - Runway makeup trends from recent shows
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "skincare": """Generate 4 intelligence module previews for the SKINCARE domain with real current data:
+1. Active Ingredients - Science-backed formulation innovations
+2. Regulatory Updates - EU, US & Asian compliance changes
+3. Claims Analysis - Marketing and efficacy claims trending
+4. Product Innovation - New formats and technologies
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "sustainability": """Generate 4 intelligence module previews for the SUSTAINABILITY domain with real current data:
+1. Sustainable Materials - Circular and regenerative options
+2. Supply Chain - Transparency and traceability developments
+3. ESG Regulations - Compliance and reporting requirements
+4. Certifications - Standards and verification updates
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "fashion-tech": """Generate 4 intelligence module previews for the FASHION-TECH domain with real current data:
+1. AI in Fashion - Machine learning applications across the value chain
+2. Startup Landscape - Emerging tech companies and funding
+3. Digital Fashion - Virtual and augmented experiences
+4. Retail Tech - Store and e-commerce innovation
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "catwalks": """Generate 4 intelligence module previews for the CATWALKS domain with real current data:
+1. Show Summaries - Key collections and standout moments
+2. Designer Analysis - Creative direction and vision
+3. Styling Trends - Show styling and presentation signals
+4. Emerging Talent - New designers making waves
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "culture": """Generate 4 intelligence module previews for the CULTURE domain with real current data:
+1. Art & Fashion - Collaborations and exhibitions
+2. Social Signals - Movements and values shaping fashion
+3. Regional Culture - Geographic influences on global trends
+4. Media & Influence - Cultural narratives in fashion
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "textile": """Generate 4 intelligence module previews for the TEXTILE domain with real current data:
+1. Find Mills - European and Asian textile producers
+2. Fiber Innovation - New materials and technologies
+3. Supplier Discovery - Sourcing with specifications
+4. Certification Guide - GOTS, OEKO-TEX, BCI standards
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+
+    "lifestyle": """Generate 4 intelligence module previews for the LIFESTYLE domain with real current data:
+1. Consumer Signals - Behavior shifts and preferences
+2. Wellness Trends - Health and fashion convergence
+3. Cultural Shifts - Social movements and values
+4. Travel & Leisure - Destination and experience signals
+
+For each: id, label, description (max 50 chars), live_stat, preview_headline (max 60 chars), available_insights count (8-25).""",
+}
+
+async def _fetch_module_previews(domain: str) -> List[Dict[str, Any]]:
+    """Fetch module preview data using AI"""
+    prompt = DOMAIN_MODULE_PROMPTS.get(domain, DOMAIN_MODULE_PROMPTS.get("fashion", ""))
+    today = datetime.now().strftime("%B %d, %Y")
+    
+    system_msg = f"""You are a fashion intelligence platform. Today is {today}.
+
+Return a JSON array of 4 module objects. Each must have:
+- "id": string (e.g. "runway", "brands")
+- "label": string (module name)
+- "description": string (max 50 chars)
+- "live_stat": string (a real current metric, e.g. "12 shows reviewed", "Miu Miu +23% MIV")
+- "preview_headline": string (one compelling current headline, max 60 chars)
+- "available_insights": number (between 8-25)
+
+Return ONLY the JSON array."""
+
+    providers = []
+    if GROK_API_KEY:
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+    providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
+    if KIMI_API_KEY:
+        providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
+    
+    for provider_name, base_url, api_key, model in providers:
+        if not api_key:
+            continue
+        try:
+            provider_client = openai.AsyncOpenAI(
+                api_key=api_key, base_url=base_url
+            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
+            
+            response = await provider_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
+                temperature=0.7, max_tokens=2000
+            )
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"): raw = raw[:-3]
+                raw = raw.strip()
+            modules = json.loads(raw)
+            if isinstance(modules, list) and len(modules) >= 3:
+                return modules[:4]
+        except Exception as e:
+            logger.warning(f"Failed module previews via {provider_name}: {e}")
+            continue
+    return []
+
+
+@app.post("/api/v1/domain-modules")
+async def domain_modules_endpoint(request: WeeklyInsightsRequest):
+    """Get real-time module previews for a domain"""
+    domain = request.domain.lower().strip()
+    valid = list(DOMAIN_MODULE_PROMPTS.keys())
+    if domain not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid domain. Valid: {valid}")
+    
+    now = time.time()
+    cache_key = f"modules_{domain}"
+    if not request.force_refresh and cache_key in _module_previews_cache:
+        cached = _module_previews_cache[cache_key]
+        if now - cached["timestamp"] < MODULE_PREVIEW_CACHE_TTL:
+            return {"success": True, "domain": domain, "modules": cached["data"], "cached": True}
+    
+    try:
+        modules = await _fetch_module_previews(domain)
+        if modules:
+            _module_previews_cache[cache_key] = {"data": modules, "timestamp": now}
+            return {"success": True, "domain": domain, "modules": modules, "cached": False}
+        return {"success": False, "domain": domain, "modules": [], "error": "No module data available"}
+    except Exception as e:
+        logger.error(f"Module previews error for {domain}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/domain-modules/{domain}")
+async def domain_modules_get(domain: str, refresh: bool = False):
+    return await domain_modules_endpoint(WeeklyInsightsRequest(domain=domain, force_refresh=refresh))
+
+
 @app.get("/health")
 @app.get("/api/v1/health")
 async def health_check():

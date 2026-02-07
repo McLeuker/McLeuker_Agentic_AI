@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSector, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
 import { DomainHero } from "@/components/domain/DomainHero";
-import { DomainInsights, IntelligenceItem } from "@/components/domain/DomainInsights";
+import { DomainInsights } from "@/components/domain/DomainInsights";
 import { DomainModules } from "@/components/domain/DomainModules";
 import { WeeklyInsights } from "@/components/domain/WeeklyInsights";
 import { WorkspaceNavigation } from "@/components/workspace/WorkspaceNavigation";
@@ -22,42 +22,11 @@ const slugToSector: Record<string, Sector> = {
   lifestyle: "lifestyle",
 };
 
-// Sample intelligence items for demo
-const getSampleIntelligence = (sector: Sector): IntelligenceItem[] => {
-  const baseItems: IntelligenceItem[] = [
-    {
-      title: "Emerging trends signal shift in consumer preferences",
-      description: "Industry analysts report significant changes in how consumers approach purchasing decisions in this sector.",
-      source: "Industry Report",
-      date: new Date().toISOString(),
-      confidence: "high",
-    },
-    {
-      title: "Major brands announce sustainability initiatives",
-      description: "Leading companies are committing to new environmental standards and transparency measures.",
-      source: "Business News",
-      date: new Date(Date.now() - 86400000).toISOString(),
-      confidence: "high",
-    },
-    {
-      title: "Technology adoption accelerates across the industry",
-      description: "Digital transformation continues to reshape operations and customer experiences.",
-      source: "Tech Analysis",
-      date: new Date(Date.now() - 172800000).toISOString(),
-      confidence: "medium",
-    },
-  ];
-
-  return baseItems;
-};
-
 export default function DomainLandingPage() {
   const params = useParams();
   const router = useRouter();
   const domain = params.domain as string;
   const { currentSector, setSector, getSectorConfig } = useSector();
-  const [intelligenceItems, setIntelligenceItems] = useState<IntelligenceItem[]>([]);
-  const [intelligenceLoading, setIntelligenceLoading] = useState(true);
 
   // Resolve sector from URL
   const resolvedSector = domain ? slugToSector[domain] : undefined;
@@ -72,34 +41,11 @@ export default function DomainLandingPage() {
     }
   }, [resolvedSector, currentSector, setSector, domain, router]);
 
-  // Fetch intelligence on mount/domain change
-  useEffect(() => {
-    if (resolvedSector) {
-      setIntelligenceLoading(true);
-      // Simulate API call
-      setTimeout(() => {
-        setIntelligenceItems(getSampleIntelligence(resolvedSector));
-        setIntelligenceLoading(false);
-      }, 1000);
-    }
-  }, [resolvedSector]);
-
   const sectorConfig = getSectorConfig();
   const starters = DOMAIN_STARTERS[currentSector] || [];
 
-  // Handle refresh
-  const handleRefresh = useCallback(() => {
-    if (resolvedSector) {
-      setIntelligenceLoading(true);
-      setTimeout(() => {
-        setIntelligenceItems(getSampleIntelligence(resolvedSector));
-        setIntelligenceLoading(false);
-      }, 1000);
-    }
-  }, [resolvedSector]);
-
-  // Handle module click - navigate to dashboard with pre-filled prompt and auto-execute
-  const handleModuleClick = useCallback(
+  // Handle module/insight click - navigate to dashboard with pre-filled prompt and auto-execute
+  const handlePromptClick = useCallback(
     (prompt: string) => {
       sessionStorage.setItem("domainPrompt", prompt);
       sessionStorage.setItem("domainContext", currentSector);
@@ -142,27 +88,22 @@ export default function DomainLandingPage() {
           onSubmit={handleAskSubmit}
         />
 
-        {/* What's Happening Now - Real-time Intelligence */}
+        {/* What's Happening Now - Real-time live signals */}
         <DomainInsights
           sector={currentSector}
-          items={intelligenceItems}
-          isLoading={intelligenceLoading}
-          error={null}
-          source="fallback"
-          seasonContext="SS26"
-          onRefresh={handleRefresh}
+          onSignalClick={handlePromptClick}
         />
 
         {/* Last Week's Insights - AI-curated weekly intelligence */}
         <WeeklyInsights
           sector={currentSector}
-          onInsightClick={handleModuleClick}
+          onInsightClick={handlePromptClick}
         />
 
-        {/* Intelligence Modules */}
+        {/* Intelligence Modules - Deep dive research tracks */}
         <DomainModules
           sector={currentSector}
-          onModuleClick={handleModuleClick}
+          onModuleClick={handlePromptClick}
         />
       </main>
     </div>
