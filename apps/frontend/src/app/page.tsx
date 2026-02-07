@@ -292,54 +292,10 @@ export default function LandingPage() {
       <div className="h-16 lg:h-[72px]" />
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 1 — Try McLeuker AI (KEEP) */}
-      {/* ═══════════════════════════════════════════════════════ */}
-      <section className="pt-24 lg:pt-28 pb-14 lg:pb-20 bg-[#0A0A0A]">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-12">
-          <div className="max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#0C0C0C] border border-white/[0.06] mb-5">
-              <Sparkles className="w-3.5 h-3.5 text-[#5c6652]" />
-              <span className="text-xs text-white/50 uppercase tracking-[0.15em]">AI & Sustainability for Fashion</span>
-            </div>
-            <h1 className="font-editorial text-5xl md:text-6xl lg:text-7xl text-white/[0.95] tracking-tight mb-4 leading-[1.05]">
-              The Future of<br />Fashion Intelligence
-            </h1>
-            <p className="text-white/50 text-lg md:text-xl max-w-2xl mx-auto mb-8 leading-relaxed">
-              From one prompt to structured intelligence: trends, benchmarks, and clear next steps.
-            </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link
-                href="/dashboard"
-                className={cn(
-                  "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                  "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
-                  "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
-                  "shadow-lg shadow-[#2E3524]/15"
-                )}
-              >
-                Start Research
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                href="/domains"
-                className={cn(
-                  "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
-                  "bg-[#141414] border border-white/[0.10] text-white/80",
-                  "hover:bg-[#2E3524]/10 hover:border-[#2E3524]/30 transition-colors"
-                )}
-              >
-                Explore Domains
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 2 — Hero Image + Prompt (KEEP) */}
+      {/* SECTION 1 — Hero Image + Search Bar (PRIMARY) */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="relative bg-[#070707]">
-        <div className="relative h-[500px] lg:h-[600px] overflow-hidden">
+        <div className="relative h-[600px] lg:h-[700px] overflow-hidden">
           <Image
             src="/images/hero-runway.jpg"
             alt="Fashion Intelligence"
@@ -347,20 +303,30 @@ export default function LandingPage() {
             className="object-cover grayscale brightness-[0.5] contrast-[1.1]"
             priority
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#0A0A0A] via-transparent to-[#070707]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#070707]/80 via-transparent to-[#070707]" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-full max-w-2xl px-6">
-              <form onSubmit={handleSubmit} className="relative">
+            <div className="w-full max-w-3xl px-6 text-center">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/40 backdrop-blur-sm border border-white/[0.08] mb-6">
+                <Sparkles className="w-3.5 h-3.5 text-[#5c6652]" />
+                <span className="text-xs text-white/50 uppercase tracking-[0.15em]">AI-Powered Fashion Intelligence</span>
+              </div>
+              <h1 className="font-editorial text-5xl md:text-6xl lg:text-7xl text-white/[0.95] tracking-tight mb-4 leading-[1.05]">
+                What do you want<br />to research?
+              </h1>
+              <p className="text-white/40 text-lg max-w-xl mx-auto mb-8 leading-relaxed">
+                From one prompt to structured intelligence: trends, benchmarks, and clear next steps.
+              </p>
+              <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto">
                 <input
                   type="text"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="What do you want to research?"
+                  placeholder="Analyze SS26 trends, find suppliers, compare markets..."
                   className={cn(
                     "w-full h-14 pl-5 pr-14 rounded-2xl",
-                    "bg-black/60 backdrop-blur-md border border-white/[0.10]",
+                    "bg-black/60 backdrop-blur-md border border-white/[0.12]",
                     "text-white/90 placeholder:text-white/30",
-                    "focus:outline-none focus:border-white/[0.20]",
+                    "focus:outline-none focus:border-white/[0.25]",
                     "text-[15px]"
                   )}
                 />
@@ -387,6 +353,46 @@ export default function LandingPage() {
                   );
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* SECTION 2 — The Future of Fashion Intelligence */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="py-16 lg:py-20 bg-[#0A0A0A]">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-12">
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.95] tracking-tight mb-4 leading-[1.05]">
+              The Future of<br />Fashion Intelligence
+            </h2>
+            <p className="text-white/40 text-lg md:text-xl max-w-2xl mx-auto mb-8 leading-relaxed">
+              One platform for every fashion research task. From trend analysis to supplier sourcing — structured, professional, and ready to act on.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link
+                href="/dashboard"
+                className={cn(
+                  "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
+                  "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                  "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
+                  "shadow-lg shadow-[#2E3524]/15"
+                )}
+              >
+                Start Research
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/domains"
+                className={cn(
+                  "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
+                  "bg-[#141414] border border-white/[0.10] text-white/80",
+                  "hover:bg-[#2E3524]/10 hover:border-[#2E3524]/30 transition-colors"
+                )}
+              >
+                Explore Domains
+              </Link>
             </div>
           </div>
         </div>
