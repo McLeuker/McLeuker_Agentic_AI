@@ -26,7 +26,9 @@ import {
   LayoutDashboard,
   Download,
   Clock,
-  Quote,
+  File,
+  FileSpreadsheet,
+  Presentation,
 } from "lucide-react";
 
 /* ─── Static Data ─── */
@@ -132,64 +134,89 @@ const steps = [
   },
 ];
 
-const outputExamples = [
+const outputShowcases = [
   {
-    title: "Trend Forecast Report",
-    type: "PDF Report",
-    description: "SS26 womenswear color and silhouette analysis across 4 fashion weeks",
-    tags: ["12 pages", "47 sources", "8 charts"],
+    title: "Excel Intelligence",
+    type: "xlsx",
+    icon: FileSpreadsheet,
+    color: "#217346",
+    description: "Structured data with filters, formulas, and multi-sheet analysis",
+    preview: {
+      headers: ["Supplier", "Country", "MOQ", "Cert.", "Lead Time"],
+      rows: [
+        ["Candiani", "Italy", "300", "GOTS", "6 wks"],
+        ["Tejidos Royo", "Spain", "500", "OEKO", "4 wks"],
+        ["Advance Denim", "Portugal", "200", "BCI", "5 wks"],
+      ],
+    },
   },
   {
-    title: "Supplier Comparison",
-    type: "Excel Sheet",
-    description: "European sustainable denim suppliers with MOQ, pricing, and certifications",
-    tags: ["32 suppliers", "6 criteria", "3 tiers"],
+    title: "PDF Reports",
+    type: "pdf",
+    icon: FileText,
+    color: "#D32F2F",
+    description: "Professional reports with charts, tables, and executive summaries",
+    preview: {
+      sections: ["Executive Summary", "Key Findings", "Trend Analysis", "Competitive Landscape", "Recommendations"],
+      pages: 12,
+      charts: 8,
+    },
   },
   {
-    title: "Market Intelligence",
-    type: "Structured Analysis",
-    description: "Luxury handbag pricing strategy across US, EU, and Asian markets",
-    tags: ["15 brands", "3 markets", "Price matrix"],
+    title: "Presentations",
+    type: "pptx",
+    icon: Presentation,
+    color: "#D04423",
+    description: "Slide decks ready for stakeholder meetings and board presentations",
+    preview: {
+      slides: ["Title & Overview", "Market Size", "Competitive Map", "Trend Matrix", "Next Steps"],
+      count: 15,
+    },
   },
   {
-    title: "Brand Positioning Map",
-    type: "Presentation",
-    description: "Competitive landscape analysis for emerging sustainable fashion brands",
-    tags: ["20 brands", "4 quadrants", "Key insights"],
-  },
-  {
-    title: "Certification Audit",
-    type: "Word Document",
-    description: "GOTS, OEKO-TEX, and BCI compliance mapping for supply chain partners",
-    tags: ["18 suppliers", "5 certs", "Gap analysis"],
+    title: "Word Documents",
+    type: "docx",
+    icon: File,
+    color: "#2B579A",
+    description: "Detailed research documents with citations and structured analysis",
+    preview: {
+      outline: ["1. Introduction", "2. Methodology", "3. Findings", "4. Analysis", "5. Appendix"],
+      words: "5,000+",
+    },
   },
 ];
 
-const testimonials = [
+const impactMetrics = [
+  { value: "10", label: "Specialized Domains", detail: "Fashion to Sustainability" },
+  { value: "4", label: "AI Models Working", detail: "Grok · Gemini · GPT · Kimi" },
+  { value: "<5min", label: "Avg. Research Time", detail: "From prompt to report" },
+  { value: "24/7", label: "Live Signal Monitoring", detail: "Across all sources" },
+];
+
+const useCases = [
   {
-    quote: "McLeuker AI transformed how we approach trend research. What took weeks now takes hours.",
-    author: "Creative Director",
-    company: "European Fashion House",
+    role: "Creative Directors",
+    task: "Trend forecasting across 4 fashion weeks in one prompt",
+    result: "12-page structured report with visual references",
+    icon: Sparkles,
   },
   {
-    quote: "The supplier intelligence reports are incredibly thorough. A game-changer for our sourcing team.",
-    author: "Head of Procurement",
-    company: "Luxury Accessories Brand",
+    role: "Sourcing Teams",
+    task: "Find and compare 30+ suppliers by MOQ, price, and certifications",
+    result: "Exportable Excel with tier rankings and contact details",
+    icon: Search,
   },
   {
-    quote: "Finally, an AI tool built by people who understand fashion. The outputs are genuinely useful.",
-    author: "Brand Strategy Lead",
-    company: "Sustainable Fashion Label",
+    role: "Brand Strategists",
+    task: "Competitive positioning across luxury, mid-range, and DTC",
+    result: "Presentation-ready brand maps with market data",
+    icon: Target,
   },
   {
-    quote: "The multi-model approach means we get real-time data alongside deep analysis. Nothing else does this.",
-    author: "VP of Merchandising",
-    company: "Global Retail Group",
-  },
-  {
-    quote: "We use it daily for competitive intelligence. The structured outputs save us hours of manual work.",
-    author: "Market Analyst",
-    company: "Fashion Consultancy",
+    role: "Sustainability Leads",
+    task: "Map GOTS, OEKO-TEX, and BCI compliance across supply chain",
+    result: "Gap analysis document with remediation steps",
+    icon: ShieldCheck,
   },
 ];
 
@@ -235,7 +262,6 @@ export default function LandingPage() {
   const router = useRouter();
   const domainScroll = useHorizontalScroll();
   const outputScroll = useHorizontalScroll();
-  const testimonialScroll = useHorizontalScroll();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -634,173 +660,231 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 6 — Output Gallery (NEW — Horizontal Scroll) */}
+      {/* SECTION 6 — Visual Output Showcase (REDESIGNED) */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-24 lg:py-32 bg-[#0A0A0A]">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="flex items-end justify-between mb-12">
-              <div>
-                <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-3">What You Get</p>
-                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
-                  Professional-grade outputs
-                </h2>
-                <p className="text-white/45 text-base mt-4 max-w-lg">
-                  Every research task produces structured, exportable intelligence — not chat responses.
-                </p>
+            {/* Header */}
+            <div className="text-center mb-16 lg:mb-20">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#0C0C0C] border border-white/[0.06] mb-6">
+                <Download className="w-3.5 h-3.5 text-[#5c6652]" />
+                <span className="text-xs text-white/50 uppercase tracking-[0.15em]">Exportable Deliverables</span>
               </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <button
-                  onClick={() => outputScroll.scroll("left")}
-                  disabled={!outputScroll.canScrollLeft}
-                  className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/50 hover:text-white/80 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => outputScroll.scroll("right")}
-                  disabled={!outputScroll.canScrollRight}
-                  className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/50 hover:text-white/80 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div
-          ref={outputScroll.ref}
-          className="flex gap-5 overflow-x-auto scrollbar-hide px-6 lg:px-12 pb-4 snap-x snap-mandatory"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          <div className="flex-shrink-0 w-[calc((100vw-1200px)/2-24px)] hidden xl:block" />
-          
-          {outputExamples.map((output, i) => (
-            <div
-              key={i}
-              className="group flex-shrink-0 w-[340px] sm:w-[380px] snap-start"
-            >
-              <div className="h-full p-7 rounded-2xl bg-[#0C0C0C] border border-white/[0.04] group-hover:border-[#2E3524]/20 transition-all duration-300">
-                {/* Type badge */}
-                <div className="flex items-center justify-between mb-5">
-                  <span className="px-3 py-1 rounded-full bg-[#141414] border border-white/[0.06] text-xs text-[#5c6652] uppercase tracking-wider">
-                    {output.type}
-                  </span>
-                  <FileText className="w-5 h-5 text-white/20 group-hover:text-[#5c6652]/60 transition-colors" />
-                </div>
-                
-                {/* Content */}
-                <h3 className="text-lg font-medium text-white/[0.92] mb-2.5">
-                  {output.title}
-                </h3>
-                <p className="text-sm text-white/45 leading-relaxed mb-6">
-                  {output.description}
-                </p>
-                
-                {/* Tags */}
-                <div className="flex flex-wrap gap-2">
-                  {output.tags.map((tag, j) => (
-                    <span
-                      key={j}
-                      className="px-2.5 py-1 rounded-md bg-[#141414] text-xs text-white/40"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-          
-          {/* "See it in action" card */}
-          <Link
-            href="/dashboard"
-            className="group flex-shrink-0 w-[340px] sm:w-[380px] snap-start"
-          >
-            <div className="h-full p-7 rounded-2xl bg-gradient-to-br from-[#2E3524]/10 to-[#0C0C0C] border border-[#2E3524]/20 group-hover:border-[#2E3524]/40 transition-all duration-300 flex flex-col items-center justify-center text-center min-h-[260px]">
-              <div className="w-14 h-14 rounded-2xl bg-[#2E3524]/20 flex items-center justify-center mb-5">
-                <ArrowRight className="w-6 h-6 text-[#5c6652]" />
-              </div>
-              <h3 className="text-lg font-medium text-white/[0.92] mb-2">
-                See it in action
-              </h3>
-              <p className="text-sm text-white/45">
-                Try a research task and see the output quality yourself.
+              <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.92] mb-6 leading-[1.05]">
+                See exactly what you get
+              </h2>
+              <p className="text-white/50 text-lg max-w-2xl mx-auto leading-relaxed">
+                Not chat responses — structured, professional documents ready for your team and stakeholders.
               </p>
             </div>
-          </Link>
-          
-          <div className="flex-shrink-0 w-6 lg:w-12 xl:w-[calc((100vw-1200px)/2-24px)]" />
+
+            {/* Output Cards Grid — 2x2 with visual previews */}
+            <div className="grid md:grid-cols-2 gap-5 lg:gap-6">
+              {outputShowcases.map((output, i) => {
+                const Icon = output.icon;
+                return (
+                  <div key={i} className="group relative rounded-2xl bg-[#0C0C0C] border border-white/[0.04] hover:border-white/[0.08] transition-all duration-300 overflow-hidden">
+                    {/* Top bar — file type indicator */}
+                    <div className="flex items-center gap-3 px-6 pt-6 pb-4">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: `${output.color}15` }}>
+                        <Icon className="w-5 h-5" style={{ color: output.color }} />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-base font-medium text-white/[0.92]">{output.title}</h3>
+                        <p className="text-xs text-white/40">.{output.type} format</p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-md bg-[#141414] border border-white/[0.06] text-xs text-white/50 uppercase tracking-wider">
+                        .{output.type}
+                      </span>
+                    </div>
+
+                    {/* Visual preview area */}
+                    <div className="mx-6 mb-4 rounded-xl bg-[#0A0A0A] border border-white/[0.04] overflow-hidden">
+                      {output.type === 'xlsx' && output.preview && 'headers' in output.preview && (
+                        <div className="overflow-hidden">
+                          {/* Excel header row */}
+                          <div className="flex border-b border-white/[0.06]">
+                            {output.preview.headers.map((h: string, j: number) => (
+                              <div key={j} className="flex-1 px-3 py-2 text-[10px] font-medium text-white/60 uppercase tracking-wider bg-[#217346]/[0.08] border-r border-white/[0.04] last:border-r-0">
+                                {h}
+                              </div>
+                            ))}
+                          </div>
+                          {/* Excel data rows */}
+                          {output.preview.rows.map((row: string[], j: number) => (
+                            <div key={j} className={cn("flex border-b border-white/[0.03] last:border-b-0", j % 2 === 0 ? "bg-transparent" : "bg-white/[0.01]")}>
+                              {row.map((cell: string, k: number) => (
+                                <div key={k} className="flex-1 px-3 py-2 text-[11px] text-white/50 border-r border-white/[0.03] last:border-r-0 truncate">
+                                  {cell}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                          <div className="px-3 py-1.5 bg-[#217346]/[0.05] text-[10px] text-white/30">
+                            + 29 more rows across 3 sheets
+                          </div>
+                        </div>
+                      )}
+
+                      {output.type === 'pdf' && output.preview && 'sections' in output.preview && (
+                        <div className="p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-8 h-1 rounded-full bg-[#D32F2F]/30" />
+                            <span className="text-[10px] text-white/30 uppercase">McLeuker AI Report</span>
+                          </div>
+                          {output.preview.sections.map((s: string, j: number) => (
+                            <div key={j} className="flex items-center gap-2 py-1.5">
+                              <div className="w-1 h-1 rounded-full bg-[#D32F2F]/40" />
+                              <span className="text-[11px] text-white/45">{s}</span>
+                              <div className="flex-1 border-b border-dotted border-white/[0.06]" />
+                              <span className="text-[10px] text-white/25">{j * 2 + 1}</span>
+                            </div>
+                          ))}
+                          <div className="mt-2 pt-2 border-t border-white/[0.04] flex items-center gap-3 text-[10px] text-white/30">
+                            <span>{output.preview.pages} pages</span>
+                            <span>·</span>
+                            <span>{output.preview.charts} charts</span>
+                            <span>·</span>
+                            <span>47 sources cited</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {output.type === 'pptx' && output.preview && 'slides' in output.preview && (
+                        <div className="p-4">
+                          <div className="grid grid-cols-3 gap-2">
+                            {output.preview.slides.map((s: string, j: number) => (
+                              <div key={j} className="aspect-[16/10] rounded-lg bg-[#141414] border border-white/[0.04] flex flex-col items-center justify-center p-2 group-hover:border-white/[0.08] transition-colors">
+                                <div className="w-full h-0.5 rounded-full bg-[#D04423]/20 mb-1.5" />
+                                <span className="text-[8px] text-white/35 text-center leading-tight">{s}</span>
+                                <div className="w-3/4 h-0.5 rounded-full bg-white/[0.04] mt-1" />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-white/[0.04] text-[10px] text-white/30">
+                            {output.preview.count} slides · Stakeholder-ready
+                          </div>
+                        </div>
+                      )}
+
+                      {output.type === 'docx' && output.preview && 'outline' in output.preview && (
+                        <div className="p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="w-6 h-0.5 rounded-full bg-[#2B579A]/30" />
+                            <div className="w-12 h-0.5 rounded-full bg-[#2B579A]/20" />
+                          </div>
+                          {output.preview.outline.map((s: string, j: number) => (
+                            <div key={j} className="py-1.5 flex items-start gap-2">
+                              <span className="text-[11px] text-white/45">{s}</span>
+                            </div>
+                          ))}
+                          <div className="mt-2 pt-2 border-t border-white/[0.04] text-[10px] text-white/30">
+                            {output.preview.words} words · Fully cited
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Description */}
+                    <div className="px-6 pb-6">
+                      <p className="text-sm text-white/45 leading-relaxed">{output.description}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* CTA below outputs */}
+            <div className="text-center mt-12">
+              <Link
+                href="/dashboard"
+                className={cn(
+                  "inline-flex items-center gap-2 px-8 py-3.5 rounded-full",
+                  "bg-gradient-to-r from-[#2E3524] to-[#2A3021] text-white font-medium",
+                  "hover:from-[#3a4530] hover:to-[#353d2a] transition-all",
+                  "shadow-lg shadow-[#2E3524]/15"
+                )}
+              >
+                Try It — Generate Your First Report
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 7 — Testimonials (REDESIGNED — Horizontal Scroll) */}
+      {/* SECTION 7 — Impact + Who It's For (REDESIGNED) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-24 lg:py-32 bg-[#070707]">
+      <section className="py-24 lg:py-32 bg-[#070707] overflow-hidden">
         <div className="container mx-auto px-6 lg:px-12">
           <div className="max-w-[1200px] mx-auto">
-            <div className="flex items-end justify-between mb-12">
-              <div>
-                <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-3">From the Industry</p>
-                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
-                  Trusted by fashion professionals
-                </h2>
+            {/* Section header */}
+            <div className="text-center mb-16 lg:mb-20">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#0C0C0C] border border-white/[0.06] mb-6">
+                <BarChart3 className="w-3.5 h-3.5 text-[#5c6652]" />
+                <span className="text-xs text-white/50 uppercase tracking-[0.15em]">Built for Impact</span>
               </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <button
-                  onClick={() => testimonialScroll.scroll("left")}
-                  disabled={!testimonialScroll.canScrollLeft}
-                  className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/50 hover:text-white/80 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => testimonialScroll.scroll("right")}
-                  disabled={!testimonialScroll.canScrollRight}
-                  className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/50 hover:text-white/80 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
+              <h2 className="font-editorial text-4xl md:text-5xl lg:text-6xl text-white/[0.92] mb-6 leading-[1.05]">
+                The platform behind the decisions
+              </h2>
+              <p className="text-white/50 text-lg max-w-2xl mx-auto leading-relaxed">
+                Fashion professionals use McLeuker AI to turn hours of manual research into minutes of structured intelligence.
+              </p>
+            </div>
+
+            {/* Metrics bar */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-16 lg:mb-20">
+              {impactMetrics.map((metric, i) => (
+                <div key={i} className="relative group text-center p-6 lg:p-8 rounded-2xl bg-[#0C0C0C] border border-white/[0.04] hover:border-[#2E3524]/20 transition-all duration-300">
+                  <div className="text-3xl lg:text-4xl font-light text-white/[0.92] mb-2 tracking-tight">
+                    {metric.value}
+                  </div>
+                  <div className="text-sm text-white/60 font-medium mb-1">{metric.label}</div>
+                  <div className="text-xs text-white/30">{metric.detail}</div>
+                  {/* Subtle accent line at top */}
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-12 h-px bg-gradient-to-r from-transparent via-[#2E3524]/40 to-transparent" />
+                </div>
+              ))}
+            </div>
+
+            {/* Use cases — who it's for */}
+            <div className="mb-8">
+              <p className="text-xs text-white/40 uppercase tracking-[0.2em] mb-8 text-center">Who It&apos;s For</p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-5">
+              {useCases.map((uc, i) => {
+                const Icon = uc.icon;
+                return (
+                  <div key={i} className="group relative p-6 lg:p-7 rounded-2xl bg-[#0C0C0C] border border-white/[0.04] hover:border-[#2E3524]/20 transition-all duration-300">
+                    <div className="flex items-start gap-4">
+                      <div className="w-11 h-11 rounded-xl bg-[#141414] border border-white/[0.06] flex items-center justify-center flex-shrink-0 group-hover:border-[#2E3524]/30 transition-colors">
+                        <Icon className="w-5 h-5 text-[#5c6652]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-base font-medium text-white/[0.92] mb-3">{uc.role}</h3>
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            <span className="text-xs text-white/30 uppercase tracking-wider mt-0.5 flex-shrink-0 w-10">Task</span>
+                            <p className="text-sm text-white/55 leading-relaxed">{uc.task}</p>
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <span className="text-xs text-[#5c6652] uppercase tracking-wider mt-0.5 flex-shrink-0 w-10">Get</span>
+                            <p className="text-sm text-white/70 leading-relaxed">{uc.result}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {/* Hover arrow */}
+                    <div className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ArrowRight className="w-4 h-4 text-[#5c6652]" />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
-
-        <div
-          ref={testimonialScroll.ref}
-          className="flex gap-5 overflow-x-auto scrollbar-hide px-6 lg:px-12 pb-4 snap-x snap-mandatory"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          <div className="flex-shrink-0 w-[calc((100vw-1200px)/2-24px)] hidden xl:block" />
-          
-          {testimonials.map((t, i) => (
-            <div
-              key={i}
-              className="flex-shrink-0 w-[360px] sm:w-[420px] snap-start"
-            >
-              <div className="h-full p-8 rounded-2xl bg-[#0C0C0C] border border-white/[0.04] relative">
-                <Quote className="w-8 h-8 text-[#2E3524]/30 mb-5" />
-                <blockquote className="text-white/[0.82] text-base leading-relaxed mb-8">
-                  &ldquo;{t.quote}&rdquo;
-                </blockquote>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#141414] border border-white/[0.06] flex items-center justify-center">
-                    <span className="text-sm text-white/50 font-medium">
-                      {t.author.split(" ").map(w => w[0]).join("")}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white/[0.88]">{t.author}</p>
-                    <p className="text-xs text-white/40">{t.company}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-          
-          <div className="flex-shrink-0 w-6 lg:w-12 xl:w-[calc((100vw-1200px)/2-24px)]" />
         </div>
       </section>
 

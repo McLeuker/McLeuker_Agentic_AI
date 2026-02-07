@@ -1520,13 +1520,21 @@ function DashboardContent() {
     loadConversations();
   }, [loadConversations]);
 
-  // Auto-restore last conversation on page load (skip if auto-execute pending)
+  // Auto-restore last conversation on page load (skip if auto-execute pending or reset requested)
   useEffect(() => {
     if (conversations.length > 0 && !currentConversation && messages.length === 0) {
       try {
         // Don't restore old conversation if we're about to auto-execute a new prompt
         const pendingAutoExecute = sessionStorage.getItem('autoExecute') === 'true' && sessionStorage.getItem('domainPrompt');
         if (pendingAutoExecute) return;
+
+        // If Global button was clicked, reset to landing state (no conversation)
+        const shouldReset = sessionStorage.getItem('resetDashboard');
+        if (shouldReset) {
+          sessionStorage.removeItem('resetDashboard');
+          startNewChat();
+          return;
+        }
 
         const lastConvId = localStorage.getItem('mcleuker_last_conversation_id');
         if (lastConvId) {
