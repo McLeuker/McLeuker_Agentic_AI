@@ -14,6 +14,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   reasoning?: string;
+  toolStatus?: string;
   isStreaming?: boolean;
   downloads?: DownloadableFile[];
   searchSources?: SearchSource[];
@@ -148,20 +149,23 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
           ));
         }
       }
-      // For streaming modes
-      else if (mode === 'thinking' || mode === 'instant') {
+      // For streaming modes (thinking, instant, agent, code)
+      else {
         let fullContent = '';
         let fullReasoning = '';
+        let streamDownloads: DownloadableFile[] = [];
+        let toolCallCount = 0;
+        const enableTools = mode === 'agent' || mode === 'code';
         
         for await (const chunk of api.chatStream(
           [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          { mode, enable_tools: mode === 'agent' }
+          { mode, enable_tools: enableTools }
         )) {
           if (chunk.type === 'content') {
             fullContent += chunk.data;
             setMessages(prev => prev.map(msg => 
               msg.id === assistantMessage.id
-                ? { ...msg, content: fullContent }
+                ? { ...msg, content: fullContent, toolStatus: undefined }
                 : msg
             ));
           } else if (chunk.type === 'reasoning') {
@@ -171,48 +175,54 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
                 ? { ...msg, reasoning: fullReasoning }
                 : msg
             ));
+          } else if (chunk.type === 'tool_call') {
+            toolCallCount++;
+            const toolMsg = chunk.data?.message || 'Executing tool...';
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessage.id
+                ? { ...msg, toolStatus: toolMsg }
+                : msg
+            ));
+            // Update active tool indicators
+            if (toolMsg.toLowerCase().includes('search') || toolMsg.toLowerCase().includes('source')) {
+              setActiveTools(prev => ({ ...prev, search: true }));
+            }
+            if (toolMsg.toLowerCase().includes('generat') || toolMsg.toLowerCase().includes('build') || toolMsg.toLowerCase().includes('file')) {
+              setActiveTools(prev => ({ ...prev, fileGen: true }));
+            }
+          } else if (chunk.type === 'download') {
+            const dl = chunk.data as DownloadableFile;
+            streamDownloads.push(dl);
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessage.id
+                ? { ...msg, downloads: [...streamDownloads] }
+                : msg
+            ));
+            setShowDownloads(true);
+          } else if (chunk.type === 'complete') {
+            // Final event with all data
+            if (chunk.data?.content) fullContent = chunk.data.content;
+            if (chunk.data?.reasoning) fullReasoning = chunk.data.reasoning;
+            if (chunk.data?.downloads?.length) {
+              streamDownloads = [...streamDownloads, ...chunk.data.downloads.filter(
+                (d: DownloadableFile) => !streamDownloads.some(sd => sd.file_id === d.file_id)
+              )];
+            }
           }
         }
 
-        // Get final result with any downloads
-        const finalResult = await api.chat(
-          [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          { mode, enable_tools: mode === 'agent' }
-        );
-        
-        const handled = handleChatResponse(finalResult);
         setMessages(prev => prev.map(msg => 
           msg.id === assistantMessage.id
             ? {
                 ...msg,
-                content: handled.answer || fullContent,
-                reasoning: handled.reasoning || fullReasoning,
-                downloads: handled.downloads,
-                searchSources: handled.searchSources,
+                content: fullContent,
+                reasoning: fullReasoning,
+                downloads: streamDownloads.length > 0 ? streamDownloads : undefined,
+                toolStatus: undefined,
                 isStreaming: false,
-                metadata: handled.metadata
-              }
-            : msg
-        ));
-      }
-      // For agent mode (non-streaming with tools)
-      else {
-        const result = await api.chat(
-          [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          { mode: 'agent', enable_tools: true }
-        );
-        
-        const handled = handleChatResponse(result);
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantMessage.id
-            ? {
-                ...msg,
-                content: handled.answer || '',
-                reasoning: handled.reasoning,
-                downloads: handled.downloads,
-                searchSources: handled.searchSources,
-                isStreaming: false,
-                metadata: handled.metadata
+                metadata: {
+                  tool_calls: toolCallCount > 0 ? toolCallCount : undefined
+                }
               }
             : msg
         ));

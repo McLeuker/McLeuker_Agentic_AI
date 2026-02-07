@@ -52,10 +52,20 @@ function MessageItem({ message }: { message: Message }) {
           </div>
         )}
 
+        {/* Tool Status */}
+        {message.toolStatus && message.isStreaming && (
+          <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200">
+            <div className="flex gap-1">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            </div>
+            <span className="text-xs text-gray-600 font-medium">{message.toolStatus}</span>
+          </div>
+        )}
+
         {/* Content */}
         <div className={`prose ${isUser ? 'prose-invert' : 'prose-gray'} max-w-none prose-pre:p-0`}>
           {message.isStreaming && !message.content ? (
-            <StreamingIndicator />
+            <StreamingIndicator toolStatus={message.toolStatus} />
           ) : (
             <ReactMarkdown
               components={{
@@ -132,15 +142,17 @@ function MessageItem({ message }: { message: Message }) {
   );
 }
 
-function StreamingIndicator() {
+function StreamingIndicator({ toolStatus }: { toolStatus?: string }) {
   return (
-    <div className="flex items-center gap-2 py-2">
-      <div className="flex gap-1">
-        <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-        <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-        <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+    <div className="flex flex-col gap-2 py-2">
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1">
+          <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+        <span className="text-sm text-gray-500">{toolStatus || 'Thinking...'}</span>
       </div>
-      <span className="text-sm text-gray-500">Thinking...</span>
     </div>
   );
 }

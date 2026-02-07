@@ -111,6 +111,7 @@ PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 EXA_API_KEY = os.getenv("EXA_API_KEY", "")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
@@ -386,17 +387,20 @@ class SearchAPIs:
                     "https://api.x.ai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {GROK_API_KEY}"},
                     json={
-                        "model": "grok-beta",
-                        "messages": [{"role": "user", "content": query}],
-                        "stream": stream,
-                        "temperature": 0.7
+                        "model": "grok-4-1-fast-reasoning",
+                        "messages": [
+                            {"role": "system", "content": "You are a real-time search assistant. Provide factual, up-to-date information with sources when possible. Focus on recent data from X/Twitter and the web."},
+                            {"role": "user", "content": query}
+                        ],
+                        "stream": False,
+                        "temperature": 0.3
                     }
                 )
                 data = response.json()
                 
                 return {
                     "source": "grok",
-                    "model": "grok-beta",
+                    "model": "grok-4-1-fast-reasoning",
                     "answer": data["choices"][0]["message"]["content"],
                     "usage": data.get("usage", {}),
                     "timestamp": datetime.now().isoformat()
@@ -404,6 +408,96 @@ class SearchAPIs:
         except Exception as e:
             logger.error(f"Grok error: {e}")
             return {"error": str(e), "source": "grok"}
+    
+    @staticmethod
+    async def serpapi_search(query: str, num_results: int = 10, search_type: str = "search") -> Dict:
+        """Google Search via SerpAPI for web, news, images, and shopping results"""
+        if not SERPAPI_KEY:
+            return {"error": "SerpAPI not configured", "results": []}
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                params = {
+                    "q": query,
+                    "api_key": SERPAPI_KEY,
+                    "engine": "google",
+                    "num": min(num_results, 20),
+                    "gl": "us",
+                    "hl": "en"
+                }
+                
+                if search_type == "news":
+                    params["tbm"] = "nws"
+                elif search_type == "images":
+                    params["tbm"] = "isch"
+                elif search_type == "shopping":
+                    params["tbm"] = "shop"
+                
+                response = await http_client.get(
+                    "https://serpapi.com/search",
+                    params=params
+                )
+                data = response.json()
+                
+                results = []
+                
+                # Parse organic results
+                for r in data.get("organic_results", [])[:num_results]:
+                    results.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("link", ""),
+                        "snippet": r.get("snippet", ""),
+                        "position": r.get("position"),
+                        "source": r.get("source", "")
+                    })
+                
+                # Parse news results
+                for r in data.get("news_results", [])[:num_results]:
+                    results.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("link", ""),
+                        "snippet": r.get("snippet", ""),
+                        "source": r.get("source", ""),
+                        "date": r.get("date", ""),
+                        "thumbnail": r.get("thumbnail", "")
+                    })
+                
+                # Knowledge graph
+                knowledge_graph = None
+                if "knowledge_graph" in data:
+                    kg = data["knowledge_graph"]
+                    knowledge_graph = {
+                        "title": kg.get("title", ""),
+                        "type": kg.get("type", ""),
+                        "description": kg.get("description", ""),
+                        "source": kg.get("source", {})
+                    }
+                
+                # Answer box
+                answer_box = None
+                if "answer_box" in data:
+                    ab = data["answer_box"]
+                    answer_box = {
+                        "title": ab.get("title", ""),
+                        "answer": ab.get("answer", ab.get("snippet", "")),
+                        "source": ab.get("link", "")
+                    }
+                
+                # Related searches
+                related = [r.get("query", "") for r in data.get("related_searches", [])[:5]]
+                
+                return {
+                    "source": "google",
+                    "results": results,
+                    "knowledge_graph": knowledge_graph,
+                    "answer_box": answer_box,
+                    "related_searches": related,
+                    "total": len(results),
+                    "timestamp": datetime.now().isoformat()
+                }
+        except Exception as e:
+            logger.error(f"SerpAPI error: {e}")
+            return {"error": str(e), "source": "google"}
     
     @staticmethod
     async def multi_search(
@@ -440,6 +534,19 @@ class SearchAPIs:
             source_map[idx] = "grok"
             idx += 1
         
+        if "google" in sources:
+            tasks.append(SearchAPIs.serpapi_search(query, num_results))
+            source_map[idx] = "google"
+            idx += 1
+        
+        # If no specific sources matched, default to all available
+        if not tasks:
+            tasks.append(SearchAPIs.perplexity_search(query, "web", recency_days))
+            source_map[0] = "perplexity"
+            if SERPAPI_KEY:
+                tasks.append(SearchAPIs.serpapi_search(query, num_results))
+                source_map[1] = "google"
+        
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         combined = {
@@ -469,10 +576,23 @@ class SearchAPIs:
         if "perplexity" in results and "answer" in results["perplexity"]:
             parts.append(results["perplexity"]["answer"][:500])
         
+        if "google" in results and "results" in results["google"]:
+            google_results = results["google"]["results"]
+            if google_results:
+                snippets = [r.get("snippet", "") for r in google_results[:3] if r.get("snippet")]
+                if snippets:
+                    parts.append(" ".join(snippets[:2]))
+                # Include answer box if available
+                if results["google"].get("answer_box", {}).get("answer"):
+                    parts.append(f"Quick answer: {results['google']['answer_box']['answer']}")
+        
         if "exa" in results and "results" in results["exa"]:
             exa_results = results["exa"]["results"]
             if exa_results:
                 parts.append(f"Found {len(exa_results)} web sources.")
+        
+        if "grok" in results and "answer" in results["grok"]:
+            parts.append(f"Social signals: {results['grok']['answer'][:300]}")
         
         if "youtube" in results and "videos" in results["youtube"]:
             videos = results["youtube"]["videos"]
@@ -2012,8 +2132,8 @@ TOOLS = [
                     "query": {"type": "string", "description": "Search query"},
                     "sources": {
                         "type": "array",
-                        "items": {"type": "string", "enum": ["web", "news", "academic", "youtube", "social"]},
-                        "default": ["web", "news"]
+                        "items": {"type": "string", "enum": ["web", "news", "academic", "youtube", "social", "google"]},
+                        "default": ["web", "news", "google"]
                     },
                     "num_results": {"type": "integer", "default": 10},
                     "recency_days": {"type": "integer", "description": "Limit to recent results (days)"}
@@ -2137,6 +2257,37 @@ TOOLS = [
                 "required": ["data", "analysis_type"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "google_search",
+            "description": "Search Google for web results, news, images, or shopping. Returns organic results, knowledge graph, answer boxes, and related searches. Use for broad web search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Google search query"},
+                    "search_type": {"type": "string", "enum": ["search", "news", "images", "shopping"], "default": "search"},
+                    "num_results": {"type": "integer", "default": 10}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_csv",
+            "description": "Generate a CSV file from structured data. Use for simple data exports.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {"type": "object", "description": "Data with headers and rows"},
+                    "filename": {"type": "string"}
+                },
+                "required": ["data"]
+            }
+        }
     }
 ]
 
@@ -2206,9 +2357,10 @@ class ToolExecutor:
         result_data = {"tool": function_name, "status": "success"}
         
         if function_name == "realtime_search":
+            sources = arguments.get("sources", ["web", "news", "google"])
             search_result = await SearchAPIs.multi_search(
                 arguments["query"],
-                arguments.get("sources", ["web"]),
+                sources,
                 arguments.get("num_results", 10),
                 arguments.get("recency_days")
             )
@@ -2259,11 +2411,11 @@ class ToolExecutor:
                 result_data["download_url"] = gen_result["download_url"]
             
         elif function_name == "deep_research":
-            # Simplified research - just do a search, don't spawn full swarm in streaming
+            # Deep research uses all available search sources in parallel
             search_result = await SearchAPIs.multi_search(
                 arguments["query"],
-                ["web", "news"],
-                10
+                ["web", "news", "google", "academic", "youtube"],
+                15
             )
             result_data["result"] = search_result
             
@@ -2294,6 +2446,41 @@ print(json.dumps(result))
 """
             analysis_result = await CodeSandbox.execute(analysis_code, "python", 30)
             result_data["result"] = analysis_result
+        
+        elif function_name == "google_search":
+            search_result = await SearchAPIs.serpapi_search(
+                arguments["query"],
+                arguments.get("num_results", 10),
+                arguments.get("search_type", "search")
+            )
+            result_data["result"] = search_result
+        
+        elif function_name == "generate_csv":
+            try:
+                data = arguments.get("data", {})
+                filename = arguments.get("filename", f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+                if not filename.endswith(".csv"):
+                    filename += ".csv"
+                
+                file_path = OUTPUT_DIR / filename
+                headers = data.get("headers", [])
+                rows = data.get("rows", [])
+                
+                with open(file_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    if headers:
+                        writer.writerow(headers)
+                    for row in rows:
+                        writer.writerow(row)
+                
+                file_id = str(uuid.uuid4())
+                result_data["file_id"] = file_id
+                result_data["filename"] = filename
+                result_data["download_url"] = f"/api/files/download/{file_id}"
+                result_data["rows"] = len(rows)
+            except Exception as e:
+                result_data["status"] = "error"
+                result_data["error"] = str(e)
         
         else:
             result_data["status"] = "error"
@@ -2599,12 +2786,29 @@ class KimiEngine:
                     has_file_gen = any(n.startswith("generate_") for n in tool_names)
                     has_search = any(n in ["realtime_search", "deep_research"] for n in tool_names)
                     
-                    if has_file_gen:
-                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating files...'}})}\n\n"
+                    # Detailed tool execution status
+                    has_google = "google_search" in tool_names
+                    has_code = "execute_code" in tool_names
+                    has_data = "analyze_data" in tool_names
+                    
+                    if has_file_gen and has_search:
+                        status_msg = "Searching sources and generating files in parallel..."
+                    elif has_file_gen:
+                        file_tools = [n for n in tool_names if n.startswith("generate_")]
+                        file_types = [n.replace("generate_", "").upper() for n in file_tools]
+                        status_msg = "Generating " + ", ".join(file_types) + " files..."
+                    elif has_search and has_google:
+                        status_msg = "Searching across Perplexity, Google, Exa, and more..."
                     elif has_search:
-                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching for information...'}})}\n\n"
+                        status_msg = "Searching real-time sources..."
+                    elif has_code:
+                        status_msg = "Executing code..."
+                    elif has_data:
+                        status_msg = "Analyzing data..."
                     else:
-                        yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Using tools...'}})}\n\n"
+                        status_msg = "Using tools: " + ", ".join(tool_names) + "..."
+                    
+                    yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': status_msg, 'tools': tool_names}})}\n\n"
                     
                     tool_call_objects = [ToolCallObj(tc) for tc in collected_tool_calls.values()]
                     
@@ -2772,10 +2976,10 @@ class KimiEngine:
         file_type: str,
         mode: str
     ) -> AsyncGenerator[str, None]:
-        """Dedicated pipeline for file generation requests using KimiContentGenerator + FileBuilder.
+        """Dedicated pipeline for file generation requests.
         Steps:
-        1. Stream a 'thinking' status
-        2. Use KimiContentGenerator to get structured JSON from Kimi
+        1. Real-time search for relevant data
+        2. Use KimiContentGenerator with search context to get structured JSON
         3. Use FileBuilder to create professional file from the JSON
         4. Stream download link + summary
         """
@@ -2789,11 +2993,50 @@ class KimiEngine:
                 'pdf': 'PDF document',
                 'pptx': 'PowerPoint presentation'
             }
-            status_msg = f"Generating structured content for your {file_type_names.get(file_type, 'file')}..."
+            
+            # Step 1a: Real-time search for data to populate the file
+            yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Searching real-time sources for data...'}})}\n\n"
+            
+            search_context = ""
+            try:
+                search_results = await SearchAPIs.multi_search(
+                    query=user_msg,
+                    sources=["web", "news", "google"],
+                    num_results=10,
+                    recency_days=30
+                )
+                if search_results and search_results.get("result"):
+                    search_data = search_results["result"]
+                    # Build context from search results
+                    context_parts = []
+                    for source_name, source_data in search_data.get("sources", {}).items():
+                        if isinstance(source_data, list):
+                            for item in source_data[:5]:
+                                if isinstance(item, dict):
+                                    title = item.get("title", "")
+                                    text = item.get("text", item.get("snippet", item.get("content", "")))
+                                    url = item.get("url", "")
+                                    if title or text:
+                                        context_parts.append(f"[{source_name}] {title}: {text[:500]}")
+                    if search_data.get("synthesis"):
+                        context_parts.insert(0, f"SYNTHESIS: {search_data['synthesis']}")
+                    search_context = "\n\n".join(context_parts[:15])
+                    
+                    source_count = sum(len(v) if isinstance(v, list) else 0 for v in search_data.get("sources", {}).values())
+                    yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': f'Found {source_count} sources. Generating structured content...'}})}\n\n"
+            except Exception as search_err:
+                logger.warning(f"Search failed during file gen, proceeding without: {search_err}")
+                yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': 'Generating structured content...'}})}\n\n"
+            
+            # Step 2: Generate file with search context
+            enriched_prompt = user_msg
+            if search_context:
+                enriched_prompt = f"{user_msg}\n\n--- REAL-TIME DATA FROM SEARCH ---\n{search_context}\n--- END SEARCH DATA ---\n\nUse the above real-time data to populate the file with actual, current information. Include source citations where appropriate."
+            
+            status_msg = f"Building your {file_type_names.get(file_type, 'file')} with real data..."
             yield f"data: {json.dumps({'type': 'tool_call', 'data': {'message': status_msg}})}\n\n"
             
-            # Step 2: Use FileGenerationService (KimiContentGenerator + FileBuilder)
-            result = await FileGenerationService.generate(file_type, user_msg)
+            result = await FileGenerationService.generate(file_type, enriched_prompt)
             
             if result.get("error"):
                 error_msg = f"Error generating file: {result['error']}"
@@ -2948,26 +3191,70 @@ Return JSON format:
         ]
     
     async def _execute_agent(self, agent_def: Dict, context: Dict, enable_search: bool) -> Dict:
-        """Execute single agent"""
+        """Execute single agent with real-time search integration"""
         
         role_desc = self.ROLES.get(agent_def["role"], "AI Assistant")
+        search_context = ""
+        search_sources = []
+        
+        # For researcher and analyst roles, do real-time search FIRST
+        if enable_search and agent_def["role"] in ["researcher", "analyst", "critic"]:
+            try:
+                # Determine which search sources to use based on role
+                sources = ["web", "news", "google"]
+                if agent_def["role"] == "researcher":
+                    sources = ["web", "news", "google", "academic"]
+                elif agent_def["role"] == "analyst":
+                    sources = ["web", "google"]
+                
+                search_result = await SearchAPIs.multi_search(
+                    query=agent_def["task"],
+                    sources=sources,
+                    num_results=8,
+                    recency_days=30
+                )
+                
+                # Extract useful search context
+                if search_result.get("synthesized_answer"):
+                    search_context = f"\n\nREAL-TIME SEARCH RESULTS:\n{search_result['synthesized_answer'][:2000]}"
+                
+                # Collect source URLs for citations
+                for source_name, source_data in search_result.get("results", {}).items():
+                    if isinstance(source_data, dict):
+                        if "citations" in source_data:
+                            search_sources.extend(source_data["citations"][:5])
+                        if "results" in source_data:
+                            for r in source_data["results"][:5]:
+                                if r.get("url"):
+                                    search_sources.append(r["url"])
+                
+                logger.info(f"Agent {agent_def['id']} ({agent_def['role']}): search returned {len(search_sources)} sources")
+            except Exception as e:
+                logger.warning(f"Agent {agent_def['id']} search failed: {e}")
         
         messages = [
             {
                 "role": "system",
-                "content": f"You are a {agent_def['role']}. {role_desc}. Be thorough but concise."
+                "content": (
+                    f"You are a {agent_def['role']}. {role_desc}. Be thorough but concise. "
+                    f"Cite sources when available. Provide actionable insights."
+                )
             },
             {
                 "role": "user",
-                "content": f"Task: {agent_def['task']}\nContext: {json.dumps(context, default=str)}"
+                "content": (
+                    f"Task: {agent_def['task']}\n"
+                    f"Context: {json.dumps(context, default=str)}"
+                    f"{search_context}"
+                )
             }
         ]
         
         try:
             result = await KimiEngine.chat(
                 messages=messages,
-                mode="agent" if enable_search else "thinking",
-                enable_tools=enable_search
+                mode="thinking",
+                enable_tools=False  # Search already done, just analyze
             )
             
             return {
@@ -2975,6 +3262,7 @@ Return JSON format:
                 "role": agent_def["role"],
                 "task": agent_def["task"],
                 "output": result["content"],
+                "search_sources": search_sources[:10],
                 "tool_results": result.get("tool_results", []),
                 "tokens": result["usage"]["total_tokens"],
                 "success": True
@@ -2985,6 +3273,7 @@ Return JSON format:
                 "role": agent_def["role"],
                 "task": agent_def["task"],
                 "output": str(e),
+                "search_sources": search_sources,
                 "success": False
             }
     
@@ -3023,22 +3312,36 @@ Provide a well-structured, actionable final response that integrates all perspec
         results: List[Dict],
         deliverable_type: str
     ) -> Dict:
-        """Generate final deliverable document"""
+        """Generate final deliverable document with real data from agents"""
+        
+        # Collect all search sources from agents
+        all_sources = []
+        for r in results:
+            if r.get("search_sources"):
+                all_sources.extend(r["search_sources"])
+        unique_sources = list(set(all_sources))[:20]
+        
+        # Build rich content from all agent outputs
+        agent_findings = ""
+        for r in results:
+            if r.get("success"):
+                agent_findings += f"\n\n### {r['role'].upper()} Analysis\n{r['output'][:1500]}"
+        
+        sources_text = ""
+        if unique_sources:
+            sources_text = "\n\n## Sources\n" + "\n".join([f"- {s}" for s in unique_sources[:15]])
         
         if deliverable_type == "report":
-            content = f"""# Research Report
-
-## Executive Summary
-{synthesis[:1500]}
-
-## Detailed Findings
-
-"""
-            for r in results:
-                if r.get("success"):
-                    content += f"\n### {r['role'].upper()} Analysis\n\n{r['output'][:800]}\n"
+            full_prompt = (
+                f"Create a comprehensive professional research report based on these findings:\n\n"
+                f"## Executive Summary\n{synthesis[:2000]}\n\n"
+                f"## Detailed Agent Findings\n{agent_findings[:4000]}"
+                f"{sources_text}\n\n"
+                f"Make it professional, data-driven, with clear sections, tables where appropriate, "
+                f"and actionable recommendations."
+            )
             
-            gen_result = await FileGenerationService.generate("word", f"Research Report: {synthesis[:1500]}")
+            gen_result = await FileGenerationService.generate("word", full_prompt)
             file_id = gen_result.get("file_id")
             file_info = FileGenerationService.get_file(file_id) if file_id else None
             
@@ -3046,16 +3349,21 @@ Provide a well-structured, actionable final response that integrates all perspec
                 "type": "report",
                 "file_id": file_id,
                 "filename": file_info["filename"] if file_info else gen_result.get("filename", "report.docx"),
-                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}")
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}"),
+                "sources_count": len(unique_sources)
             }
         
         elif deliverable_type == "presentation":
-            content = f"Executive Summary\n\n{synthesis[:1000]}\n\n"
-            for r in results[:5]:
-                if r.get("success"):
-                    content += f"{r['role'].upper()} Insights\n{r['output'][:500]}\n\n"
+            full_prompt = (
+                f"Create a stakeholder-ready presentation based on these findings:\n\n"
+                f"Executive Summary: {synthesis[:1500]}\n\n"
+                f"Key Findings:\n{agent_findings[:3000]}"
+                f"{sources_text}\n\n"
+                f"Include: title slide, executive summary, key findings (3-4 slides), "
+                f"data analysis, recommendations, and next steps."
+            )
             
-            gen_result = await FileGenerationService.generate("pptx", f"Research Presentation: {synthesis[:1000]}")
+            gen_result = await FileGenerationService.generate("pptx", full_prompt)
             file_id = gen_result.get("file_id")
             file_info = FileGenerationService.get_file(file_id) if file_id else None
             
@@ -3063,7 +3371,48 @@ Provide a well-structured, actionable final response that integrates all perspec
                 "type": "presentation",
                 "file_id": file_id,
                 "filename": file_info["filename"] if file_info else gen_result.get("filename", "presentation.pptx"),
-                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}")
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}"),
+                "sources_count": len(unique_sources)
+            }
+        
+        elif deliverable_type == "spreadsheet":
+            full_prompt = (
+                f"Create a comprehensive data spreadsheet based on these findings:\n\n"
+                f"Summary: {synthesis[:1500]}\n\n"
+                f"Data from agents:\n{agent_findings[:3000]}"
+                f"\n\nInclude multiple sheets with structured data, comparisons, and analysis."
+            )
+            
+            gen_result = await FileGenerationService.generate("excel", full_prompt)
+            file_id = gen_result.get("file_id")
+            file_info = FileGenerationService.get_file(file_id) if file_id else None
+            
+            return {
+                "type": "spreadsheet",
+                "file_id": file_id,
+                "filename": file_info["filename"] if file_info else gen_result.get("filename", "data.xlsx"),
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}"),
+                "sources_count": len(unique_sources)
+            }
+        
+        elif deliverable_type == "pdf":
+            full_prompt = (
+                f"Create a professional PDF report based on these findings:\n\n"
+                f"Executive Summary: {synthesis[:2000]}\n\n"
+                f"Detailed Findings:\n{agent_findings[:4000]}"
+                f"{sources_text}"
+            )
+            
+            gen_result = await FileGenerationService.generate("pdf", full_prompt)
+            file_id = gen_result.get("file_id")
+            file_info = FileGenerationService.get_file(file_id) if file_id else None
+            
+            return {
+                "type": "pdf",
+                "file_id": file_id,
+                "filename": file_info["filename"] if file_info else gen_result.get("filename", "report.pdf"),
+                "download_url": gen_result.get("download_url", f"/api/v1/download/{file_id}"),
+                "sources_count": len(unique_sources)
             }
         
         return None
@@ -3469,7 +3818,7 @@ Return ONLY the JSON array, no markdown formatting, no code blocks, no explanati
     # Try Grok first, then Gemini Flash, then Kimi as fallback
     providers = []
     if GROK_API_KEY:
-        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-4-1-fast-reasoning"))
     providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
     if KIMI_API_KEY:
         providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
@@ -3647,7 +3996,7 @@ Return ONLY the JSON array, no markdown, no code blocks."""
 
     providers = []
     if GROK_API_KEY:
-        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-4-1-fast-reasoning"))
     providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
     if KIMI_API_KEY:
         providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
@@ -3811,7 +4160,7 @@ Return ONLY the JSON array."""
 
     providers = []
     if GROK_API_KEY:
-        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-3-mini-fast"))
+        providers.append(("grok", "https://api.x.ai/v1", GROK_API_KEY, "grok-4-1-fast-reasoning"))
     providers.append(("gemini", None, os.getenv("OPENAI_API_KEY", ""), "gemini-2.5-flash"))
     if KIMI_API_KEY:
         providers.append(("kimi", "https://api.moonshot.ai/v1", KIMI_API_KEY, "moonshot-v1-auto"))
@@ -3880,19 +4229,30 @@ async def health_check():
     """Health check with capabilities"""
     return {
         "status": "healthy",
-        "version": "3.0.0",
+        "version": "3.1.0",
         "model": "kimi-k2.5",
         "capabilities": [
             "instant_mode", "thinking_mode", "agent_mode", "swarm_mode", "research_mode", "code_mode",
-            "realtime_search", "file_generation", "vision_to_code", "code_execution",
-            "multimodal", "streaming", "agent_swarm"
+            "realtime_search", "google_search", "parallel_search",
+            "file_generation_excel", "file_generation_pdf", "file_generation_word", "file_generation_pptx", "file_generation_csv",
+            "vision_to_code", "code_execution",
+            "multimodal", "streaming", "streaming_reasoning",
+            "agent_swarm_100", "parallel_tool_calling"
         ],
+        "search_providers": {
+            "perplexity": bool(PERPLEXITY_API_KEY),
+            "exa": bool(EXA_API_KEY),
+            "youtube": bool(YOUTUBE_API_KEY),
+            "grok": bool(GROK_API_KEY),
+            "serpapi_google": bool(SERPAPI_KEY)
+        },
         "apis_configured": {
             "kimi": bool(KIMI_API_KEY),
             "perplexity": bool(PERPLEXITY_API_KEY),
             "exa": bool(EXA_API_KEY),
             "youtube": bool(YOUTUBE_API_KEY),
-            "grok": bool(GROK_API_KEY)
+            "grok": bool(GROK_API_KEY),
+            "serpapi": bool(SERPAPI_KEY)
         },
         "timestamp": datetime.now().isoformat()
     }
@@ -3900,8 +4260,8 @@ async def health_check():
 @app.get("/")
 async def root():
     return {
-        "message": "McLeuker AI - Kimi 2.5 Complete",
-        "version": "3.0.0",
+        "message": "McLeuker AI - Kimi 2.5 Complete + Agent Swarm + Real-time Search",
+        "version": "3.1.0",
         "docs": "/docs",
         "health": "/api/v1/health"
     }
