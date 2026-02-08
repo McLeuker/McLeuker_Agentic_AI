@@ -551,7 +551,11 @@ class FileEngine:
             excel_data = None
             if kimi_client:
                 try:
-                    kimi_response = kimi_client.chat.completions.create(
+                    # Run in executor to avoid blocking the event loop (enables keepalive)
+                    import functools
+                    loop = asyncio.get_event_loop()
+                    kimi_response = await loop.run_in_executor(None, functools.partial(
+                        kimi_client.chat.completions.create,
                         model="kimi-k2.5",
                         messages=[
                             {"role": "system", "content": """You generate structured data for Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
@@ -578,7 +582,7 @@ Also support legacy format: {"title": "...", "headers": [...], "rows": [...]} (s
                         ],
                         temperature=1,
                         max_tokens=12000
-                    )
+                    ))
                     
                     raw_json = kimi_response.choices[0].message.content.strip()
                     logger.info(f"Kimi Excel raw response length: {len(raw_json)}")
@@ -614,7 +618,10 @@ Also support legacy format: {"title": "...", "headers": [...], "rows": [...]} (s
             if not excel_data and grok_client:
                 try:
                     logger.info("Kimi failed for Excel, trying Grok fallback")
-                    grok_response = grok_client.chat.completions.create(
+                    import functools
+                    loop = asyncio.get_event_loop()
+                    grok_response = await loop.run_in_executor(None, functools.partial(
+                        grok_client.chat.completions.create,
                         model="grok-3-mini",
                         messages=[
                             {"role": "system", "content": """Generate structured data for an Excel spreadsheet. Return ONLY valid JSON.
@@ -624,7 +631,7 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                         ],
                         temperature=0.3,
                         max_tokens=6000
-                    )
+                    ))
                     raw_json = grok_response.choices[0].message.content.strip()
                     for strategy in [
                         lambda t: json.loads(t),
@@ -1896,7 +1903,10 @@ Search Data:
             conclusion = ""
             try:
                 if kimi_client:
-                    conclusion_response = kimi_client.chat.completions.create(
+                    import functools
+                    loop = asyncio.get_event_loop()
+                    conclusion_response = await loop.run_in_executor(None, functools.partial(
+                        kimi_client.chat.completions.create,
                         model="kimi-k2.5",
                         messages=[
                             {"role": "system", "content": """Write a brief summary of what was accomplished. Use this EXACT format:
@@ -1912,7 +1922,7 @@ Keep each bullet to 1 line. Focus on WHAT was found and done, not describing the
                         ],
                         temperature=1,
                         max_tokens=300
-                    )
+                    ))
                     conclusion = conclusion_response.choices[0].message.content
             except Exception as e:
                 logger.error(f"Conclusion generation error: {e}")
