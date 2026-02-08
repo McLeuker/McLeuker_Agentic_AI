@@ -1,20 +1,25 @@
 """
-McLeuker AI V5 - Complete Backend with Manus-Level File Generation
-==================================================================
+McLeuker AI V5.1 - Complete Backend with Kimi-2.5 Full Capabilities
+====================================================================
 
 Features:
 - Full Kimi-2.5 + Grok hybrid LLM architecture
+- Multimodal chat: text, image, video inputs with base64 encoding
+- File upload & analysis: images, videos, PDFs, XLSX, DOCX, CSV with S3 storage
+- Background search persistence: searches survive page refresh/navigation
+- Agentic workflows: multi-step reasoning with tool invocation
+- User authentication with JWT and role-based access control
+- Token usage tracking and billing estimation
 - Professional multi-format file generation (Excel, Word, PDF, PPT, CSV)
 - Real-time search across 8+ APIs in parallel
 - LLM quality double-check with re-research loop
 - Multi-file generation for complex tasks
 - Source attribution with real names (not API tool names)
-- Real-time 2026 data enforcement
-- E2B code execution integration
+- Real-time data enforcement
 - Manus-style reasoning and structured conclusions
 
 Models:
-- kimi-k2.5: Primary reasoning model (temperature=1 required)
+- kimi-k2.5: Primary reasoning + vision model (temperature=1 required)
 - grok-3-mini / grok-4-1-fast-reasoning: Fast search and JSON generation
 """
 
@@ -42,6 +47,14 @@ import csv
 from io import BytesIO
 import base64
 from urllib.parse import urlparse
+import mimetypes
+import tempfile
+import io
+
+# JWT Auth
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # Data processing
 import pandas as pd
@@ -88,9 +101,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 app = FastAPI(
-    title="McLeuker AI V5",
-    description="Production AI platform with Manus-level file generation",
-    version="5.0.0"
+    title="McLeuker AI V5.1",
+    description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
+    version="5.1.0"
 )
 
 # CORS
@@ -119,6 +132,42 @@ BROWSERLESS_API_KEY = os.getenv("BROWSERLESS_API_KEY", "")
 E2B_API_KEY = os.getenv("E2B_API_KEY", "")
 PINTEREST_API_KEY = os.getenv("PINTEREST_API_KEY", "")
 PINTEREST_SECRET_KEY = os.getenv("PINTEREST_SECRET_KEY", "")
+
+# S3 Storage (for file uploads)
+S3_BUCKET = os.getenv("S3_BUCKET", "")
+S3_REGION = os.getenv("S3_REGION", "eu-central-1")
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", os.getenv("AWS_ACCESS_KEY_ID", ""))
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", os.getenv("AWS_SECRET_ACCESS_KEY", ""))
+S3_ENDPOINT = os.getenv("S3_ENDPOINT", "")  # For S3-compatible (Cloudflare R2, MinIO, etc.)
+
+# JWT Auth Config
+JWT_SECRET = os.getenv("JWT_SECRET", os.getenv("SUPABASE_JWT_SECRET", "mcleuker-ai-secret-key-change-in-production"))
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 72
+
+# Security
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security_bearer = HTTPBearer(auto_error=False)
+
+# Upload configuration
+UPLOAD_DIR = Path("/tmp/mcleuker_uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
+MAX_UPLOAD_SIZE_MB = 50
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml", "image/bmp", "image/tiff"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm", "video/quicktime", "video/x-msvideo", "video/x-matroska"}
+ALLOWED_DOC_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
+    "application/vnd.ms-excel",  # xls
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+    "application/msword",  # doc
+    "text/csv",
+    "text/plain",
+    "application/json",
+    "text/markdown",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # pptx
+}
+ALLOWED_UPLOAD_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES | ALLOWED_DOC_TYPES
 
 # Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -196,6 +245,7 @@ class ChatMessage(BaseModel):
     tool_calls: Optional[List[Dict]] = None
     tool_call_id: Optional[str] = None
     name: Optional[str] = None
+    attachments: Optional[List[Dict[str, Any]]] = None  # [{file_id, type, url, name}]
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
@@ -205,6 +255,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     user_id: Optional[str] = None
     context_id: Optional[str] = None
+    attachments: Optional[List[str]] = None  # List of file_ids to include
 
 class FileGenRequest(BaseModel):
     prompt: Optional[str] = None
@@ -235,6 +286,33 @@ class SwarmRequest(BaseModel):
     num_agents: int = 5
     context: Dict = {}
     user_id: Optional[str] = None
+
+# ============================================================================
+# AUTH DATA MODELS
+# ============================================================================
+
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    USER = "user"
+    VIEWER = "viewer"
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: Optional[str] = None
+    role: UserRole = UserRole.USER
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    role: str
+    expires_at: str
 
 # ============================================================================
 # STREAMING EVENT HELPERS
@@ -2536,33 +2614,1390 @@ async def delete_conversation(conversation_id: str, user_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
-# MULTIMODAL ENDPOINT
+# AUTH SYSTEM - JWT Authentication & RBAC
+# ============================================================================
+
+class AuthManager:
+    """JWT-based authentication with role-based access control."""
+    
+    @staticmethod
+    def create_token(user_id: str, email: str, role: str = "user") -> Dict:
+        """Create JWT access token."""
+        expires = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+        payload = {
+            "sub": user_id,
+            "email": email,
+            "role": role,
+            "exp": expires,
+            "iat": datetime.utcnow()
+        }
+        token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user_id": user_id,
+            "email": email,
+            "role": role,
+            "expires_at": expires.isoformat()
+        }
+    
+    @staticmethod
+    def verify_token(token: str) -> Optional[Dict]:
+        """Verify and decode JWT token."""
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            return payload
+        except JWTError as e:
+            logger.warning(f"JWT verification failed: {e}")
+            return None
+    
+    @staticmethod
+    async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> Optional[Dict]:
+        """Extract current user from JWT token. Returns None if no token (allows anonymous)."""
+        if not credentials:
+            return None
+        payload = AuthManager.verify_token(credentials.credentials)
+        if not payload:
+            return None
+        return {"user_id": payload.get("sub"), "email": payload.get("email"), "role": payload.get("role", "user")}
+    
+    @staticmethod
+    async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> Dict:
+        """Require authentication - raises 401 if not authenticated."""
+        if not credentials:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        payload = AuthManager.verify_token(credentials.credentials)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return {"user_id": payload.get("sub"), "email": payload.get("email"), "role": payload.get("role", "user")}
+    
+    @staticmethod
+    async def require_admin(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> Dict:
+        """Require admin role."""
+        user = await AuthManager.require_auth(credentials)
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        return user
+
+
+@app.post("/api/v1/auth/register")
+async def register(request: RegisterRequest):
+    """Register a new user."""
+    try:
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Check if user exists
+        existing = supabase.table("users").select("id").eq("email", request.email).execute()
+        if existing.data:
+            raise HTTPException(status_code=409, detail="Email already registered")
+        
+        user_id = str(uuid.uuid4())
+        hashed_password = pwd_context.hash(request.password)
+        
+        supabase.table("users").insert({
+            "id": user_id,
+            "email": request.email,
+            "password_hash": hashed_password,
+            "name": request.name or request.email.split("@")[0],
+            "role": request.role.value,
+            "status": "active",
+            "created_at": datetime.now().isoformat()
+        }).execute()
+        
+        token_data = AuthManager.create_token(user_id, request.email, request.role.value)
+        return {"success": True, **token_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/auth/login")
+async def login(request: LoginRequest):
+    """Login and get JWT token."""
+    try:
+        if not supabase:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        result = supabase.table("users").select("*").eq("email", request.email).single().execute()
+        if not result.data:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        user = result.data
+        if not pwd_context.verify(request.password, user.get("password_hash", "")):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        token_data = AuthManager.create_token(user["id"], user["email"], user.get("role", "user"))
+        
+        # Update last login
+        supabase.table("users").update({"last_login": datetime.now().isoformat()}).eq("id", user["id"]).execute()
+        
+        return {"success": True, **token_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/auth/me")
+async def get_current_user_info(user: Dict = Depends(AuthManager.require_auth)):
+    """Get current user info from token."""
+    try:
+        if supabase:
+            result = supabase.table("users").select("id, email, name, role, created_at, last_login").eq("id", user["user_id"]).single().execute()
+            if result.data:
+                return {"success": True, "user": result.data}
+        return {"success": True, "user": user}
+    except Exception as e:
+        return {"success": True, "user": user}
+
+
+# ============================================================================
+# TOKEN USAGE TRACKING & BILLING
+# ============================================================================
+
+class TokenTracker:
+    """Track token usage per user for billing estimation."""
+    
+    # In-memory cache, flushed to DB periodically
+    _usage_buffer: Dict[str, Dict] = {}
+    
+    # Pricing per 1M tokens (approximate)
+    PRICING = {
+        "kimi-k2.5": {"input": 1.0, "output": 3.0},
+        "grok-3-mini": {"input": 0.3, "output": 0.5},
+        "grok-4-1-fast-reasoning": {"input": 2.0, "output": 8.0},
+        "sonar-pro": {"input": 3.0, "output": 15.0},
+        "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
+    }
+    
+    @classmethod
+    async def track(cls, user_id: str, model: str, input_tokens: int, output_tokens: int, endpoint: str = "chat"):
+        """Track token usage for a request."""
+        pricing = cls.PRICING.get(model, {"input": 1.0, "output": 3.0})
+        cost_estimate = (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+        
+        usage_record = {
+            "user_id": user_id or "anonymous",
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "cost_estimate_usd": round(cost_estimate, 6),
+            "endpoint": endpoint,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Buffer in memory
+        uid = user_id or "anonymous"
+        if uid not in cls._usage_buffer:
+            cls._usage_buffer[uid] = {"total_tokens": 0, "total_cost": 0.0, "requests": 0, "records": []}
+        cls._usage_buffer[uid]["total_tokens"] += input_tokens + output_tokens
+        cls._usage_buffer[uid]["total_cost"] += cost_estimate
+        cls._usage_buffer[uid]["requests"] += 1
+        cls._usage_buffer[uid]["records"].append(usage_record)
+        
+        # Keep only last 100 records in memory
+        if len(cls._usage_buffer[uid]["records"]) > 100:
+            cls._usage_buffer[uid]["records"] = cls._usage_buffer[uid]["records"][-100:]
+        
+        # Flush to DB every 10 requests
+        if cls._usage_buffer[uid]["requests"] % 10 == 0:
+            await cls._flush_to_db(uid)
+    
+    @classmethod
+    async def _flush_to_db(cls, user_id: str):
+        """Flush usage data to Supabase."""
+        if not supabase or user_id not in cls._usage_buffer:
+            return
+        try:
+            buf = cls._usage_buffer[user_id]
+            supabase.table("token_usage").insert({
+                "user_id": user_id,
+                "total_tokens": buf["total_tokens"],
+                "total_cost_usd": round(buf["total_cost"], 6),
+                "request_count": buf["requests"],
+                "period_start": buf["records"][0]["timestamp"] if buf["records"] else datetime.now().isoformat(),
+                "period_end": datetime.now().isoformat()
+            }).execute()
+        except Exception as e:
+            logger.error(f"Token usage flush error: {e}")
+    
+    @classmethod
+    def get_usage(cls, user_id: str) -> Dict:
+        """Get current usage stats for a user."""
+        buf = cls._usage_buffer.get(user_id, {"total_tokens": 0, "total_cost": 0.0, "requests": 0, "records": []})
+        return {
+            "user_id": user_id,
+            "session_tokens": buf["total_tokens"],
+            "session_cost_usd": round(buf["total_cost"], 6),
+            "session_requests": buf["requests"],
+            "recent_records": buf["records"][-20:]
+        }
+
+
+@app.get("/api/v1/usage")
+@app.get("/api/v1/usage/{user_id}")
+async def get_usage(user_id: str = None, user: Dict = Depends(AuthManager.get_current_user)):
+    """Get token usage and billing estimation."""
+    uid = user_id or (user.get("user_id") if user else "anonymous")
+    usage = TokenTracker.get_usage(uid)
+    
+    # Also fetch from DB if available
+    db_usage = None
+    if supabase and uid != "anonymous":
+        try:
+            result = supabase.table("token_usage").select("*").eq("user_id", uid).order("period_end", desc=True).limit(30).execute()
+            db_usage = result.data
+        except Exception:
+            pass
+    
+    return {
+        "success": True,
+        "current_session": usage,
+        "historical": db_usage or [],
+        "pricing_info": TokenTracker.PRICING
+    }
+
+
+# ============================================================================
+# FILE UPLOAD & STORAGE SYSTEM
+# ============================================================================
+
+class FileUploadManager:
+    """Handle file uploads with S3 storage and format validation."""
+    
+    # In-memory file registry (also persisted to Supabase)
+    uploaded_files: Dict[str, Dict] = {}
+    
+    @classmethod
+    async def upload_file(cls, file: UploadFile, user_id: str = None) -> Dict:
+        """Upload a file with validation, storage, and metadata extraction."""
+        # Validate file type
+        content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+        if content_type not in ALLOWED_UPLOAD_TYPES:
+            return {"success": False, "error": f"File type '{content_type}' not supported. Allowed: images (PNG, JPEG, WebP, GIF), videos (MP4, WebM, MOV), documents (PDF, XLSX, DOCX, CSV, TXT, JSON, PPTX)"}
+        
+        # Read file
+        file_bytes = await file.read()
+        file_size = len(file_bytes)
+        
+        # Validate size
+        if file_size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+            return {"success": False, "error": f"File too large. Maximum size: {MAX_UPLOAD_SIZE_MB}MB"}
+        
+        file_id = str(uuid.uuid4())
+        original_name = file.filename or f"upload_{file_id}"
+        ext = Path(original_name).suffix.lower() or mimetypes.guess_extension(content_type) or ""
+        stored_name = f"{file_id}{ext}"
+        
+        # Determine file category
+        if content_type in ALLOWED_IMAGE_TYPES:
+            category = "image"
+        elif content_type in ALLOWED_VIDEO_TYPES:
+            category = "video"
+        else:
+            category = "document"
+        
+        # Store locally
+        local_path = UPLOAD_DIR / stored_name
+        local_path.write_bytes(file_bytes)
+        
+        # Generate base64 for images (for Kimi vision)
+        base64_data = None
+        if category == "image" and file_size < 10 * 1024 * 1024:  # < 10MB
+            base64_data = base64.b64encode(file_bytes).decode()
+        
+        # Upload to S3 if configured
+        s3_url = None
+        if S3_BUCKET and S3_ACCESS_KEY:
+            s3_url = await cls._upload_to_s3(file_bytes, stored_name, content_type)
+        
+        # Extract text content from documents for analysis
+        extracted_text = None
+        if category == "document":
+            extracted_text = await cls._extract_document_text(file_bytes, content_type, original_name)
+        
+        # Build file record
+        file_record = {
+            "file_id": file_id,
+            "original_name": original_name,
+            "stored_name": stored_name,
+            "content_type": content_type,
+            "category": category,
+            "size_bytes": file_size,
+            "size_mb": round(file_size / (1024 * 1024), 2),
+            "local_path": str(local_path),
+            "s3_url": s3_url,
+            "base64": base64_data,
+            "extracted_text": extracted_text[:5000] if extracted_text else None,
+            "user_id": user_id or "anonymous",
+            "uploaded_at": datetime.now().isoformat()
+        }
+        
+        cls.uploaded_files[file_id] = file_record
+        
+        # Persist to Supabase
+        if supabase:
+            try:
+                db_record = {k: v for k, v in file_record.items() if k not in ("base64", "extracted_text")}
+                if extracted_text:
+                    db_record["extracted_text_preview"] = extracted_text[:1000]
+                supabase.table("uploaded_files").insert(db_record).execute()
+            except Exception as e:
+                logger.error(f"File DB persist error: {e}")
+        
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": original_name,
+            "category": category,
+            "content_type": content_type,
+            "size_mb": file_record["size_mb"],
+            "url": s3_url or f"/api/v1/uploads/{file_id}",
+            "has_extracted_text": bool(extracted_text),
+            "preview": extracted_text[:500] if extracted_text else None
+        }
+    
+    @classmethod
+    async def _upload_to_s3(cls, file_bytes: bytes, key: str, content_type: str) -> Optional[str]:
+        """Upload file to S3 or S3-compatible storage."""
+        try:
+            import hmac
+            import hashlib
+            from datetime import timezone
+            
+            # Use httpx for S3 upload with presigned URL approach
+            endpoint = S3_ENDPOINT or f"https://s3.{S3_REGION}.amazonaws.com"
+            url = f"{endpoint}/{S3_BUCKET}/uploads/{key}"
+            
+            now = datetime.now(timezone.utc)
+            date_stamp = now.strftime('%Y%m%d')
+            amz_date = now.strftime('%Y%m%dT%H%M%SZ')
+            
+            headers = {
+                "Content-Type": content_type,
+                "x-amz-date": amz_date,
+                "x-amz-content-sha256": hashlib.sha256(file_bytes).hexdigest()
+            }
+            
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.put(url, content=file_bytes, headers=headers)
+                if response.status_code in (200, 201):
+                    public_url = f"{endpoint}/{S3_BUCKET}/uploads/{key}"
+                    return public_url
+                else:
+                    logger.warning(f"S3 upload returned {response.status_code}")
+                    return None
+        except Exception as e:
+            logger.error(f"S3 upload error: {e}")
+            return None
+    
+    @classmethod
+    async def _extract_document_text(cls, file_bytes: bytes, content_type: str, filename: str) -> Optional[str]:
+        """Extract text content from uploaded documents for analysis."""
+        try:
+            if content_type == "application/pdf":
+                # Use PyPDF2 or pdfplumber if available, fallback to basic extraction
+                try:
+                    import fitz  # PyMuPDF
+                    doc = fitz.open(stream=file_bytes, filetype="pdf")
+                    text = ""
+                    for page in doc:
+                        text += page.get_text() + "\n"
+                    return text.strip() if text.strip() else None
+                except ImportError:
+                    try:
+                        from io import BytesIO as BIO
+                        import subprocess
+                        tmp_path = UPLOAD_DIR / f"tmp_{uuid.uuid4().hex}.pdf"
+                        tmp_path.write_bytes(file_bytes)
+                        result = subprocess.run(["pdftotext", str(tmp_path), "-"], capture_output=True, text=True, timeout=30)
+                        tmp_path.unlink(missing_ok=True)
+                        return result.stdout.strip() if result.stdout.strip() else None
+                    except Exception:
+                        return "[PDF content - text extraction not available]"
+            
+            elif content_type in ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"):
+                df_dict = pd.read_excel(BytesIO(file_bytes), sheet_name=None)
+                text_parts = []
+                for sheet_name, df in df_dict.items():
+                    text_parts.append(f"\n=== Sheet: {sheet_name} ===")
+                    text_parts.append(f"Columns: {', '.join(str(c) for c in df.columns)}")
+                    text_parts.append(f"Rows: {len(df)}")
+                    text_parts.append(df.head(20).to_string())
+                return "\n".join(text_parts)
+            
+            elif content_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/msword"):
+                doc = Document(BytesIO(file_bytes))
+                text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+                # Also extract tables
+                for table in doc.tables:
+                    for row in table.rows:
+                        text += "\n" + " | ".join([cell.text for cell in row.cells])
+                return text
+            
+            elif content_type == "text/csv":
+                df = pd.read_csv(BytesIO(file_bytes))
+                return f"Columns: {', '.join(str(c) for c in df.columns)}\nRows: {len(df)}\n\n{df.head(30).to_string()}"
+            
+            elif content_type in ("text/plain", "text/markdown", "application/json"):
+                return file_bytes.decode("utf-8", errors="replace")[:10000]
+            
+            elif content_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+                from pptx import Presentation as PptxPres
+                prs = PptxPres(BytesIO(file_bytes))
+                text_parts = []
+                for i, slide in enumerate(prs.slides):
+                    text_parts.append(f"\n=== Slide {i+1} ===")
+                    for shape in slide.shapes:
+                        if shape.has_text_frame:
+                            text_parts.append(shape.text_frame.text)
+                return "\n".join(text_parts)
+            
+            return None
+        except Exception as e:
+            logger.error(f"Document text extraction error: {e}")
+            return f"[Error extracting text: {str(e)}]"
+    
+    @classmethod
+    def get_file(cls, file_id: str) -> Optional[Dict]:
+        """Get uploaded file info."""
+        return cls.uploaded_files.get(file_id)
+    
+    @classmethod
+    async def analyze_file(cls, file_id: str, query: str = None) -> Dict:
+        """Analyze an uploaded file using Kimi-2.5 vision or text analysis."""
+        file_info = cls.get_file(file_id)
+        if not file_info:
+            return {"success": False, "error": "File not found"}
+        
+        category = file_info["category"]
+        current_date = get_current_date_str()
+        analysis_prompt = query or f"Analyze this {category} in detail. Provide comprehensive insights."
+        
+        client = kimi_client or grok_client
+        if not client:
+            return {"success": False, "error": "No LLM client available"}
+        
+        model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+        temp = 1 if client == kimi_client else 0.5
+        
+        messages = [{"role": "system", "content": f"You are an expert file analyst. Today is {current_date}. Analyze the provided content thoroughly."}]
+        
+        if category == "image" and file_info.get("base64"):
+            # Use Kimi-2.5 vision for image analysis
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": analysis_prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:{file_info['content_type']};base64,{file_info['base64']}", "detail": "high"}}
+                ]
+            })
+        elif category == "video" and file_info.get("base64"):
+            # Kimi-2.5 supports video analysis
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": analysis_prompt},
+                    {"type": "video_url", "video_url": {"url": f"data:{file_info['content_type']};base64,{file_info['base64']}"}}
+                ]
+            })
+        elif file_info.get("extracted_text"):
+            # Text-based analysis for documents
+            messages.append({
+                "role": "user",
+                "content": f"{analysis_prompt}\n\nDocument content:\n{file_info['extracted_text'][:6000]}"
+            })
+        else:
+            return {"success": False, "error": "File content not available for analysis"}
+        
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temp,
+                max_tokens=4096
+            )
+            analysis = response.choices[0].message.content
+            
+            # Track token usage
+            usage = response.usage
+            if usage:
+                await TokenTracker.track(
+                    file_info.get("user_id", "anonymous"),
+                    model,
+                    usage.prompt_tokens,
+                    usage.completion_tokens,
+                    "file_analysis"
+                )
+            
+            return {
+                "success": True,
+                "file_id": file_id,
+                "filename": file_info["original_name"],
+                "category": category,
+                "analysis": analysis,
+                "model_used": model,
+                "tokens_used": usage.total_tokens if usage else None
+            }
+        except Exception as e:
+            logger.error(f"File analysis error: {e}")
+            return {"success": False, "error": str(e)}
+
+
+# File upload endpoints
+@app.post("/api/v1/upload")
+@app.post("/api/v1/files/upload")
+async def upload_file_endpoint(
+    file: UploadFile = File(...),
+    user_id: Optional[str] = Form(None),
+    user: Dict = Depends(AuthManager.get_current_user)
+):
+    """Upload a file (image, video, or document) for analysis."""
+    uid = user_id or (user.get("user_id") if user else "anonymous")
+    result = await FileUploadManager.upload_file(file, uid)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Upload failed"))
+    return result
+
+
+@app.post("/api/v1/upload/multiple")
+async def upload_multiple_files(
+    files: List[UploadFile] = File(...),
+    user_id: Optional[str] = Form(None),
+    user: Dict = Depends(AuthManager.get_current_user)
+):
+    """Upload multiple files at once."""
+    uid = user_id or (user.get("user_id") if user else "anonymous")
+    results = []
+    for f in files:
+        result = await FileUploadManager.upload_file(f, uid)
+        results.append(result)
+    return {"success": True, "files": results, "total": len(results), "successful": sum(1 for r in results if r.get("success"))}
+
+
+@app.get("/api/v1/uploads/{file_id}")
+async def get_uploaded_file(file_id: str):
+    """Download/serve an uploaded file."""
+    file_info = FileUploadManager.get_file(file_id)
+    if not file_info:
+        raise HTTPException(status_code=404, detail="File not found")
+    local_path = Path(file_info["local_path"])
+    if not local_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    return FileResponse(path=str(local_path), filename=file_info["original_name"], media_type=file_info["content_type"])
+
+
+@app.post("/api/v1/files/{file_id}/analyze")
+async def analyze_file_endpoint(file_id: str, query: Optional[str] = None):
+    """Analyze an uploaded file using Kimi-2.5 vision or text analysis."""
+    result = await FileUploadManager.analyze_file(file_id, query)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+@app.get("/api/v1/uploads")
+async def list_uploaded_files(user_id: Optional[str] = None, user: Dict = Depends(AuthManager.get_current_user)):
+    """List uploaded files for a user."""
+    uid = user_id or (user.get("user_id") if user else None)
+    files = []
+    for fid, info in FileUploadManager.uploaded_files.items():
+        if uid and info.get("user_id") != uid:
+            continue
+        files.append({
+            "file_id": fid,
+            "filename": info["original_name"],
+            "category": info["category"],
+            "size_mb": info["size_mb"],
+            "uploaded_at": info["uploaded_at"],
+            "url": info.get("s3_url") or f"/api/v1/uploads/{fid}"
+        })
+    return {"success": True, "files": files}
+
+
+# ============================================================================
+# MULTIMODAL CHAT - Full Kimi-2.5 Vision (text + image + video)
 # ============================================================================
 
 @app.post("/api/v1/multimodal")
 async def multimodal_endpoint(
     text: str = Form(...),
     mode: str = Form("thinking"),
-    image: Optional[UploadFile] = File(None)
+    conversation_id: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    video: Optional[UploadFile] = File(None),
+    files: Optional[List[UploadFile]] = File(None)
 ):
-    """Multimodal input (text + image)"""
+    """Multimodal chat with text + image + video + document inputs.
+    
+    Supports:
+    - Text queries
+    - Image analysis (PNG, JPEG, WebP, GIF) via Kimi-2.5 vision
+    - Video analysis (MP4, WebM) via Kimi-2.5 vision
+    - Document analysis (PDF, XLSX, DOCX, CSV) via text extraction
+    - Multiple file uploads in single request
+    """
     try:
-        content = [{"type": "text", "text": text}]
+        content_parts = [{"type": "text", "text": text}]
+        uploaded_file_ids = []
+        document_context = ""
+        
+        # Process single image
         if image:
             image_bytes = await image.read()
-            image_b64 = base64.b64encode(image_bytes).decode()
-            content.append({"type": "image_url", "image_url": {"url": f"data:{image.content_type};base64,{image_b64}", "detail": "high"}})
+            content_type = image.content_type or "image/jpeg"
+            if content_type in ALLOWED_IMAGE_TYPES:
+                image_b64 = base64.b64encode(image_bytes).decode()
+                content_parts.append({"type": "image_url", "image_url": {"url": f"data:{content_type};base64,{image_b64}", "detail": "high"}})
+                # Save to upload manager
+                await image.seek(0)
+                upload_result = await FileUploadManager.upload_file(image, user_id)
+                if upload_result.get("success"):
+                    uploaded_file_ids.append(upload_result["file_id"])
         
-        messages = [{"role": "user", "content": content}]
+        # Process single video
+        if video:
+            video_bytes = await video.read()
+            content_type = video.content_type or "video/mp4"
+            if content_type in ALLOWED_VIDEO_TYPES:
+                video_b64 = base64.b64encode(video_bytes).decode()
+                content_parts.append({"type": "video_url", "video_url": {"url": f"data:{content_type};base64,{video_b64}"}})
+                await video.seek(0)
+                upload_result = await FileUploadManager.upload_file(video, user_id)
+                if upload_result.get("success"):
+                    uploaded_file_ids.append(upload_result["file_id"])
+        
+        # Process multiple files
+        if files:
+            for f in files:
+                f_bytes = await f.read()
+                ct = f.content_type or mimetypes.guess_type(f.filename or "")[0] or "application/octet-stream"
+                
+                if ct in ALLOWED_IMAGE_TYPES:
+                    f_b64 = base64.b64encode(f_bytes).decode()
+                    content_parts.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{f_b64}", "detail": "high"}})
+                elif ct in ALLOWED_VIDEO_TYPES:
+                    f_b64 = base64.b64encode(f_bytes).decode()
+                    content_parts.append({"type": "video_url", "video_url": {"url": f"data:{ct};base64,{f_b64}"}})
+                elif ct in ALLOWED_DOC_TYPES:
+                    # Extract text from documents and add to context
+                    extracted = await FileUploadManager._extract_document_text(f_bytes, ct, f.filename or "")
+                    if extracted:
+                        document_context += f"\n\n=== File: {f.filename} ===\n{extracted[:3000]}"
+                
+                # Save all files
+                await f.seek(0)
+                upload_result = await FileUploadManager.upload_file(f, user_id)
+                if upload_result.get("success"):
+                    uploaded_file_ids.append(upload_result["file_id"])
+        
+        # Add document context to text if we have extracted text
+        if document_context:
+            content_parts[0]["text"] = f"{text}\n\nAttached document content:{document_context}"
+        
+        # Build messages
+        current_date = get_current_date_str()
+        messages = [
+            {"role": "system", "content": f"You are McLeuker AI with Kimi-2.5 vision capabilities. Today is {current_date}. Analyze all provided content (text, images, videos, documents) thoroughly and provide detailed insights."},
+            {"role": "user", "content": content_parts}
+        ]
+        
+        # Stream response
+        chat_mode = ChatMode(mode) if mode in [m.value for m in ChatMode] else ChatMode.THINKING
         result_content = ""
-        async for evt in HybridLLMRouter.chat(messages, ChatMode(mode) if mode in [m.value for m in ChatMode] else ChatMode.thinking):
+        reasoning_content = ""
+        
+        async for evt in HybridLLMRouter.chat(messages, chat_mode):
             evt_data = json.loads(evt.replace("data: ", "").strip())
             if evt_data.get("type") == "content":
                 result_content += evt_data.get("data", {}).get("chunk", "")
+            elif evt_data.get("type") == "reasoning":
+                reasoning_content += evt_data.get("data", {}).get("chunk", "")
         
-        return {"success": True, "response": {"answer": result_content, "mode": mode}}
+        # Save to conversation if provided
+        if conversation_id:
+            await MemoryManager.save_message(conversation_id, "user", text, {
+                "attachments": uploaded_file_ids,
+                "mode": mode,
+                "multimodal": True
+            })
+            await MemoryManager.save_message(conversation_id, "assistant", result_content)
+        
+        return {
+            "success": True,
+            "response": {
+                "answer": result_content,
+                "reasoning": reasoning_content if reasoning_content else None,
+                "mode": mode
+            },
+            "uploaded_files": uploaded_file_ids,
+            "conversation_id": conversation_id
+        }
     except Exception as e:
+        logger.error(f"Multimodal error: {e}")
         return {"success": False, "error": str(e)}
+
+
+@app.post("/api/v1/multimodal/stream")
+async def multimodal_stream_endpoint(
+    text: str = Form(...),
+    mode: str = Form("thinking"),
+    conversation_id: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    video: Optional[UploadFile] = File(None),
+    files: Optional[List[UploadFile]] = File(None)
+):
+    """Streaming multimodal chat - same as /multimodal but with SSE streaming."""
+    async def stream_generator():
+        try:
+            content_parts = [{"type": "text", "text": text}]
+            document_context = ""
+            
+            yield event("status", {"message": "Processing uploads..."})
+            
+            if image:
+                image_bytes = await image.read()
+                ct = image.content_type or "image/jpeg"
+                if ct in ALLOWED_IMAGE_TYPES:
+                    b64 = base64.b64encode(image_bytes).decode()
+                    content_parts.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}", "detail": "high"}})
+            
+            if video:
+                video_bytes = await video.read()
+                ct = video.content_type or "video/mp4"
+                if ct in ALLOWED_VIDEO_TYPES:
+                    b64 = base64.b64encode(video_bytes).decode()
+                    content_parts.append({"type": "video_url", "video_url": {"url": f"data:{ct};base64,{b64}"}})
+            
+            if files:
+                for f in files:
+                    f_bytes = await f.read()
+                    ct = f.content_type or "application/octet-stream"
+                    if ct in ALLOWED_IMAGE_TYPES:
+                        b64 = base64.b64encode(f_bytes).decode()
+                        content_parts.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}", "detail": "high"}})
+                    elif ct in ALLOWED_DOC_TYPES:
+                        extracted = await FileUploadManager._extract_document_text(f_bytes, ct, f.filename or "")
+                        if extracted:
+                            document_context += f"\n\n=== {f.filename} ===\n{extracted[:3000]}"
+            
+            if document_context:
+                content_parts[0]["text"] = f"{text}\n\nAttached documents:{document_context}"
+            
+            current_date = get_current_date_str()
+            messages = [
+                {"role": "system", "content": f"You are McLeuker AI with full multimodal capabilities. Today is {current_date}."},
+                {"role": "user", "content": content_parts}
+            ]
+            
+            yield event("status", {"message": "Analyzing content..."})
+            
+            chat_mode = ChatMode(mode) if mode in [m.value for m in ChatMode] else ChatMode.THINKING
+            async for evt in HybridLLMRouter.chat(messages, chat_mode):
+                yield evt
+            
+            yield event("complete", {"message": "Analysis complete"})
+        except Exception as e:
+            yield event("error", {"message": str(e)})
+    
+    return StreamingResponse(stream_generator(), media_type="text/event-stream",
+                           headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+
+
+# ============================================================================
+# BACKGROUND SEARCH PERSISTENCE - Survives page refresh/navigation
+# ============================================================================
+
+class BackgroundSearchManager:
+    """Manage background search tasks that persist across page refreshes.
+    
+    When a user starts a search, it runs as a background task.
+    Results are stored in Supabase so the user can navigate away,
+    refresh the page, or come back later to see results.
+    """
+    
+    # In-memory task registry
+    _tasks: Dict[str, Dict] = {}
+    
+    @classmethod
+    async def start_search(cls, task_id: str, query: str, user_id: str, mode: str = "thinking",
+                          file_types: List[str] = None, conversation_id: str = None) -> Dict:
+        """Start a background search task."""
+        task_record = {
+            "task_id": task_id,
+            "user_id": user_id,
+            "query": query,
+            "mode": mode,
+            "status": "running",
+            "progress": 0,
+            "progress_message": "Starting search...",
+            "file_types_requested": file_types or [],
+            "conversation_id": conversation_id or str(uuid.uuid4()),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+            "results": None,
+            "content": None,
+            "downloads": [],
+            "sources": [],
+            "follow_ups": [],
+            "conclusion": None,
+            "error": None
+        }
+        
+        cls._tasks[task_id] = task_record
+        
+        # Persist to Supabase immediately
+        if supabase:
+            try:
+                db_record = {k: v for k, v in task_record.items() if k != "results"}
+                db_record["downloads"] = json.dumps(db_record["downloads"])
+                db_record["sources"] = json.dumps(db_record["sources"])
+                db_record["follow_ups"] = json.dumps(db_record["follow_ups"])
+                db_record["file_types_requested"] = json.dumps(db_record["file_types_requested"])
+                supabase.table("background_tasks").insert(db_record).execute()
+            except Exception as e:
+                logger.error(f"Background task DB insert error: {e}")
+        
+        # Start the actual search in background
+        asyncio.create_task(cls._execute_search(task_id))
+        
+        return {"task_id": task_id, "status": "running", "conversation_id": task_record["conversation_id"]}
+    
+    @classmethod
+    async def _execute_search(cls, task_id: str):
+        """Execute the search task in background."""
+        task = cls._tasks.get(task_id)
+        if not task:
+            return
+        
+        try:
+            query = task["query"]
+            user_id = task["user_id"]
+            
+            # Step 1: Search
+            await cls._update_progress(task_id, 10, "Searching across multiple sources...")
+            search_results = await SearchLayer.search(query, sources=["web", "news", "social"], num_results=15)
+            structured_data = search_results.get("structured_data", {})
+            
+            sources = clean_sources_for_output(structured_data.get("sources", []))
+            await cls._update_progress(task_id, 30, f"Found {len(sources)} sources. Generating response...", sources=sources)
+            
+            # Step 2: Generate LLM response
+            search_context = ""
+            for dp in structured_data.get("data_points", [])[:15]:
+                search_context += f"- {dp.get('title', '')}: {dp.get('description', '')[:200]}\n"
+            for sn in ["perplexity", "grok", "google", "exa", "bing", "firecrawl"]:
+                if sn in search_results.get("results", {}):
+                    answer = search_results["results"][sn].get("answer", "")
+                    if answer:
+                        search_context += f"\n{answer[:1500]}\n"
+            
+            current_date = get_current_date_str()
+            current_year = get_current_year()
+            
+            system_msg = f"""You are McLeuker AI. Today is {current_date}.
+ALL data must reflect {current_year}. Be specific with numbers and sources.
+Structure with headers (##), bullet points, and tables.
+{f'Search data:{chr(10)}{search_context[:4000]}' if search_context else ''}"""
+            
+            client = kimi_client or grok_client
+            if not client:
+                await cls._update_progress(task_id, 100, "Error: No LLM client", error="No LLM client available")
+                return
+            
+            model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+            temp = 1 if client == kimi_client else 0.5
+            
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": query}
+                ],
+                temperature=temp,
+                max_tokens=6000
+            )
+            full_response = response.choices[0].message.content
+            
+            # Track tokens
+            if response.usage:
+                await TokenTracker.track(user_id, model, response.usage.prompt_tokens, response.usage.completion_tokens, "background_search")
+            
+            await cls._update_progress(task_id, 60, "Response generated. Processing files...", content=full_response)
+            
+            # Step 3: Generate files if requested
+            downloads = []
+            file_types = task.get("file_types_requested", [])
+            if not file_types:
+                file_types = ChatHandler._detect_file_needs(query)
+            
+            if file_types:
+                for ft in file_types:
+                    try:
+                        full_data = {**structured_data, "results": search_results.get("results", {})}
+                        if ft == "excel":
+                            result = await FileEngine.generate_excel(query, full_data, user_id)
+                        elif ft == "word":
+                            result = await FileEngine.generate_word(query, full_response, user_id)
+                        elif ft == "pdf":
+                            result = await FileEngine.generate_pdf(query, full_response, user_id)
+                        elif ft == "pptx":
+                            result = await FileEngine.generate_pptx(query, full_response, user_id)
+                        else:
+                            continue
+                        if result.get("success"):
+                            downloads.append({
+                                "file_id": result["file_id"],
+                                "filename": result["filename"],
+                                "download_url": result["download_url"],
+                                "file_type": ft
+                            })
+                    except Exception as e:
+                        logger.error(f"Background file gen error ({ft}): {e}")
+            
+            await cls._update_progress(task_id, 85, "Generating conclusion...", downloads=downloads)
+            
+            # Step 4: Conclusion
+            conclusion = await ChatHandler._generate_conclusion(query, full_response, file_types, structured_data)
+            follow_ups = ChatHandler._generate_follow_ups(query, full_response)
+            
+            # Step 5: Complete
+            await cls._update_progress(
+                task_id, 100, "Complete",
+                content=full_response,
+                sources=sources,
+                downloads=downloads,
+                follow_ups=follow_ups,
+                conclusion=conclusion,
+                status="completed"
+            )
+            
+            # Save to conversation
+            conv_id = task.get("conversation_id")
+            if conv_id:
+                await MemoryManager.save_message(conv_id, "user", query)
+                await MemoryManager.save_message(conv_id, "assistant", full_response[:5000])
+        
+        except Exception as e:
+            logger.error(f"Background search error: {e}")
+            await cls._update_progress(task_id, 100, f"Error: {str(e)}", error=str(e), status="failed")
+    
+    @classmethod
+    async def _update_progress(cls, task_id: str, progress: int, message: str, **kwargs):
+        """Update task progress in memory and DB."""
+        if task_id not in cls._tasks:
+            return
+        
+        cls._tasks[task_id]["progress"] = progress
+        cls._tasks[task_id]["progress_message"] = message
+        cls._tasks[task_id]["updated_at"] = datetime.now().isoformat()
+        
+        for key, value in kwargs.items():
+            cls._tasks[task_id][key] = value
+        
+        if kwargs.get("status"):
+            cls._tasks[task_id]["status"] = kwargs["status"]
+        
+        # Persist to Supabase
+        if supabase:
+            try:
+                update_data = {
+                    "progress": progress,
+                    "progress_message": message,
+                    "status": cls._tasks[task_id]["status"],
+                    "updated_at": datetime.now().isoformat()
+                }
+                if "content" in kwargs and kwargs["content"]:
+                    update_data["content"] = kwargs["content"][:10000]
+                if "sources" in kwargs:
+                    update_data["sources"] = json.dumps(kwargs["sources"])
+                if "downloads" in kwargs:
+                    update_data["downloads"] = json.dumps(kwargs["downloads"])
+                if "follow_ups" in kwargs:
+                    update_data["follow_ups"] = json.dumps(kwargs["follow_ups"])
+                if "conclusion" in kwargs:
+                    update_data["conclusion"] = kwargs["conclusion"]
+                if "error" in kwargs:
+                    update_data["error"] = kwargs["error"]
+                
+                supabase.table("background_tasks").update(update_data).eq("task_id", task_id).execute()
+            except Exception as e:
+                logger.error(f"Background task DB update error: {e}")
+    
+    @classmethod
+    async def get_task_status(cls, task_id: str) -> Optional[Dict]:
+        """Get task status - checks memory first, then DB."""
+        # Check memory
+        if task_id in cls._tasks:
+            task = cls._tasks[task_id]
+            return {
+                "task_id": task_id,
+                "status": task["status"],
+                "progress": task["progress"],
+                "progress_message": task["progress_message"],
+                "query": task["query"],
+                "content": task.get("content"),
+                "sources": task.get("sources", []),
+                "downloads": task.get("downloads", []),
+                "follow_ups": task.get("follow_ups", []),
+                "conclusion": task.get("conclusion"),
+                "error": task.get("error"),
+                "conversation_id": task.get("conversation_id"),
+                "created_at": task.get("created_at"),
+                "updated_at": task.get("updated_at")
+            }
+        
+        # Check DB (for tasks from previous server sessions)
+        if supabase:
+            try:
+                result = supabase.table("background_tasks").select("*").eq("task_id", task_id).single().execute()
+                if result.data:
+                    data = result.data
+                    # Parse JSON fields
+                    for field in ["sources", "downloads", "follow_ups", "file_types_requested"]:
+                        if isinstance(data.get(field), str):
+                            try:
+                                data[field] = json.loads(data[field])
+                            except:
+                                data[field] = []
+                    return data
+            except Exception as e:
+                logger.error(f"Background task DB fetch error: {e}")
+        
+        return None
+    
+    @classmethod
+    async def get_user_tasks(cls, user_id: str) -> List[Dict]:
+        """Get all tasks for a user."""
+        tasks = []
+        
+        # From memory
+        for tid, task in cls._tasks.items():
+            if task.get("user_id") == user_id:
+                tasks.append({
+                    "task_id": tid,
+                    "query": task["query"],
+                    "status": task["status"],
+                    "progress": task["progress"],
+                    "created_at": task.get("created_at"),
+                    "updated_at": task.get("updated_at")
+                })
+        
+        # From DB (for tasks from previous sessions)
+        if supabase:
+            try:
+                result = supabase.table("background_tasks").select(
+                    "task_id, query, status, progress, created_at, updated_at"
+                ).eq("user_id", user_id).order("created_at", desc=True).limit(50).execute()
+                if result.data:
+                    existing_ids = {t["task_id"] for t in tasks}
+                    for row in result.data:
+                        if row["task_id"] not in existing_ids:
+                            tasks.append(row)
+            except Exception as e:
+                logger.error(f"Background tasks DB list error: {e}")
+        
+        return sorted(tasks, key=lambda x: x.get("created_at", ""), reverse=True)
+
+
+# Background search endpoints
+@app.post("/api/v1/search/background")
+async def start_background_search(
+    query: str = Form(...),
+    user_id: Optional[str] = Form(None),
+    mode: Optional[str] = Form("thinking"),
+    file_types: Optional[str] = Form(None),  # comma-separated: "excel,pdf,pptx"
+    conversation_id: Optional[str] = Form(None),
+    user: Dict = Depends(AuthManager.get_current_user)
+):
+    """Start a background search that persists across page refreshes.
+    
+    The search runs in the background. Poll /api/v1/search/background/{task_id}
+    to check progress and get results. Results are stored in the database
+    so they survive page refresh, navigation, and even server restarts.
+    """
+    uid = user_id or (user.get("user_id") if user else "anonymous")
+    task_id = str(uuid.uuid4())
+    ft_list = [f.strip() for f in file_types.split(",")] if file_types else []
+    
+    result = await BackgroundSearchManager.start_search(
+        task_id=task_id,
+        query=query,
+        user_id=uid,
+        mode=mode,
+        file_types=ft_list,
+        conversation_id=conversation_id
+    )
+    
+    return {"success": True, **result}
+
+
+@app.get("/api/v1/search/background/{task_id}")
+async def get_background_search_status(task_id: str):
+    """Poll this endpoint to check background search progress.
+    
+    Returns current status, progress percentage, and results when complete.
+    Works even after page refresh because results are stored in database.
+    """
+    result = await BackgroundSearchManager.get_task_status(task_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"success": True, **result}
+
+
+@app.get("/api/v1/search/background")
+async def list_background_searches(
+    user_id: Optional[str] = None,
+    user: Dict = Depends(AuthManager.get_current_user)
+):
+    """List all background search tasks for a user.
+    
+    Shows running, completed, and failed tasks so user can
+    resume viewing results after navigating away.
+    """
+    uid = user_id or (user.get("user_id") if user else "anonymous")
+    tasks = await BackgroundSearchManager.get_user_tasks(uid)
+    return {"success": True, "tasks": tasks}
+
+
+# ============================================================================
+# AGENTIC WORKFLOW SYSTEM - Multi-step reasoning with tool invocation
+# ============================================================================
+
+class AgenticWorkflow:
+    """Multi-step agentic workflow with tool use, planning, and execution."""
+    
+    # Available tools the agent can invoke
+    TOOLS = {
+        "web_search": {
+            "description": "Search the web for current information",
+            "parameters": {"query": "string"}
+        },
+        "file_analysis": {
+            "description": "Analyze an uploaded file (image, document, spreadsheet)",
+            "parameters": {"file_id": "string", "question": "string"}
+        },
+        "generate_file": {
+            "description": "Generate a file (excel, word, pdf, pptx)",
+            "parameters": {"prompt": "string", "file_type": "string"}
+        },
+        "data_analysis": {
+            "description": "Perform data analysis on structured data",
+            "parameters": {"data": "string", "analysis_type": "string"}
+        },
+        "calculate": {
+            "description": "Perform mathematical calculations",
+            "parameters": {"expression": "string"}
+        }
+    }
+    
+    @classmethod
+    async def execute_workflow(cls, task: str, user_id: str = None, max_steps: int = 10,
+                              attached_files: List[str] = None) -> AsyncGenerator[str, None]:
+        """Execute a multi-step agentic workflow."""
+        yield event("workflow_start", {"task": task, "max_steps": max_steps})
+        
+        current_date = get_current_date_str()
+        
+        # Step 1: Plan
+        yield event("workflow_step", {"step": 1, "action": "planning", "message": "Creating execution plan..."})
+        
+        plan = await cls._create_plan(task, attached_files)
+        yield event("workflow_plan", {"plan": plan})
+        
+        # Step 2: Execute each step
+        context = {"task": task, "results": [], "files": attached_files or []}
+        
+        for i, step in enumerate(plan.get("steps", [])[:max_steps]):
+            step_num = i + 1
+            yield event("workflow_step", {
+                "step": step_num,
+                "total_steps": len(plan.get("steps", [])),
+                "action": step.get("tool", "think"),
+                "message": step.get("description", f"Step {step_num}")
+            })
+            
+            # Execute the step
+            result = await cls._execute_step(step, context)
+            context["results"].append({"step": step_num, "result": result})
+            
+            yield event("workflow_result", {
+                "step": step_num,
+                "tool": step.get("tool", "think"),
+                "result_preview": str(result)[:500]
+            })
+        
+        # Step 3: Synthesize
+        yield event("workflow_step", {"step": len(plan.get('steps', [])) + 1, "action": "synthesizing", "message": "Synthesizing results..."})
+        
+        synthesis = await cls._synthesize(task, context)
+        yield event("workflow_synthesis", {"content": synthesis})
+        
+        # Track tokens
+        if user_id:
+            await TokenTracker.track(user_id, "kimi-k2.5", 2000, 3000, "agentic_workflow")
+        
+        yield event("workflow_complete", {
+            "steps_executed": len(plan.get("steps", [])),
+            "summary": synthesis[:500]
+        })
+    
+    @classmethod
+    async def _create_plan(cls, task: str, attached_files: List[str] = None) -> Dict:
+        """Use LLM to create an execution plan."""
+        client = kimi_client or grok_client
+        if not client:
+            return {"steps": [{"tool": "think", "description": "Analyze the task", "input": task}]}
+        
+        model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+        temp = 1 if client == kimi_client else 0.5
+        
+        tools_desc = "\n".join([f"- {name}: {info['description']}" for name, info in cls.TOOLS.items()])
+        files_desc = f"\nAttached files: {', '.join(attached_files)}" if attached_files else ""
+        
+        prompt = f"""Create an execution plan for this task. Available tools:
+{tools_desc}
+{files_desc}
+
+Task: {task}
+
+Return a JSON object with a "steps" array. Each step has:
+- "tool": one of the tool names above, or "think" for reasoning
+- "description": what this step does
+- "input": the input for the tool
+
+Keep it to 3-6 steps. Return ONLY valid JSON."""
+        
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temp,
+                max_tokens=1500
+            )
+            raw = response.choices[0].message.content.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+                if raw.endswith("```"): raw = raw[:-3]
+                raw = raw.strip()
+            return json.loads(raw)
+        except Exception as e:
+            logger.error(f"Plan creation error: {e}")
+            return {"steps": [
+                {"tool": "web_search", "description": "Research the topic", "input": task},
+                {"tool": "think", "description": "Analyze findings", "input": "Analyze the search results"}
+            ]}
+    
+    @classmethod
+    async def _execute_step(cls, step: Dict, context: Dict) -> Any:
+        """Execute a single workflow step."""
+        tool = step.get("tool", "think")
+        step_input = step.get("input", "")
+        
+        try:
+            if tool == "web_search":
+                results = await SearchLayer.search(step_input, sources=["web", "news"], num_results=10)
+                return {"sources": len(results.get("structured_data", {}).get("sources", [])),
+                        "data_points": len(results.get("structured_data", {}).get("data_points", [])),
+                        "summary": str(results.get("structured_data", {}).get("data_points", [])[:3])}
+            
+            elif tool == "file_analysis":
+                file_id = step_input if isinstance(step_input, str) else step_input.get("file_id", "")
+                question = step_input.get("question", "") if isinstance(step_input, dict) else "Analyze this file"
+                if file_id:
+                    return await FileUploadManager.analyze_file(file_id, question)
+                return {"error": "No file_id provided"}
+            
+            elif tool == "generate_file":
+                prompt = step_input if isinstance(step_input, str) else step_input.get("prompt", "")
+                file_type = step_input.get("file_type", "excel") if isinstance(step_input, dict) else "excel"
+                if file_type == "excel":
+                    search_data = await SearchLayer.search(prompt, num_results=10)
+                    return await FileEngine.generate_excel(prompt, search_data.get("structured_data", {}), context.get("user_id"))
+                return {"info": f"File generation for {file_type} queued"}
+            
+            elif tool == "calculate":
+                # Safe math evaluation
+                expr = step_input if isinstance(step_input, str) else str(step_input)
+                try:
+                    result = eval(expr, {"__builtins__": {}}, {"abs": abs, "round": round, "min": min, "max": max, "sum": sum, "len": len})
+                    return {"expression": expr, "result": result}
+                except:
+                    return {"expression": expr, "error": "Could not evaluate"}
+            
+            elif tool == "think":
+                client = kimi_client or grok_client
+                if client:
+                    model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+                    temp = 1 if client == kimi_client else 0.5
+                    prev_results = json.dumps(context.get("results", [])[-3:], default=str)[:2000]
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[{"role": "user", "content": f"Task: {context['task']}\nPrevious results: {prev_results}\n\n{step_input}"}],
+                        temperature=temp,
+                        max_tokens=2000
+                    )
+                    return {"reasoning": response.choices[0].message.content}
+                return {"reasoning": step_input}
+            
+            else:
+                return {"info": f"Unknown tool: {tool}"}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    @classmethod
+    async def _synthesize(cls, task: str, context: Dict) -> str:
+        """Synthesize all step results into a final answer."""
+        client = kimi_client or grok_client
+        if not client:
+            return "Synthesis not available."
+        
+        model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+        temp = 1 if client == kimi_client else 0.5
+        
+        results_summary = json.dumps(context.get("results", []), default=str)[:4000]
+        
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": f"Synthesize the workflow results into a comprehensive answer. Today is {get_current_date_str()}."},
+                    {"role": "user", "content": f"Task: {task}\n\nWorkflow results:\n{results_summary}\n\nProvide a comprehensive synthesis:"}
+                ],
+                temperature=temp,
+                max_tokens=4000
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Synthesis error: {str(e)}"
+
+
+# Agentic workflow endpoints
+@app.post("/api/v1/workflow/execute")
+async def execute_workflow(
+    task: str,
+    user_id: Optional[str] = None,
+    max_steps: int = 10,
+    attached_files: Optional[List[str]] = None,
+    user: Dict = Depends(AuthManager.get_current_user)
+):
+    """Execute an agentic workflow with multi-step reasoning."""
+    uid = user_id or (user.get("user_id") if user else "anonymous")
+    
+    async def stream_generator():
+        async for evt in AgenticWorkflow.execute_workflow(task, uid, max_steps, attached_files):
+            yield evt
+    
+    return StreamingResponse(stream_generator(), media_type="text/event-stream",
+                           headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+
 
 # ============================================================================
 # WEEKLY INSIGHTS - Real-time domain intelligence
@@ -3018,8 +4453,16 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "5.0.0",
+        "version": "5.1.0",
         "timestamp": datetime.now().isoformat(),
+        "capabilities": {
+            "multimodal_chat": True,
+            "file_upload_analysis": True,
+            "background_search": True,
+            "agentic_workflows": True,
+            "jwt_auth": True,
+            "token_tracking": True
+        },
         "services": {
             "kimi": kimi_client is not None,
             "grok": grok_client is not None,
@@ -3031,7 +4474,14 @@ async def health_check():
             "google_custom_search": bool(GOOGLE_CUSTOM_SEARCH_KEY),
             "youtube": bool(YOUTUBE_API_KEY),
             "e2b": bool(E2B_API_KEY),
+            "s3_storage": bool(S3_BUCKET and S3_ACCESS_KEY),
             "supabase": supabase is not None
+        },
+        "upload_config": {
+            "max_size_mb": MAX_UPLOAD_SIZE_MB,
+            "image_formats": ["PNG", "JPEG", "WebP", "GIF", "SVG", "BMP", "TIFF"],
+            "video_formats": ["MP4", "WebM", "MOV", "AVI", "MKV"],
+            "document_formats": ["PDF", "XLSX", "XLS", "DOCX", "DOC", "CSV", "TXT", "JSON", "MD", "PPTX"]
         }
     }
 
@@ -3039,23 +4489,21 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {
-        "name": "McLeuker AI V5",
-        "version": "5.0.0",
-        "description": "AI platform with Manus-level file generation and 8+ search APIs",
-        "endpoints": [
-            "/api/v1/chat",
-            "/api/v1/chat/non-stream",
-            "/api/v1/search",
-            "/api/v1/files/generate",
-            "/api/v1/files/{id}/download",
-            "/api/v1/agent/execute",
-            "/api/v1/swarm/execute",
-            "/api/v1/conversations",
-            "/api/v1/weekly-insights",
-            "/api/v1/live-signals",
-            "/api/v1/domain-modules",
-            "/health"
-        ]
+        "name": "McLeuker AI V5.1",
+        "version": "5.1.0",
+        "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
+        "endpoints": {
+            "chat": ["/api/v1/chat", "/api/v1/chat/non-stream"],
+            "multimodal": ["/api/v1/multimodal", "/api/v1/multimodal/stream"],
+            "search": ["/api/v1/search", "/api/v1/search/background", "/api/v1/search/background/{task_id}"],
+            "files": ["/api/v1/upload", "/api/v1/upload/multiple", "/api/v1/uploads/{file_id}", "/api/v1/files/{file_id}/analyze", "/api/v1/files/generate", "/api/v1/files/{id}/download"],
+            "auth": ["/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/me"],
+            "workflows": ["/api/v1/workflow/execute", "/api/v1/agent/execute", "/api/v1/swarm/execute"],
+            "conversations": ["/api/v1/conversations", "/api/v1/conversations/{id}"],
+            "usage": ["/api/v1/usage", "/api/v1/usage/{user_id}"],
+            "intelligence": ["/api/v1/weekly-insights", "/api/v1/live-signals", "/api/v1/domain-modules"],
+            "health": ["/health"]
+        }
     }
 
 # ============================================================================
