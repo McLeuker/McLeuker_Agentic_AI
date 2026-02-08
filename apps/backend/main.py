@@ -496,7 +496,7 @@ class FileEngine:
                 if source_name in structured_data.get("results", {}):
                     answer = structured_data["results"][source_name].get("answer", "")
                     if answer:
-                        search_context += f"\n[{source_name.upper()} ANSWER]:\n{answer[:600]}\n"
+                        search_context += f"\n[{source_name.upper()} ANSWER]:\n{answer[:1500]}\n"
             
             # Use Kimi to generate proper structured data for the Excel
             excel_data = None
@@ -510,12 +510,15 @@ class FileEngine:
 Format: {"title": "Sheet Title", "headers": ["Col1", "Col2", ...], "rows": [["val1", "val2", ...], ...]}
 
 Rules:
-- Headers MUST be specific to what the user asked for (e.g., "Name", "Instagram Handle", "Followers", "City")
+- Headers MUST be specific to what the user asked for (e.g., "Company", "Revenue", "Employees", "Founded", "HQ")
 - Include 15-30 rows of REAL data extracted from the search results
-- If search data is insufficient, supplement with your knowledge but mark those rows
+- Extract SPECIFIC facts, numbers, names, dates from the search text - do NOT use generic placeholders
+- If search data is insufficient, supplement with your knowledge but mark those rows with (estimated) suffix
 - Numbers should be actual numbers, not strings
-- Return ONLY the JSON object, no markdown, no explanation"""},
-                            {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:3000]}"}
+- Each row must have the same number of columns as headers
+- DO NOT use generic headers like "Item", "Value", "Date" - make them specific to the query topic
+- Return ONLY the JSON object, no markdown, no explanation, no commentary"""},
+                            {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=0.4,
                         max_tokens=8000
@@ -542,6 +545,39 @@ Rules:
                     
                 except Exception as e:
                     logger.error(f"Kimi Excel content generation error: {e}")
+            
+            # Fallback: Try Grok if Kimi failed
+            if not excel_data and grok_client:
+                try:
+                    logger.info("Kimi failed for Excel, trying Grok fallback")
+                    grok_response = grok_client.chat.completions.create(
+                        model="grok-3-mini",
+                        messages=[
+                            {"role": "system", "content": """Generate structured data for an Excel spreadsheet. Return ONLY valid JSON.
+Format: {"title": "Sheet Title", "headers": ["Col1", "Col2", ...], "rows": [["val1", "val2", ...], ...]}
+Include 15-30 rows. Return ONLY the JSON, no markdown."""},
+                            {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch data:\n{search_context[:2000]}"}
+                        ],
+                        temperature=0.3,
+                        max_tokens=6000
+                    )
+                    raw_json = grok_response.choices[0].message.content.strip()
+                    for strategy in [
+                        lambda t: json.loads(t),
+                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
+                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
+                        lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,
+                    ]:
+                        try:
+                            result = strategy(raw_json)
+                            if result and isinstance(result, dict) and "headers" in result and "rows" in result:
+                                excel_data = result
+                                logger.info(f"Grok Excel parsed: {len(result.get('rows', []))} rows")
+                                break
+                        except:
+                            continue
+                except Exception as e:
+                    logger.error(f"Grok Excel fallback error: {e}")
             
             # Create workbook
             wb = Workbook()
@@ -993,11 +1029,18 @@ class HybridLLMRouter:
                 for chunk in response:
                     delta = chunk.choices[0].delta
                     content = getattr(delta, 'content', None)
+                    reasoning = getattr(delta, 'reasoning_content', None)
                     
+                    if reasoning and config.get("show_reasoning"):
+                        yield event("reasoning", {"chunk": reasoning})
                     if content:
                         yield event("content", {"chunk": content})
             else:
-                content = response.choices[0].message.content
+                msg = response.choices[0].message
+                reasoning = getattr(msg, 'reasoning_content', None)
+                if reasoning and config.get("show_reasoning"):
+                    yield event("reasoning", {"chunk": reasoning})
+                content = msg.content
                 yield event("content", {"chunk": content})
                 
         except Exception as e:
@@ -1024,11 +1067,18 @@ class HybridLLMRouter:
                 for chunk in response:
                     delta = chunk.choices[0].delta
                     content = getattr(delta, 'content', None)
+                    reasoning = getattr(delta, 'reasoning', None) or getattr(delta, 'reasoning_content', None)
                     
+                    if reasoning and config.get("show_reasoning"):
+                        yield event("reasoning", {"chunk": reasoning})
                     if content:
                         yield event("content", {"chunk": content})
             else:
-                content = response.choices[0].message.content
+                msg = response.choices[0].message
+                reasoning = getattr(msg, 'reasoning', None) or getattr(msg, 'reasoning_content', None)
+                if reasoning and config.get("show_reasoning"):
+                    yield event("reasoning", {"chunk": reasoning})
+                content = msg.content
                 yield event("content", {"chunk": content})
                 
         except Exception as e:
@@ -1164,7 +1214,7 @@ class AgentOrchestrator:
             return {"error": str(e), "success": False}
     
     @staticmethod
-    async def execute_swarm(task: str, num_agents: int = 5, context: Dict = None) -> Dict:
+    async def execute_swarm(task: str, num_agents: int = 5, context: Dict = None) -> AsyncGenerator[str, None]:
         """Execute multiple agents in parallel."""
         
         # Determine agent types based on task
@@ -1212,14 +1262,14 @@ class AgentOrchestrator:
             "status": "complete"
         })
         
-        return {
+        yield event("complete", {
             "task": task,
             "agents_deployed": len(subtasks),
             "agents_successful": len(successful),
             "agent_results": successful,
             "synthesis": synthesis,
             "success": True
-        }
+        })
     
     @staticmethod
     async def _synthesize_results(results: List[Dict], original_task: str) -> str:
@@ -1563,7 +1613,7 @@ class ChatHandler:
             "status": "active"
         })
         
-        search_results = await SearchLayer.search(query, sources=["web", "news"], num_results=15)
+        search_results = await SearchLayer.search(query, sources=["web", "news", "social"], num_results=15)
         
         yield event("task_progress", {
             "step": "search",
@@ -1917,7 +1967,7 @@ async def generate_file_endpoint(request: FileGenRequest):
             raise HTTPException(status_code=400, detail="No prompt or content provided")
         
         # Search for data
-        search_results = await SearchLayer.search(prompt, sources=["web", "news"], num_results=15)
+        search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15)
         structured_data = search_results.get("structured_data", {})
         
         # Determine file type
