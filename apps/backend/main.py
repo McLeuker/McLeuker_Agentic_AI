@@ -503,14 +503,46 @@ class FileEngine:
     
     @staticmethod
     def _generate_filename(prompt: str, extension: str) -> str:
-        """Generate a descriptive filename from the user's query."""
+        """Generate a precise, descriptive filename using LLM reasoning about the content."""
         import re
-        # Remove common filler words and file-type references
+        
+        # Try LLM-based filename generation
+        client = grok_client or kimi_client
+        if client:
+            try:
+                model = "grok-3-mini" if client == grok_client else "kimi-k2.5"
+                temp = 0.3 if client == grok_client else 1
+                result = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": """Generate a precise filename (no extension) for a file based on the user's request.
+Rules:
+- Summarize the CONTENT the user wants, not their instruction words
+- Use snake_case, lowercase, max 6 words
+- Be specific: include topic, scope, and type of data
+- Examples: "european_beauty_brands_market_analysis", "tesla_vs_byd_ev_comparison_2026", "top_50_sustainable_suppliers_europe"
+- Return ONLY the filename, nothing else"""},
+                        {"role": "user", "content": f"User request: {prompt[:200]}"}
+                    ],
+                    temperature=temp,
+                    max_tokens=50
+                )
+                slug = result.choices[0].message.content.strip().strip('"').strip("'").strip('`')
+                slug = re.sub(r'[^a-zA-Z0-9_]', '_', slug.lower())
+                slug = re.sub(r'_+', '_', slug).strip('_')[:60]
+                if slug and len(slug) > 3:
+                    return f"{slug}.{extension}"
+            except Exception as e:
+                logger.error(f"LLM filename generation error: {e}")
+        
+        # Fallback: extract key words
         stopwords = {'generate', 'create', 'make', 'build', 'an', 'a', 'the', 'me', 'please',
                      'excel', 'spreadsheet', 'sheet', 'pdf', 'word', 'document', 'report',
                      'powerpoint', 'presentation', 'pptx', 'file', 'containing', 'about',
                      'with', 'information', 'data', 'of', 'for', 'on', 'in', 'to', 'and',
-                     'that', 'this', 'from', 'can', 'you', 'i', 'want', 'need', 'give'}
+                     'that', 'this', 'from', 'can', 'you', 'i', 'want', 'need', 'give',
+                     'generative', 'including', 'different', 'perspectives', 'based', 'your',
+                     'knowledge', 'master'}
         words = re.sub(r'[^a-zA-Z0-9\s]', '', prompt.lower()).split()
         meaningful = [w for w in words if w not in stopwords and len(w) > 1][:6]
         if not meaningful:
@@ -558,26 +590,35 @@ class FileEngine:
                         kimi_client.chat.completions.create,
                         model="kimi-k2.5",
                         messages=[
-                            {"role": "system", "content": """You generate structured data for Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
+                            {"role": "system", "content": """You generate comprehensive Excel spreadsheets with MANY TABS. Return ONLY valid JSON.
 
-Format: {"sheets": [{"title": "Main Data", "headers": [...], "rows": [...]}, {"title": "Analysis", "headers": [...], "rows": [...]}, ...]}
+Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
 
-You MUST create 2-4 sheets:
-1. **Main Data** sheet: The primary dataset (30-50 rows) with specific headers matching the query
-2. **Summary/Analysis** sheet: Aggregated insights, rankings, or comparisons (5-15 rows)
-3. **Additional Perspective** sheet (optional): Related data that adds value (e.g., regional breakdown, historical trends, competitor comparison)
+You MUST create 10+ sheets. Think about what perspectives, breakdowns, and analyses would be valuable for this topic. Example tab structures:
+- Main comprehensive dataset (30-50 rows)
+- Rankings / Top performers
+- Regional or geographic breakdown
+- Category / segment analysis
+- Year-over-year trends or historical data
+- Competitive comparison
+- Key metrics summary
+- Market share or distribution
+- Strengths & weaknesses analysis
+- Pricing or financial overview
+- Recommendations or action items
+- Sources & references
 
-Rules per sheet:
+Rules:
+- Each tab title should be specific and descriptive (e.g., "Revenue by Region", "Brand Rankings 2026", "Sustainability Scores")
 - Headers MUST be specific to the topic (e.g., "Brand Name", "Revenue ($M)", "ESG Score", "Country")
 - Extract SPECIFIC facts, numbers, names, dates from the search text
 - If search data is insufficient, supplement with your knowledge but mark with (est.) suffix
 - Numbers should be actual numbers, not strings
 - Each row must have the same number of columns as headers
 - DO NOT use generic headers like "Item", "Value", "Date"
-- The user asked for this data — deliver MORE than they expect
-- Return ONLY the JSON object, no markdown, no explanation
-
-Also support legacy format: {"title": "...", "headers": [...], "rows": [...]} (single sheet)"""},
+- Main data tab: 30-50 rows. Other tabs: 5-20 rows each
+- Deliver MORE than the user expects — add perspectives they didn't ask for but would find valuable
+- Return ONLY the JSON object, no markdown, no explanation"""},
                             {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=1,
@@ -624,9 +665,10 @@ Also support legacy format: {"title": "...", "headers": [...], "rows": [...]} (s
                         grok_client.chat.completions.create,
                         model="grok-3-mini",
                         messages=[
-                            {"role": "system", "content": """Generate structured data for an Excel spreadsheet. Return ONLY valid JSON.
-Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}]} or {"title": "...", "headers": [...], "rows": [...]}
-Include 15-30 rows. Return ONLY the JSON, no markdown."""},
+                            {"role": "system", "content": """Generate structured data for an Excel spreadsheet with MULTIPLE TABS. Return ONLY valid JSON.
+Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
+Create at least 5 sheets with different perspectives on the topic. Main data: 20-30 rows. Other tabs: 5-15 rows each.
+Return ONLY the JSON, no markdown."""},
                             {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch data:\n{search_context[:2000]}"}
                         ],
                         temperature=0.3,
@@ -760,22 +802,126 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
     
     @classmethod
     async def generate_word(cls, prompt: str, content: str, user_id: str = None) -> Dict:
-        """Generate Word document."""
+        """Generate Word document with proper markdown rendering."""
         try:
+            import re as _re
+            from docx.shared import Inches, Pt, Cm, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.enum.table import WD_TABLE_ALIGNMENT
+            
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "docx")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
             doc = Document()
             
-            # Add title
-            title = doc.add_heading(prompt[:100], 0)
+            # Set default font
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Calibri'
+            font.size = Pt(11)
+            font.color.rgb = RGBColor(0x33, 0x33, 0x33)
             
-            # Add content
-            doc.add_paragraph(content)
+            # Set margins
+            for section in doc.sections:
+                section.top_margin = Cm(2)
+                section.bottom_margin = Cm(2)
+                section.left_margin = Cm(2.5)
+                section.right_margin = Cm(2.5)
             
-            # Add timestamp
-            doc.add_paragraph(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            # Parse and render markdown content
+            lines = content.split('\n')
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                stripped = line.strip()
+                
+                # Skip empty lines
+                if not stripped:
+                    i += 1
+                    continue
+                
+                # Headers
+                if stripped.startswith('# '):
+                    h = doc.add_heading(stripped[2:].strip(), level=0)
+                    h.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                    i += 1
+                    continue
+                elif stripped.startswith('## '):
+                    h = doc.add_heading(stripped[3:].strip(), level=1)
+                    i += 1
+                    continue
+                elif stripped.startswith('### '):
+                    h = doc.add_heading(stripped[4:].strip(), level=2)
+                    i += 1
+                    continue
+                elif stripped.startswith('#### '):
+                    h = doc.add_heading(stripped[5:].strip(), level=3)
+                    i += 1
+                    continue
+                
+                # Markdown table
+                elif stripped.startswith('|') and '|' in stripped[1:]:
+                    table_lines = []
+                    while i < len(lines) and lines[i].strip().startswith('|'):
+                        row_text = lines[i].strip()
+                        # Skip separator rows (|---|---|)
+                        if _re.match(r'^\|[\s\-:|]+\|$', row_text):
+                            i += 1
+                            continue
+                        cells = [c.strip() for c in row_text.split('|')[1:-1]]
+                        if cells:
+                            table_lines.append(cells)
+                        i += 1
+                    
+                    if table_lines:
+                        num_cols = max(len(row) for row in table_lines)
+                        table = doc.add_table(rows=len(table_lines), cols=num_cols)
+                        table.style = 'Light Grid Accent 1'
+                        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+                        
+                        for row_idx, row_data in enumerate(table_lines):
+                            for col_idx, cell_text in enumerate(row_data):
+                                if col_idx < num_cols:
+                                    cell = table.cell(row_idx, col_idx)
+                                    cell.text = cell_text
+                                    # Bold header row
+                                    if row_idx == 0:
+                                        for paragraph in cell.paragraphs:
+                                            for run in paragraph.runs:
+                                                run.bold = True
+                        doc.add_paragraph('')  # spacing after table
+                    continue
+                
+                # Bullet points
+                elif stripped.startswith('- ') or stripped.startswith('* '):
+                    p = doc.add_paragraph(style='List Bullet')
+                    cls._add_formatted_text(p, stripped[2:])
+                    i += 1
+                    continue
+                
+                # Numbered lists
+                elif _re.match(r'^\d+\.\s', stripped):
+                    text = _re.sub(r'^\d+\.\s', '', stripped)
+                    p = doc.add_paragraph(style='List Number')
+                    cls._add_formatted_text(p, text)
+                    i += 1
+                    continue
+                
+                # Regular paragraph
+                else:
+                    p = doc.add_paragraph()
+                    cls._add_formatted_text(p, stripped)
+                    i += 1
+                    continue
+            
+            # Footer with timestamp
+            doc.add_paragraph('')
+            footer = doc.add_paragraph()
+            footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = footer.add_run(f"Generated by McLeuker AI \u2022 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            run.font.size = Pt(8)
+            run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
             
             doc.save(filepath)
             
@@ -798,31 +944,69 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
             logger.error(f"Word generation error: {e}")
             return {"success": False, "error": str(e)}
     
+    @staticmethod
+    def _add_formatted_text(paragraph, text: str):
+        """Parse inline markdown formatting (bold, italic) and add to paragraph."""
+        import re as _re
+        # Split by bold (**text**) and italic (*text*) patterns
+        parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', text)
+        for part in parts:
+            if part.startswith('**') and part.endswith('**'):
+                run = paragraph.add_run(part[2:-2])
+                run.bold = True
+            elif part.startswith('*') and part.endswith('*'):
+                run = paragraph.add_run(part[1:-1])
+                run.italic = True
+            else:
+                paragraph.add_run(part)
+    
     @classmethod
     async def generate_pdf(cls, prompt: str, content: str, user_id: str = None) -> Dict:
-        """Generate PDF document."""
+        """Generate PDF document with proper markdown rendering via HTML conversion."""
         try:
+            import re as _re
+            import markdown as md_lib
+            
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "pdf")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
-            doc = SimpleDocTemplate(str(filepath), pagesize=letter)
-            styles = getSampleStyleSheet()
-            story = []
+            # Convert markdown to HTML
+            html_content = md_lib.markdown(content, extensions=['tables', 'fenced_code', 'nl2br'])
             
-            # Title
-            title_style = styles['Heading1']
-            story.append(Paragraph(prompt[:100], title_style))
-            story.append(Spacer(1, 20))
+            # Wrap in styled HTML template
+            html_template = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+    body {{ font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #333; line-height: 1.6; margin: 40px; }}
+    h1 {{ font-size: 22pt; color: #1a1a1a; border-bottom: 2px solid #333; padding-bottom: 8px; margin-top: 24px; }}
+    h2 {{ font-size: 16pt; color: #2d2d2d; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-top: 20px; }}
+    h3 {{ font-size: 13pt; color: #444; margin-top: 16px; }}
+    h4 {{ font-size: 11pt; color: #555; margin-top: 12px; }}
+    p {{ margin: 6px 0; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 10pt; }}
+    th {{ background-color: #2d2d2d; color: white; padding: 8px 12px; text-align: left; font-weight: bold; }}
+    td {{ padding: 6px 12px; border-bottom: 1px solid #eee; }}
+    tr:nth-child(even) {{ background-color: #f9f9f9; }}
+    ul, ol {{ margin: 6px 0; padding-left: 24px; }}
+    li {{ margin: 3px 0; }}
+    code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 10pt; }}
+    pre {{ background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }}
+    strong {{ color: #1a1a1a; }}
+    .footer {{ text-align: center; color: #999; font-size: 8pt; margin-top: 40px; border-top: 1px solid #eee; padding-top: 8px; }}
+</style>
+</head>
+<body>
+{html_content}
+<div class="footer">Generated by McLeuker AI &bull; {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+</body>
+</html>"""
             
-            # Content
-            story.append(Paragraph(content, styles['Normal']))
-            story.append(Spacer(1, 20))
-            
-            # Timestamp
-            story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            
-            doc.build(story)
+            # Convert HTML to PDF using weasyprint
+            from weasyprint import HTML
+            HTML(string=html_template).write_pdf(str(filepath))
             
             cls.files[file_id] = {
                 "filename": filename,
@@ -845,8 +1029,13 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
     
     @classmethod
     async def generate_pptx(cls, prompt: str, content: str, user_id: str = None) -> Dict:
-        """Generate PowerPoint presentation."""
+        """Generate PowerPoint presentation with proper markdown parsing."""
         try:
+            import re as _re
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor as PptxRGB
+            from pptx.enum.text import PP_ALIGN
+            
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "pptx")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
@@ -856,14 +1045,44 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
             # Title slide
             title_slide = prs.slides.add_slide(prs.slide_layouts[0])
             title_slide.shapes.title.text = prompt[:100]
-            title_slide.placeholders[1].text = f"Generated by McLeuker AI\n{datetime.now().strftime('%Y-%m-%d')}"
+            title_slide.placeholders[1].text = f"Generated by McLeuker AI \u2022 {datetime.now().strftime('%Y-%m-%d')}"
             
-            # Content slides
-            slides_content = content.split("\n\n")
-            for slide_text in slides_content[:10]:  # Limit to 10 slides
+            # Parse markdown into sections by ## headers
+            sections = []
+            current_title = "Overview"
+            current_content = []
+            
+            for line in content.split('\n'):
+                stripped = line.strip()
+                if stripped.startswith('## '):
+                    if current_content:
+                        sections.append((current_title, '\n'.join(current_content)))
+                    current_title = stripped[3:].strip()
+                    current_content = []
+                elif stripped.startswith('# '):
+                    if current_content:
+                        sections.append((current_title, '\n'.join(current_content)))
+                    current_title = stripped[2:].strip()
+                    current_content = []
+                else:
+                    # Clean markdown formatting for slides
+                    cleaned = _re.sub(r'\*\*([^*]+)\*\*', r'\1', stripped)  # Remove bold markers
+                    cleaned = _re.sub(r'\*([^*]+)\*', r'\1', cleaned)  # Remove italic markers
+                    if cleaned:
+                        current_content.append(cleaned)
+            
+            if current_content:
+                sections.append((current_title, '\n'.join(current_content)))
+            
+            # Create slides from sections
+            for title, body in sections[:15]:  # Limit to 15 slides
                 slide = prs.slides.add_slide(prs.slide_layouts[1])
-                slide.shapes.title.text = "Content"
-                slide.placeholders[1].text = slide_text[:500]
+                slide.shapes.title.text = title[:80]
+                
+                # Truncate body for slide readability
+                body_lines = body.split('\n')[:8]  # Max 8 lines per slide
+                slide_text = '\n'.join(line[:120] for line in body_lines)
+                slide.placeholders[1].text = slide_text[:600]
             
             prs.save(filepath)
             
@@ -1503,7 +1722,7 @@ class ChatHandler:
             yield event("task_progress", {
                 "step": "plan",
                 "title": "Breaking down your request",
-                "detail": f"Identified key topics to research: {last_user_msg[:80]}",
+                "detail": f"Planning research strategy for: {last_user_msg[:80]}",
                 "status": "complete"
             })
             yield event("task_progress", {
@@ -1554,6 +1773,8 @@ QUALITY RULES:
 - If data conflicts, say which source is more reliable and why
 - Keep sections tight — no excessive spacing or padding between paragraphs
 - Write in a professional but conversational tone, like a senior analyst briefing a colleague
+- Do NOT include source citations like [1], [2], [3] or "Sources: ..." in your text — sources are shown separately
+- Do NOT mention "Perplexity", "Grok", "Exa" or any search engine names in your response
 
 Search Data:
 {search_context}"""
@@ -1899,7 +2120,7 @@ Search Data:
             
             source_names = [s.get("title", s.get("source", "")) for s in sources[:5]]
             
-            # Generate Manus-style brief conclusion about what was done
+            # Generate data insights conclusion (NOT process description)
             conclusion = ""
             try:
                 if kimi_client:
@@ -1909,16 +2130,22 @@ Search Data:
                         kimi_client.chat.completions.create,
                         model="kimi-k2.5",
                         messages=[
-                            {"role": "system", "content": """Write a brief summary of what was accomplished. Use this EXACT format:
+                            {"role": "system", "content": """Write a brief overview of the KEY FINDINGS from the research data. The user is about to download a file — give them a quick preview of what's inside.
 
-Here's what I did:
-- [First key action/finding as a bullet point]
-- [Second key action/finding]
-- [Third key action/finding]
-- [Fourth key action/finding if relevant]
+Format: 3-4 concise bullet points with the most important insights.
+- Each bullet should contain a specific finding, number, or trend
+- Focus on WHAT THE DATA SHOWS, not what you did to create the file
+- Do NOT say "Here's what I did" or "I searched X sources" or "compiled Y rows"
+- Do NOT describe the file format or formatting
+- Be like a senior analyst giving a 10-second brief before handing over a report
 
-Keep each bullet to 1 line. Focus on WHAT was found and done, not describing the file itself. Be specific with numbers and names from the data. No headers, no bold, no extra formatting. Maximum 5 bullets."""},
-                            {"role": "user", "content": f"Task: Generated a {file_type.upper()} file for: {query}\nSources: {', '.join(source_names[:3])}\nData: {result.get('row_count', 'N/A')} rows\nFindings:\n{search_context_summary[:600]}"}
+Example good output:
+- L'Oréal leads with €38.2B revenue, 3x larger than nearest competitor Estée Lauder
+- Pharmacy/dermo-cosmetics is the fastest-growing segment at +12% YoY
+- 7 of the top 10 brands are headquartered in France, reflecting domestic market dominance
+
+No headers, no bold, no extra formatting. Maximum 4 bullets."""},
+                            {"role": "user", "content": f"Topic: {query}\nData collected: {result.get('row_count', 'N/A')} rows across {file_type.upper()} format\nKey sources: {', '.join(source_names[:3])}\nResearch findings:\n{search_context_summary[:800]}"}
                         ],
                         temperature=1,
                         max_tokens=300
@@ -1927,13 +2154,11 @@ Keep each bullet to 1 line. Focus on WHAT was found and done, not describing the
             except Exception as e:
                 logger.error(f"Conclusion generation error: {e}")
             
-            # Fallback if Kimi fails
+            # Fallback if Kimi fails - still show insights not process
             if not conclusion:
-                conclusion = f"""Here's what I did:
-- Searched {len(sources)} real-time sources for data on \"{query[:60]}\"
-- Compiled {result.get('row_count', 'multiple')} rows of structured data into {file_type.upper()} format
-- Applied professional formatting with styled headers and data validation
-- File is ready for download above"""
+                conclusion = f"""- Data compiled from {len(sources)} sources covering \"{query[:60]}\"
+- {result.get('row_count', 'Multiple')} data points structured across multiple perspectives
+- File ready for download with professional formatting"""
             
             yield event("content", {"chunk": conclusion})
             
@@ -2057,16 +2282,15 @@ Keep each bullet to 1 line. Focus on WHAT was found and done, not describing the
         
         response_summary = response[:800] if response else ""
         
-        system_msg = """Generate exactly 5 follow-up questions based on the user's query and the AI's response. Rules:
+        system_msg = """Generate exactly 3 follow-up questions based on the user's query and the AI's response. Rules:
 1. Each question must be directly relevant to the specific topic discussed
 2. Questions should represent logical next steps: deeper analysis, comparisons, actionable outputs
-3. Include at least one that suggests generating a file (e.g. "Generate an Excel spreadsheet comparing...")
-4. Be SPECIFIC - mention actual entities, numbers, or topics from the response
-5. Do NOT use generic questions like "Tell me more" or "What are the key takeaways"
+3. Be SPECIFIC - mention actual entities, numbers, or topics from the response
+4. Do NOT use generic questions like "Tell me more" or "What are the key takeaways"
 
-Return ONLY a valid JSON array of 5 strings. Nothing else."""
+Return ONLY a valid JSON array of 3 strings. Nothing else."""
         
-        user_msg = f"User asked: {query}\n\nAI responded (summary): {response_summary}\n\nGenerate 5 specific follow-up questions:"
+        user_msg = f"User asked: {query}\n\nAI responded (summary): {response_summary}\n\nGenerate 3 specific follow-up questions:"
         
         # Try Grok first (faster, better at following JSON format instructions)
         clients_to_try = []
@@ -2220,7 +2444,48 @@ async def generate_file_endpoint(request: FileGenRequest):
         else:
             file_type_val = "excel"  # default
         if file_type_val == "csv":
-            file_type_val = "excel"
+            # Generate CSV from content
+            import csv as csv_mod
+            import io
+            file_id = str(uuid.uuid4())[:8]
+            filename = FileEngine._generate_filename(prompt, "csv")
+            filepath = OUTPUT_DIR / f"{file_id}_{filename}"
+            content_text = request.content if isinstance(request.content, str) else ""
+            
+            # Parse markdown tables or content into CSV
+            csv_lines = []
+            for line in content_text.split('\n'):
+                stripped = line.strip()
+                if stripped.startswith('|') and stripped.endswith('|'):
+                    import re as _re
+                    if _re.match(r'^\|[\s\-:|]+\|$', stripped):
+                        continue  # Skip separator rows
+                    cells = [c.strip() for c in stripped.split('|')[1:-1]]
+                    csv_lines.append(cells)
+                elif stripped and not stripped.startswith('#'):
+                    # Non-table content as single-column rows
+                    cleaned = stripped.lstrip('- *').strip()
+                    if cleaned:
+                        csv_lines.append([cleaned])
+            
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv_mod.writer(f)
+                for row in csv_lines:
+                    writer.writerow(row)
+            
+            FileEngine.files[file_id] = {
+                "filename": filename,
+                "filepath": str(filepath),
+                "file_type": "csv",
+                "user_id": request.user_id,
+                "created_at": datetime.now().isoformat()
+            }
+            return {
+                "success": True,
+                "file_id": file_id,
+                "filename": filename,
+                "download_url": f"/api/v1/download/{file_id}"
+            }
         if file_type_val == "docx":
             file_type_val = "word"
         
@@ -2309,7 +2574,8 @@ async def download_file(file_id: str):
             "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "pdf": "application/pdf",
             "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            "markdown": "text/markdown"
+            "markdown": "text/markdown",
+            "csv": "text/csv"
         }
         
         return FileResponse(

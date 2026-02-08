@@ -320,6 +320,7 @@ function MessageContent({
         'xlsx': 'excel',
         'pptx': 'pptx',
         'markdown': 'markdown',
+        'csv': 'csv',
       };
       const backendFileType = formatMap[format] || format;
       
@@ -513,6 +514,65 @@ function MessageContent({
         return;
       }
       
+      // Markdown table row
+      if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+        // Check if this is a separator row (|---|---|)
+        if (/^\|[\s\-:|]+\|$/.test(line.trim())) return;
+        
+        // Collect table rows
+        if (!elements.length || !(elements[elements.length - 1] as any)?._tableRows) {
+          // Start new table collection
+          const tableRows: string[][] = [];
+          const cells = line.trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+          tableRows.push(cells);
+          
+          // Look ahead for more table rows
+          let j = i + 1;
+          while (j < lines.length && lines[j].trim().startsWith('|') && lines[j].trim().endsWith('|')) {
+            if (!/^\|[\s\-:|]+\|$/.test(lines[j].trim())) {
+              const rowCells = lines[j].trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+              tableRows.push(rowCells);
+            }
+            j++;
+          }
+          
+          if (tableRows.length > 0) {
+            elements.push(
+              <div key={`table-${i}`} className="my-2 overflow-x-auto rounded-lg border border-white/[0.08]">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-white/[0.06]">
+                      {tableRows[0].map((cell, ci) => (
+                        <th key={ci} className="px-3 py-2 text-left text-white/70 font-semibold border-b border-white/[0.08]">
+                          {processInlineFormatting(cell)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.slice(1).map((row, ri) => (
+                      <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className="px-3 py-1.5 text-white/60 border-b border-white/[0.04]">
+                            {processInlineFormatting(cell)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+            // Skip the rows we already processed (they'll be skipped by forEach)
+            // Mark them to skip
+            for (let k = i + 1; k < j; k++) {
+              lines[k] = ''; // Clear already-processed table rows
+            }
+          }
+        }
+        return;
+      }
+      
       // Headers (apply search highlighting)
       if (line.startsWith('### ')) {
         flushList();
@@ -630,13 +690,17 @@ function MessageContent({
           </button>
           
           {showExportMenu && (
-            <div className="absolute left-0 bottom-full mb-1 bg-[#161616] border border-white/[0.10] rounded-xl shadow-2xl z-50 min-w-[180px] py-1 backdrop-blur-xl">
+            <div 
+              className="absolute left-0 bottom-full mb-1 bg-[#161616] border border-white/[0.10] rounded-xl shadow-2xl z-50 min-w-[180px] py-1 backdrop-blur-xl"
+              onMouseLeave={() => setShowExportMenu(false)}
+            >
               {[
                 { format: 'pdf', icon: <FileText className="h-3.5 w-3.5 text-red-400" />, label: 'PDF' },
                 { format: 'docx', icon: <FileText className="h-3.5 w-3.5 text-blue-400" />, label: 'Word' },
                 { format: 'xlsx', icon: <FileSpreadsheet className="h-3.5 w-3.5 text-[#5c6652]" />, label: 'Excel' },
                 { format: 'pptx', icon: <Presentation className="h-3.5 w-3.5 text-orange-400" />, label: 'PowerPoint' },
                 { format: 'markdown', icon: <FileText className="h-3.5 w-3.5 text-white/40" />, label: 'Markdown' },
+                { format: 'csv', icon: <FileSpreadsheet className="h-3.5 w-3.5 text-yellow-400" />, label: 'CSV' },
               ].map(({ format, icon, label }) => (
                 <button
                   key={format}
@@ -2479,122 +2543,85 @@ function DashboardContent() {
                           {(message.taskSteps && message.taskSteps.length > 0) && (() => {
                             const completedCount = message.taskSteps.filter(s => s.status === 'complete').length;
                             const totalCount = message.taskSteps.length;
-                            const isAllDone = !message.isStreaming && completedCount === totalCount;
                             const lastActiveStep = [...message.taskSteps].reverse().find(s => s.status === 'active');
                             const isExpanded = message.isStreaming || message._taskExpanded !== false;
                             const toggleExpanded = () => {
                               setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _taskExpanded: !isExpanded } : m));
                             };
                             
-                            const getStepIcon = (stepName: string) => {
-                              if (stepName.includes('understand') || stepName.includes('analyze')) return <Brain className="h-3 w-3" />;
-                              if (stepName.includes('plan') || stepName.includes('break')) return <FileText className="h-3 w-3" />;
-                              if (stepName.includes('search') || stepName.includes('collect')) return <Globe className="h-3 w-3" />;
-                              if (stepName.includes('verify') || stepName.includes('cross')) return <CheckCircle2 className="h-3 w-3" />;
-                              if (stepName.includes('reason') || stepName.includes('synthe')) return <Sparkles className="h-3 w-3" />;
-                              if (stepName.includes('write') || stepName.includes('compos')) return <MessageSquare className="h-3 w-3" />;
-                              if (stepName.includes('structure') || stepName.includes('format')) return <FileSpreadsheet className="h-3 w-3" />;
-                              if (stepName.includes('review') || stepName.includes('conclude')) return <Star className="h-3 w-3" />;
-                              if (stepName.includes('retry')) return <Zap className="h-3 w-3" />;
-                              if (stepName.includes('error')) return <X className="h-3 w-3" />;
-                              return <Circle className="h-3 w-3" />;
+                            const getStepIcon = (stepName: string, status: string) => {
+                              const iconClass = status === 'active' ? 'text-[#8a9a7e]' : status === 'complete' ? 'text-white/40' : 'text-white/15';
+                              if (stepName.includes('understand') || stepName.includes('analyze') || stepName.includes('pars')) return <Brain className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('plan') || stepName.includes('break') || stepName.includes('identif')) return <FileText className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('search') || stepName.includes('collect') || stepName.includes('found') || stepName.includes('query')) return <Globe className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('verify') || stepName.includes('cross') || stepName.includes('validat')) return <CheckCircle2 className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('reason') || stepName.includes('synthe') || stepName.includes('think')) return <Sparkles className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('write') || stepName.includes('compos') || stepName.includes('generat')) return <MessageSquare className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('structure') || stepName.includes('format') || stepName.includes('organiz')) return <FileSpreadsheet className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('review') || stepName.includes('conclude') || stepName.includes('final') || stepName.includes('complet')) return <Star className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('retry') || stepName.includes('fallback')) return <Zap className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              if (stepName.includes('error') || stepName.includes('fail')) return <X className={`h-3.5 w-3.5 ${iconClass}`} />;
+                              return <Circle className={`h-3.5 w-3.5 ${iconClass}`} />;
                             };
                             
                             return (
-                              <div className="mb-4 rounded-xl bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/[0.06] overflow-hidden">
-                                {/* Clickable Header */}
+                              <div className="mb-3">
+                                {/* Clickable Header - Manus/ChatGPT thinking style */}
                                 <button
                                   onClick={toggleExpanded}
-                                  className="flex items-center gap-2.5 px-4 py-2.5 w-full text-left hover:bg-white/[0.02] transition-colors"
+                                  className="flex items-center gap-2 w-full text-left group"
                                 >
-                                  <div className="relative">
-                                    <div className="w-5 h-5 rounded-md bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center">
-                                      {message.isStreaming ? (
-                                        <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
-                                      ) : (
-                                        <CheckCircle2 className="h-3 w-3 text-[#8a9a7e]" />
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-[11px] text-white/60 font-medium">
-                                      {message.isStreaming
-                                        ? (lastActiveStep?.title || 'Working...')
-                                        : `Completed ${completedCount} steps`
-                                      }
-                                    </span>
-                                    {message.isStreaming && lastActiveStep?.detail && (
-                                      <span className="text-[10px] text-white/30 ml-2">
-                                        {lastActiveStep.detail.length > 60 ? lastActiveStep.detail.slice(0, 60) + '...' : lastActiveStep.detail}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[10px] text-white/20">
-                                      {completedCount}/{totalCount}
-                                    </span>
-                                    <ChevronDown className={cn(
-                                      "h-3 w-3 text-white/20 transition-transform",
-                                      isExpanded && "rotate-180"
-                                    )} />
-                                  </div>
+                                  {message.isStreaming ? (
+                                    <Loader2 className="h-4 w-4 text-[#8a9a7e] animate-spin flex-shrink-0" />
+                                  ) : (
+                                    <CheckCircle2 className="h-4 w-4 text-[#5c6652] flex-shrink-0" />
+                                  )}
+                                  <span className="text-[13px] text-white/50 group-hover:text-white/70 transition-colors">
+                                    {message.isStreaming
+                                      ? (lastActiveStep?.detail || lastActiveStep?.title || 'Thinking...')
+                                      : `Completed ${completedCount} steps`
+                                    }
+                                  </span>
+                                  <ChevronDown className={cn(
+                                    "h-3 w-3 text-white/20 transition-transform ml-auto",
+                                    isExpanded && "rotate-180"
+                                  )} />
                                 </button>
                                 
-                                {/* Expandable Steps */}
+                                {/* Expandable Steps - line by line like Manus */}
                                 {isExpanded && (
-                                  <div className="px-4 pb-3 border-t border-white/[0.04]">
-                                    <div className="relative pl-6 pt-3">
-                                      <div className="absolute left-[8px] top-5 bottom-2 w-[1.5px] bg-gradient-to-b from-[#5c6652]/40 via-[#5c6652]/20 to-transparent" />
-                                      
-                                      {message.taskSteps.map((step, stepIdx) => (
-                                        <div key={`${step.step}-${stepIdx}`} className="relative flex items-start gap-3 pb-3 last:pb-0">
-                                          <div className="absolute -left-6 mt-[2px] z-10">
-                                            {step.status === 'complete' ? (
-                                              <div className="w-[17px] h-[17px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#2E3524]/20">
-                                                <Check className="h-2.5 w-2.5 text-[#8a9a7e]" />
-                                              </div>
-                                            ) : step.status === 'active' ? (
-                                              <div className="w-[17px] h-[17px] rounded-full bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center ring-2 ring-[#5c6652]/30">
-                                                <Loader2 className="h-2.5 w-2.5 text-[#8a9a7e] animate-spin" />
-                                              </div>
-                                            ) : (
-                                              <div className="w-[17px] h-[17px] rounded-full bg-white/[0.04] border border-white/[0.08]" />
-                                            )}
-                                          </div>
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                              <span className={cn(
-                                                "flex-shrink-0",
-                                                step.status === 'active' ? "text-[#8a9a7e]" : step.status === 'complete' ? "text-white/30" : "text-white/15"
-                                              )}>
-                                                {getStepIcon(step.step)}
-                                              </span>
-                                              <p className={cn(
-                                                "text-[12px] leading-tight",
-                                                step.status === 'active' ? "text-white/90 font-medium" : step.status === 'complete' ? "text-white/50" : "text-white/25"
-                                              )}>
-                                                {step.title}
-                                              </p>
-                                              {step.status === 'active' && message.isStreaming && (
-                                                <span className="flex gap-0.5 ml-1">
-                                                  <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
-                                                  <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
-                                                  <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
-                                                </span>
-                                              )}
-                                            </div>
-                                            {step.detail && (
-                                              <p className={cn(
-                                                "text-[10px] mt-0.5 leading-relaxed pl-5",
-                                                step.status === 'active' ? "text-white/40" : "text-white/20"
-                                              )}>
-                                                {step.detail}
-                                              </p>
-                                            )}
-                                          </div>
+                                  <div className="mt-2 ml-2 pl-4 border-l border-white/[0.06]">
+                                    {message.taskSteps.map((step, stepIdx) => (
+                                      <div key={`${step.step}-${stepIdx}`} className="flex items-start gap-2.5 py-1">
+                                        {step.status === 'active' && message.isStreaming ? (
+                                          <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0 mt-[1px]" />
+                                        ) : step.status === 'complete' ? (
+                                          getStepIcon(step.step, step.status)
+                                        ) : (
+                                          <Circle className="h-3.5 w-3.5 text-white/10 flex-shrink-0 mt-[1px]" />
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <p className={cn(
+                                            "text-[12px] leading-snug",
+                                            step.status === 'active' ? "text-white/80" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                          )}>
+                                            {step.title}
+                                          </p>
+                                          {step.detail && step.status === 'active' && (
+                                            <p className="text-[10px] text-white/30 mt-0.5 leading-snug">
+                                              {step.detail}
+                                            </p>
+                                          )}
                                         </div>
-                                      ))}
-                                    </div>
+                                        {step.status === 'active' && message.isStreaming && (
+                                          <span className="flex gap-0.5 mt-1">
+                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
                               </div>
