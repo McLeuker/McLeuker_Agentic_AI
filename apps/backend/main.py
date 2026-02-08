@@ -594,35 +594,27 @@ Rules:
 
 Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
 
-You MUST create 10+ sheets. Think about what perspectives, breakdowns, and analyses would be valuable for this topic. Example tab structures:
-- Main comprehensive dataset (30-50 rows)
-- Rankings / Top performers
-- Regional or geographic breakdown
-- Category / segment analysis
-- Year-over-year trends or historical data
-- Competitive comparison
-- Key metrics summary
-- Market share or distribution
-- Strengths & weaknesses analysis
-- Pricing or financial overview
-- Recommendations or action items
-- Sources & references
+Create 4-6 sheets with different perspectives. Choose the most valuable tabs for this topic:
+- Tab 1: Main comprehensive dataset (20-30 rows with detailed columns)
+- Tab 2: Rankings or comparison view
+- Tab 3: Regional/category/segment breakdown
+- Tab 4: Key metrics summary or trends
+- Tab 5-6 (optional): Additional perspective if valuable
 
 Rules:
-- Each tab title should be specific and descriptive (e.g., "Revenue by Region", "Brand Rankings 2026", "Sustainability Scores")
-- Headers MUST be specific to the topic (e.g., "Brand Name", "Revenue ($M)", "ESG Score", "Country")
+- Each tab title: specific and descriptive (e.g., "Revenue by Region", "Brand Rankings 2026")
+- Headers MUST be specific (e.g., "Brand Name", "Revenue ($M)", "ESG Score", "Country")
 - Extract SPECIFIC facts, numbers, names, dates from the search text
-- If search data is insufficient, supplement with your knowledge but mark with (est.) suffix
+- If data is insufficient, supplement with your knowledge but mark with (est.)
 - Numbers should be actual numbers, not strings
 - Each row must have the same number of columns as headers
 - DO NOT use generic headers like "Item", "Value", "Date"
-- Main data tab: 30-50 rows. Other tabs: 5-20 rows each
-- Deliver MORE than the user expects — add perspectives they didn't ask for but would find valuable
+- Main tab: 20-30 rows. Other tabs: 5-15 rows each
 - Return ONLY the JSON object, no markdown, no explanation"""},
                             {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=1,
-                        max_tokens=12000
+                        max_tokens=8000
                     ))
                     
                     raw_json = kimi_response.choices[0].message.content.strip()
@@ -667,7 +659,7 @@ Rules:
                         messages=[
                             {"role": "system", "content": """Generate structured data for an Excel spreadsheet with MULTIPLE TABS. Return ONLY valid JSON.
 Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
-Create at least 5 sheets with different perspectives on the topic. Main data: 20-30 rows. Other tabs: 5-15 rows each.
+Create 4-5 sheets with different perspectives. Main data: 20-30 rows. Other tabs: 5-15 rows each.
 Return ONLY the JSON, no markdown."""},
                             {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch data:\n{search_context[:2000]}"}
                         ],
