@@ -1,18 +1,21 @@
 """
-McLeuker AI V2 - Complete Backend with Kimi-2.5 Capabilities
-===========================================================
+McLeuker AI V5 - Complete Backend with Manus-Level File Generation
+==================================================================
 
 Features:
-- Full Kimi-2.5 integration with proper reasoning
-- Hybrid LLM architecture (Kimi-2.5 + Grok)
-- Agent swarm with parallel execution
-- Fixed file generation with real data extraction
-- Proper memory/conversation persistence
-- Standardized output structure
+- Full Kimi-2.5 + Grok hybrid LLM architecture
+- Professional multi-format file generation (Excel, Word, PDF, PPT, CSV)
+- Real-time search across 8+ APIs in parallel
+- LLM quality double-check with re-research loop
+- Multi-file generation for complex tasks
+- Source attribution with real names (not API tool names)
+- Real-time 2026 data enforcement
+- E2B code execution integration
+- Manus-style reasoning and structured conclusions
 
 Models:
-- kimi-k2.5: Primary reasoning model
-- grok-4-1-fast-reasoning: Real-time search model
+- kimi-k2.5: Primary reasoning model (temperature=1 required)
+- grok-3-mini / grok-4-1-fast-reasoning: Fast search and JSON generation
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, BackgroundTasks, Query, Request
@@ -38,6 +41,7 @@ from enum import Enum
 import csv
 from io import BytesIO
 import base64
+from urllib.parse import urlparse
 
 # Data processing
 import pandas as pd
@@ -45,13 +49,17 @@ import numpy as np
 
 # Document generation
 from docx import Document
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Inches, Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
 
 # Excel
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import BarChart, Reference
+from openpyxl.utils import get_column_letter
+from openpyxl.formatting.rule import CellIsRule, DataBarRule, ColorScaleRule
+from openpyxl.worksheet.datavalidation import DataValidation
 
 # PDF
 from reportlab.lib import colors
@@ -60,8 +68,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet
 
 # PowerPoint
-from pptx import Presentation
-from pptx.util import Inches as PptxInches
+from pptx import Presentation as PptxPresentation
+from pptx.util import Inches as PptxInches, Pt as PptxPt, Emu
+from pptx.dml.color import RGBColor as PptxRGB
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
 # Supabase
 from supabase import create_client, Client
@@ -78,27 +88,37 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 app = FastAPI(
-    title="McLeuker AI V2",
-    description="Production AI platform with Kimi-2.5 capabilities",
-    version="4.0.0"
+    title="McLeuker AI V5",
+    description="Production AI platform with Manus-level file generation",
+    version="5.0.0"
 )
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# API Keys
+# API Keys - Primary
 KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 GROK_API_KEY = os.getenv("GROK_API_KEY", "")
+
+# Search API Keys - All keys loaded from environment variables (set in Railway)
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 EXA_API_KEY = os.getenv("EXA_API_KEY", "")
 SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "")
+GOOGLE_CUSTOM_SEARCH_KEY = os.getenv("GOOGLE_CUSTOM_SEARCH_KEY", "")
+GOOGLE_CUSTOM_SEARCH_CX = os.getenv("GOOGLE_CUSTOM_SEARCH_CX", "")
+FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY", "")
+BING_API_KEY = os.getenv("BING_API_KEY", "")
+BROWSERLESS_API_KEY = os.getenv("BROWSERLESS_API_KEY", "")
+E2B_API_KEY = os.getenv("E2B_API_KEY", "")
+PINTEREST_API_KEY = os.getenv("PINTEREST_API_KEY", "")
+PINTEREST_SECRET_KEY = os.getenv("PINTEREST_SECRET_KEY", "")
 
 # Supabase
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
@@ -126,6 +146,13 @@ grok_client = openai.OpenAI(
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# Current date for real-time data enforcement
+def get_current_date_str():
+    return datetime.now().strftime('%Y-%m-%d')
+
+def get_current_year():
+    return datetime.now().year
+
 # ============================================================================
 # ENUMS AND CONSTANTS
 # ============================================================================
@@ -149,58 +176,14 @@ class FileType(str, Enum):
     MARKDOWN = "markdown"
     DOCX = "docx"
 
-# Mode configurations
 MODE_CONFIGS = {
-    ChatMode.INSTANT: {
-        "primary_model": "grok",
-        "temperature": 0.7,
-        "max_tokens": 2048,
-        "show_reasoning": False,
-        "enable_tools": True
-    },
-    ChatMode.THINKING: {
-        "primary_model": "kimi",
-        "temperature": 0.6,
-        "max_tokens": 4096,
-        "show_reasoning": True,
-        "enable_tools": True
-    },
-    ChatMode.AGENT: {
-        "primary_model": "kimi",
-        "temperature": 0.5,
-        "max_tokens": 4096,
-        "show_reasoning": True,
-        "enable_tools": True
-    },
-    ChatMode.SWARM: {
-        "primary_model": "kimi",
-        "temperature": 0.5,
-        "max_tokens": 8192,
-        "show_reasoning": True,
-        "enable_tools": True,
-        "parallel_agents": 5
-    },
-    ChatMode.RESEARCH: {
-        "primary_model": "hybrid",
-        "temperature": 0.4,
-        "max_tokens": 8192,
-        "show_reasoning": True,
-        "enable_tools": True
-    },
-    ChatMode.CODE: {
-        "primary_model": "kimi",
-        "temperature": 0.3,
-        "max_tokens": 4096,
-        "show_reasoning": False,
-        "enable_tools": True
-    },
-    ChatMode.HYBRID: {
-        "primary_model": "hybrid",
-        "temperature": 0.5,
-        "max_tokens": 4096,
-        "show_reasoning": True,
-        "enable_tools": True
-    }
+    ChatMode.INSTANT: {"primary_model": "grok", "temperature": 0.7, "max_tokens": 2048, "show_reasoning": False, "enable_tools": True},
+    ChatMode.THINKING: {"primary_model": "kimi", "temperature": 0.6, "max_tokens": 4096, "show_reasoning": True, "enable_tools": True},
+    ChatMode.AGENT: {"primary_model": "kimi", "temperature": 0.5, "max_tokens": 4096, "show_reasoning": True, "enable_tools": True},
+    ChatMode.SWARM: {"primary_model": "kimi", "temperature": 0.5, "max_tokens": 8192, "show_reasoning": True, "enable_tools": True, "parallel_agents": 5},
+    ChatMode.RESEARCH: {"primary_model": "hybrid", "temperature": 0.4, "max_tokens": 8192, "show_reasoning": True, "enable_tools": True},
+    ChatMode.CODE: {"primary_model": "kimi", "temperature": 0.3, "max_tokens": 4096, "show_reasoning": False, "enable_tools": True},
+    ChatMode.HYBRID: {"primary_model": "hybrid", "temperature": 0.5, "max_tokens": 4096, "show_reasoning": True, "enable_tools": True}
 }
 
 # ============================================================================
@@ -224,12 +207,10 @@ class ChatRequest(BaseModel):
     context_id: Optional[str] = None
 
 class FileGenRequest(BaseModel):
-    # V2 interface
     prompt: Optional[str] = None
     file_type: Optional[FileType] = None
     conversation_id: Optional[str] = None
     user_id: Optional[str] = None
-    # V1 compatibility
     content: Optional[Union[str, Dict, List]] = None
     filename: Optional[str] = None
     title: Optional[str] = None
@@ -264,15 +245,165 @@ def event(type: str, data: Any) -> str:
     return f"data: {json.dumps({'type': type, 'data': data, 'timestamp': datetime.now().isoformat()})}\n\n"
 
 # ============================================================================
-# SEARCH LAYER
+# SOURCE NAME EXTRACTION
+# ============================================================================
+
+def extract_source_name(url: str, title: str = "", api_source: str = "") -> str:
+    """Extract the real source name from URL and title instead of showing API tool names.
+    
+    Examples:
+    - "https://www.businessoffashion.com/..." → "Business of Fashion"
+    - "https://www.voguebusiness.com/..." → "Vogue Business"
+    - "https://en.wikipedia.org/..." → "Wikipedia"
+    """
+    if not url or not url.startswith("http"):
+        # If no URL, try to extract from title
+        if title and title not in ("Perplexity", "Grok/X AI", "Perplexity Result", "Grok Result"):
+            return title[:60]
+        return ""
+    
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace('www.', '').lower()
+        
+        # Known domain mappings for clean names
+        DOMAIN_MAP = {
+            "businessoffashion.com": "Business of Fashion",
+            "voguebusiness.com": "Vogue Business",
+            "vogue.com": "Vogue",
+            "wikipedia.org": "Wikipedia",
+            "en.wikipedia.org": "Wikipedia",
+            "bloomberg.com": "Bloomberg",
+            "reuters.com": "Reuters",
+            "ft.com": "Financial Times",
+            "nytimes.com": "New York Times",
+            "wsj.com": "Wall Street Journal",
+            "bbc.com": "BBC",
+            "bbc.co.uk": "BBC",
+            "cnbc.com": "CNBC",
+            "forbes.com": "Forbes",
+            "mckinsey.com": "McKinsey",
+            "statista.com": "Statista",
+            "euromonitor.com": "Euromonitor",
+            "emarketer.com": "eMarketer",
+            "cbinsights.com": "CB Insights",
+            "fashionbi.com": "FashionBI",
+            "highsnobiety.com": "Highsnobiety",
+            "hypebeast.com": "Hypebeast",
+            "wwd.com": "WWD",
+            "elle.com": "Elle",
+            "harpersbazaar.com": "Harper's Bazaar",
+            "marieclaire.com": "Marie Claire",
+            "allure.com": "Allure",
+            "glamour.com": "Glamour",
+            "cosmopolitan.com": "Cosmopolitan",
+            "refinery29.com": "Refinery29",
+            "issuu.com": "Issuu",
+            "slideshare.net": "SlideShare",
+            "youtube.com": "YouTube",
+            "instagram.com": "Instagram",
+            "tiktok.com": "TikTok",
+            "x.com": "X (Twitter)",
+            "twitter.com": "X (Twitter)",
+            "linkedin.com": "LinkedIn",
+            "pinterest.com": "Pinterest",
+            "reddit.com": "Reddit",
+            "medium.com": "Medium",
+            "substack.com": "Substack",
+            "techcrunch.com": "TechCrunch",
+            "theverge.com": "The Verge",
+            "wired.com": "Wired",
+            "arstechnica.com": "Ars Technica",
+            "github.com": "GitHub",
+            "arxiv.org": "arXiv",
+            "nature.com": "Nature",
+            "sciencedirect.com": "ScienceDirect",
+            "springer.com": "Springer",
+            "loewe.com": "Loewe Official",
+            "lvmh.com": "LVMH",
+            "kering.com": "Kering",
+            "lofficielusa.com": "L'Officiel",
+            "glamobserver.com": "Glam Observer",
+            "mygemma.com": "MyGemma",
+            "latterly.org": "Latterly",
+            "case48.com": "Case48",
+        }
+        
+        # Check exact domain match
+        for known_domain, name in DOMAIN_MAP.items():
+            if domain == known_domain or domain.endswith('.' + known_domain):
+                return name
+        
+        # Extract from domain: remove TLD and format
+        parts = domain.split('.')
+        if len(parts) >= 2:
+            name_part = parts[-2]  # Get the main domain name
+            # Capitalize and clean
+            name = name_part.replace('-', ' ').replace('_', ' ').title()
+            return name
+        
+        return domain.title()
+    except Exception:
+        if title and len(title) > 3:
+            return title[:60]
+        return "Source"
+
+
+def clean_sources_for_output(sources: List[Dict]) -> List[Dict]:
+    """Clean all sources to show real names instead of API tool names.
+    Also filters out irrelevant sources (government docs, unrelated PDFs, etc.)."""
+    cleaned = []
+    seen_urls = set()
+    
+    for s in sources:
+        url = s.get("url", "")
+        title = s.get("title", "")
+        api_source = s.get("source", "")
+        
+        # Skip sources without URLs
+        if not url or not url.startswith("http"):
+            continue
+        
+        # Skip duplicate URLs
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        
+        # Filter out clearly irrelevant sources
+        irrelevant_patterns = [
+            "southpasadenaca.gov", "ftc.edu", "city-council",
+            "board-of-directors-agenda", "catalog-nysed"
+        ]
+        if any(p in url.lower() for p in irrelevant_patterns):
+            continue
+        
+        # Extract real source name
+        real_name = extract_source_name(url, title, api_source)
+        
+        # Use the original title if it's meaningful, otherwise use extracted name
+        display_title = title
+        if not display_title or display_title.lower() in ("source", "perplexity", "grok/x ai", "perplexity result", "grok result"):
+            display_title = real_name
+        
+        cleaned.append({
+            "title": display_title,
+            "url": url,
+            "source": real_name  # Real source name, not API tool name
+        })
+    
+    return cleaned
+
+
+# ============================================================================
+# SEARCH LAYER - All APIs in Parallel
 # ============================================================================
 
 class SearchLayer:
-    """Unified search across all data sources."""
+    """Unified search across all data sources - 8+ APIs in parallel."""
     
     @staticmethod
     async def search(query: str, sources: List[str] = None, num_results: int = 10) -> Dict:
-        """Search across all configured sources."""
+        """Search across ALL configured sources in parallel."""
         if sources is None:
             sources = ["web", "news"]
         
@@ -280,36 +411,56 @@ class SearchLayer:
         source_map = {}
         idx = 0
         
-        if "web" in sources or "news" in sources:
-            if PERPLEXITY_API_KEY:
-                tasks.append(SearchLayer._perplexity_search(query))
-                source_map[idx] = "perplexity"
-                idx += 1
+        # Perplexity - always include for comprehensive answers
+        if PERPLEXITY_API_KEY:
+            tasks.append(SearchLayer._perplexity_search(query))
+            source_map[idx] = "perplexity"
+            idx += 1
         
-        if "web" in sources:
-            if EXA_API_KEY:
-                tasks.append(SearchLayer._exa_search(query, num_results))
-                source_map[idx] = "exa"
-                idx += 1
-            if SERPAPI_KEY:
-                tasks.append(SearchLayer._google_search(query, num_results))
-                source_map[idx] = "google"
-                idx += 1
+        # Exa - neural search
+        if EXA_API_KEY:
+            tasks.append(SearchLayer._exa_search(query, num_results))
+            source_map[idx] = "exa"
+            idx += 1
         
-        if "social" in sources or True:  # Always include Grok for real-time X data
-            if GROK_API_KEY:
-                tasks.append(SearchLayer._grok_search(query))
-                source_map[idx] = "grok"
-                idx += 1
+        # Google via SerpAPI
+        if SERPAPI_KEY:
+            tasks.append(SearchLayer._google_search(query, num_results))
+            source_map[idx] = "google"
+            idx += 1
         
-        # Always include YouTube for video sources
+        # Bing Search
+        if BING_API_KEY:
+            tasks.append(SearchLayer._bing_search(query, num_results))
+            source_map[idx] = "bing"
+            idx += 1
+        
+        # Google Custom Search
+        if GOOGLE_CUSTOM_SEARCH_KEY and GOOGLE_CUSTOM_SEARCH_CX:
+            tasks.append(SearchLayer._google_custom_search(query, num_results))
+            source_map[idx] = "google_custom"
+            idx += 1
+        
+        # Grok - real-time X/social data
+        if GROK_API_KEY:
+            tasks.append(SearchLayer._grok_search(query))
+            source_map[idx] = "grok"
+            idx += 1
+        
+        # YouTube Data v3
         if YOUTUBE_API_KEY:
             tasks.append(SearchLayer._youtube_search(query))
             source_map[idx] = "youtube"
             idx += 1
         
+        # Firecrawl - web scraping for deeper content
+        if FIRECRAWL_API_KEY:
+            tasks.append(SearchLayer._firecrawl_search(query))
+            source_map[idx] = "firecrawl"
+            idx += 1
+        
         if not tasks:
-            return {"query": query, "results": {}, "structured_data": {"data_points": []}}
+            return {"query": query, "results": {}, "structured_data": {"data_points": [], "sources": []}}
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -326,34 +477,31 @@ class SearchLayer:
                 combined["results"][source_name] = {"error": str(result)}
             else:
                 combined["results"][source_name] = result
-                # Extract structured data
                 if "data_points" in result:
                     combined["structured_data"]["data_points"].extend(result["data_points"])
                 if "sources" in result:
-                    # Filter out API-level sources that have no real URL
                     real_sources = [
                         s for s in result["sources"]
                         if s.get("url") and s["url"].strip() and s["url"].startswith("http")
                     ]
                     combined["structured_data"]["sources"].extend(real_sources)
         
-        # Also add Perplexity citations as real sources if available
+        # Add Perplexity citations as real sources
         for source_name, result in combined["results"].items():
             if source_name == "perplexity" and isinstance(result, dict):
                 for citation_url in result.get("citations", []):
                     if citation_url and citation_url.startswith("http"):
-                        # Extract domain as title
-                        try:
-                            from urllib.parse import urlparse
-                            domain = urlparse(citation_url).netloc.replace('www.', '')
-                            title = domain.split('.')[0].title()
-                        except:
-                            title = "Source"
+                        real_name = extract_source_name(citation_url)
                         combined["structured_data"]["sources"].append({
-                            "title": title,
+                            "title": real_name,
                             "url": citation_url,
-                            "source": "perplexity"
+                            "source": real_name
                         })
+        
+        # Clean all sources - replace API tool names with real source names
+        combined["structured_data"]["sources"] = clean_sources_for_output(
+            combined["structured_data"]["sources"]
+        )
         
         return combined
     
@@ -370,22 +518,18 @@ class SearchLayer:
                     },
                     json={
                         "model": "sonar-pro",
-                        "messages": [{"role": "user", "content": query}],
+                        "messages": [{"role": "user", "content": f"Provide the latest {get_current_year()} data and information about: {query}"}],
                         "temperature": 0.2
                     }
                 )
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
-                
-                # Extract data points
-                data_points = [{"title": "Perplexity Result", "description": content[:500], "source": "perplexity"}]
-                
                 return {
                     "source": "perplexity",
                     "answer": content,
                     "citations": data.get("citations", []),
-                    "data_points": data_points,
-                    "sources": [{"title": "Perplexity", "url": "", "source": "perplexity"}]
+                    "data_points": [{"title": "Research Summary", "description": content[:500], "source": "perplexity"}],
+                    "sources": []  # Real sources come from citations
                 }
         except Exception as e:
             logger.error(f"Perplexity search error: {e}")
@@ -393,7 +537,7 @@ class SearchLayer:
     
     @staticmethod
     async def _exa_search(query: str, num_results: int) -> Dict:
-        """Search with Exa.ai."""
+        """Search with Exa.ai neural search."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -407,25 +551,21 @@ class SearchLayer:
                     }
                 )
                 data = response.json()
-                
                 data_points = []
                 sources = []
                 for r in data.get("results", []):
+                    url = r.get("url", "")
+                    title = r.get("title", "")
+                    real_name = extract_source_name(url, title)
                     dp = {
-                        "title": r.get("title", ""),
+                        "title": title,
                         "description": r.get("text", "")[:300],
-                        "url": r.get("url", ""),
-                        "source": "exa"
+                        "url": url,
+                        "source": real_name
                     }
                     data_points.append(dp)
-                    sources.append({"title": r.get("title", ""), "url": r.get("url", ""), "source": "exa"})
-                
-                return {
-                    "source": "exa",
-                    "results": data.get("results", []),
-                    "data_points": data_points,
-                    "sources": sources
-                }
+                    sources.append({"title": title, "url": url, "source": real_name})
+                return {"source": "exa", "results": data.get("results", []), "data_points": data_points, "sources": sources}
         except Exception as e:
             logger.error(f"Exa search error: {e}")
             return {"error": str(e), "source": "exa", "data_points": [], "sources": []}
@@ -437,36 +577,76 @@ class SearchLayer:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
                     "https://serpapi.com/search",
-                    params={
-                        "q": query,
-                        "api_key": SERPAPI_KEY,
-                        "engine": "google",
-                        "num": num_results
-                    }
+                    params={"q": query, "api_key": SERPAPI_KEY, "engine": "google", "num": num_results}
                 )
                 data = response.json()
-                
                 data_points = []
                 sources = []
                 for r in data.get("organic_results", [])[:num_results]:
-                    dp = {
-                        "title": r.get("title", ""),
-                        "description": r.get("snippet", ""),
-                        "url": r.get("link", ""),
-                        "source": "google"
-                    }
+                    url = r.get("link", "")
+                    title = r.get("title", "")
+                    real_name = extract_source_name(url, title)
+                    dp = {"title": title, "description": r.get("snippet", ""), "url": url, "source": real_name}
                     data_points.append(dp)
-                    sources.append({"title": r.get("title", ""), "url": r.get("link", ""), "source": "google"})
-                
-                return {
-                    "source": "google",
-                    "results": data.get("organic_results", []),
-                    "data_points": data_points,
-                    "sources": sources
-                }
+                    sources.append({"title": title, "url": url, "source": real_name})
+                return {"source": "google", "results": data.get("organic_results", []), "data_points": data_points, "sources": sources}
         except Exception as e:
             logger.error(f"Google search error: {e}")
             return {"error": str(e), "source": "google", "data_points": [], "sources": []}
+    
+    @staticmethod
+    async def _bing_search(query: str, num_results: int) -> Dict:
+        """Search with Bing Web Search API."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://api.bing.microsoft.com/v7.0/search",
+                    headers={"Ocp-Apim-Subscription-Key": BING_API_KEY},
+                    params={"q": query, "count": num_results, "mkt": "en-US", "freshness": "Month"}
+                )
+                data = response.json()
+                data_points = []
+                sources = []
+                for r in data.get("webPages", {}).get("value", [])[:num_results]:
+                    url = r.get("url", "")
+                    title = r.get("name", "")
+                    real_name = extract_source_name(url, title)
+                    dp = {"title": title, "description": r.get("snippet", ""), "url": url, "source": real_name}
+                    data_points.append(dp)
+                    sources.append({"title": title, "url": url, "source": real_name})
+                return {"source": "bing", "results": data.get("webPages", {}).get("value", []), "data_points": data_points, "sources": sources}
+        except Exception as e:
+            logger.error(f"Bing search error: {e}")
+            return {"error": str(e), "source": "bing", "data_points": [], "sources": []}
+    
+    @staticmethod
+    async def _google_custom_search(query: str, num_results: int) -> Dict:
+        """Search with Google Custom Search API."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://www.googleapis.com/customsearch/v1",
+                    params={
+                        "key": GOOGLE_CUSTOM_SEARCH_KEY,
+                        "cx": GOOGLE_CUSTOM_SEARCH_CX,
+                        "q": query,
+                        "num": min(num_results, 10)
+                    }
+                )
+                data = response.json()
+                data_points = []
+                sources = []
+                for r in data.get("items", []):
+                    url = r.get("link", "")
+                    title = r.get("title", "")
+                    real_name = extract_source_name(url, title)
+                    dp = {"title": title, "description": r.get("snippet", ""), "url": url, "source": real_name}
+                    data_points.append(dp)
+                    sources.append({"title": title, "url": url, "source": real_name})
+                return {"source": "google_custom", "results": data.get("items", []), "data_points": data_points, "sources": sources}
+        except Exception as e:
+            logger.error(f"Google Custom Search error: {e}")
+            return {"error": str(e), "source": "google_custom", "data_points": [], "sources": []}
     
     @staticmethod
     async def _youtube_search(query: str, num_results: int = 5) -> Dict:
@@ -476,87 +656,96 @@ class SearchLayer:
                 response = await client.get(
                     "https://www.googleapis.com/youtube/v3/search",
                     params={
-                        "part": "snippet",
-                        "q": query,
-                        "key": YOUTUBE_API_KEY,
-                        "maxResults": num_results,
-                        "type": "video",
-                        "order": "relevance"
+                        "part": "snippet", "q": query, "key": YOUTUBE_API_KEY,
+                        "maxResults": num_results, "type": "video", "order": "relevance"
                     }
                 )
                 data = response.json()
-                
                 data_points = []
                 sources = []
                 for item in data.get("items", []):
                     snippet = item.get("snippet", {})
                     video_id = item.get("id", {}).get("videoId", "")
                     url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
-                    dp = {
-                        "title": snippet.get("title", ""),
-                        "description": snippet.get("description", "")[:300],
-                        "url": url,
-                        "source": "youtube"
-                    }
+                    title = snippet.get("title", "")
+                    channel = snippet.get("channelTitle", "YouTube")
+                    dp = {"title": title, "description": snippet.get("description", "")[:300], "url": url, "source": channel}
                     data_points.append(dp)
                     if url:
-                        sources.append({"title": snippet.get("title", ""), "url": url, "source": "youtube"})
-                
-                return {
-                    "source": "youtube",
-                    "results": data.get("items", []),
-                    "data_points": data_points,
-                    "sources": sources
-                }
+                        sources.append({"title": f"{title} ({channel})", "url": url, "source": channel})
+                return {"source": "youtube", "results": data.get("items", []), "data_points": data_points, "sources": sources}
         except Exception as e:
             logger.error(f"YouTube search error: {e}")
             return {"error": str(e), "source": "youtube", "data_points": [], "sources": []}
     
     @staticmethod
     async def _grok_search(query: str) -> Dict:
-        """Search with Grok/X AI."""
+        """Search with Grok/X AI for real-time social data."""
         try:
             if not grok_client:
                 return {"error": "Grok not configured", "source": "grok", "data_points": [], "sources": []}
-            
             response = grok_client.chat.completions.create(
                 model="grok-4-1-fast-reasoning",
                 messages=[
-                    {"role": "system", "content": "You are a real-time search assistant. Provide current information."},
+                    {"role": "system", "content": f"You are a real-time search assistant. Today is {get_current_date_str()}. Provide the most current {get_current_year()} information with specific data points, numbers, and facts."},
                     {"role": "user", "content": query}
                 ],
                 temperature=0.3
             )
-            
             content = response.choices[0].message.content
-            
             return {
                 "source": "grok",
                 "answer": content,
-                "data_points": [{"title": "Grok Result", "description": content[:500], "source": "grok"}],
-                "sources": [{"title": "Grok/X AI", "url": "", "source": "grok"}]
+                "data_points": [{"title": "Real-Time Analysis", "description": content[:500], "source": "X/Social Media"}],
+                "sources": []  # Grok doesn't provide URLs
             }
         except Exception as e:
             logger.error(f"Grok search error: {e}")
             return {"error": str(e), "source": "grok", "data_points": [], "sources": []}
+    
+    @staticmethod
+    async def _firecrawl_search(query: str) -> Dict:
+        """Search with Firecrawl for deep web content extraction."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.firecrawl.dev/v1/search",
+                    headers={
+                        "Authorization": f"Bearer {FIRECRAWL_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={"query": query, "limit": 5}
+                )
+                data = response.json()
+                data_points = []
+                sources = []
+                for r in data.get("data", []):
+                    url = r.get("url", "")
+                    title = r.get("title", r.get("metadata", {}).get("title", ""))
+                    real_name = extract_source_name(url, title)
+                    content = r.get("markdown", r.get("content", ""))[:300]
+                    dp = {"title": title, "description": content, "url": url, "source": real_name}
+                    data_points.append(dp)
+                    if url:
+                        sources.append({"title": title, "url": url, "source": real_name})
+                return {"source": "firecrawl", "data_points": data_points, "sources": sources}
+        except Exception as e:
+            logger.error(f"Firecrawl search error: {e}")
+            return {"error": str(e), "source": "firecrawl", "data_points": [], "sources": []}
 
 
 # ============================================================================
-# FILE GENERATION ENGINE
+# FILE GENERATION ENGINE - Manus-Level Quality
 # ============================================================================
 
 class FileEngine:
-    """Professional file generation with real data."""
+    """Professional file generation with real data - Manus AI level quality."""
     
-    # File registry for downloads
     files: Dict[str, Dict] = {}
     
     @staticmethod
     def _generate_filename(prompt: str, extension: str) -> str:
-        """Generate a precise, descriptive filename using LLM reasoning about the content."""
-        import re
-        
-        # Try LLM-based filename generation
+        """Generate a precise, descriptive filename using LLM reasoning."""
         client = grok_client or kimi_client
         if client:
             try:
@@ -567,10 +756,10 @@ class FileEngine:
                     messages=[
                         {"role": "system", "content": """Generate a precise filename (no extension) for a file based on the user's request.
 Rules:
-- Summarize the CONTENT the user wants, not their instruction words
+- Summarize the CONTENT, not the instruction words
 - Use snake_case, lowercase, max 6 words
 - Be specific: include topic, scope, and type of data
-- Examples: "european_beauty_brands_market_analysis", "tesla_vs_byd_ev_comparison_2026", "top_50_sustainable_suppliers_europe"
+- Examples: "european_beauty_brands_market_analysis", "tesla_vs_byd_ev_comparison_2026", "loewe_brand_comprehensive_analysis"
 - Return ONLY the filename, nothing else"""},
                         {"role": "user", "content": f"User request: {prompt[:200]}"}
                     ],
@@ -585,14 +774,12 @@ Rules:
             except Exception as e:
                 logger.error(f"LLM filename generation error: {e}")
         
-        # Fallback: extract key words
+        # Fallback
         stopwords = {'generate', 'create', 'make', 'build', 'an', 'a', 'the', 'me', 'please',
                      'excel', 'spreadsheet', 'sheet', 'pdf', 'word', 'document', 'report',
                      'powerpoint', 'presentation', 'pptx', 'file', 'containing', 'about',
                      'with', 'information', 'data', 'of', 'for', 'on', 'in', 'to', 'and',
-                     'that', 'this', 'from', 'can', 'you', 'i', 'want', 'need', 'give',
-                     'generative', 'including', 'different', 'perspectives', 'based', 'your',
-                     'knowledge', 'master'}
+                     'that', 'this', 'from', 'can', 'you', 'i', 'want', 'need', 'give'}
         words = re.sub(r'[^a-zA-Z0-9\s]', '', prompt.lower()).split()
         meaningful = [w for w in words if w not in stopwords and len(w) > 1][:6]
         if not meaningful:
@@ -603,58 +790,62 @@ Rules:
     @staticmethod
     def _sanitize_sheet_title(title: str) -> str:
         """Sanitize a string for use as an Excel sheet title."""
-        import re
-        # Remove characters invalid in Excel sheet names: \ / ? * [ ] :
         sanitized = re.sub(r'[\\/?*\[\]:]', '', title)
-        return sanitized[:31]  # Excel sheet name max 31 chars
+        return sanitized[:31]
+    
+    # ========================================================================
+    # EXCEL GENERATION - Multi-tab with professional formatting
+    # ========================================================================
     
     @classmethod
     async def generate_excel(cls, prompt: str, structured_data: Dict, user_id: str = None) -> Dict:
-        """Generate Excel with Kimi-structured data from search results."""
+        """Generate Excel with multi-tab professional formatting."""
         try:
+            import functools
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "xlsx")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
-            # Build search context for Kimi
+            # Build search context
             search_context = ""
             raw_data_points = structured_data.get("data_points", [])
             for dp in raw_data_points[:20]:
                 search_context += f"- {dp.get('title', '')}: {dp.get('description', '')}\n"
-            
-            # Also get answer text from search results
-            for source_name in ["perplexity", "grok", "google", "exa"]:
+            for source_name in ["perplexity", "grok", "google", "exa", "bing", "firecrawl"]:
                 if source_name in structured_data.get("results", {}):
                     answer = structured_data["results"][source_name].get("answer", "")
                     if answer:
-                        search_context += f"\n[{source_name.upper()} ANSWER]:\n{answer[:1500]}\n"
+                        search_context += f"\n[{source_name.upper()} DATA]:\n{answer[:1500]}\n"
             
-            # Use Kimi to generate proper structured data for the Excel
-            excel_data = None
-            excel_prompt = """You generate comprehensive Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
+            current_year = get_current_year()
+            current_date = get_current_date_str()
+            
+            excel_prompt = f"""You generate comprehensive Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
 
-Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
+CRITICAL: Today is {current_date}. ALL data must reflect {current_year} current information. Do NOT use outdated 2024 data unless the user specifically asks for historical data.
 
-Create 4-6 sheets with different perspectives. Choose the most valuable tabs for this topic:
-- Tab 1: Main comprehensive dataset (20-30 rows with detailed columns)
-- Tab 2: Rankings or comparison view
-- Tab 3: Regional/category/segment breakdown
-- Tab 4: Key metrics summary or trends
-- Tab 5-6 (optional): Additional perspective if valuable
+Format: {{"sheets": [{{"title": "...", "headers": [...], "rows": [...]}}]}}
+
+Create 4-6 sheets with different perspectives:
+- Tab 1: Main comprehensive dataset (20-30 rows with 8-12 detailed columns)
+- Tab 2: Rankings or comparison view (10-15 rows)
+- Tab 3: Regional/category/segment breakdown (10-15 rows)
+- Tab 4: Key metrics, trends, or projections for {current_year}-{current_year+5} (8-12 rows)
+- Tab 5-6 (optional): Additional valuable perspectives
 
 Rules:
-- Each tab title: specific and descriptive (e.g., "Revenue by Region", "Brand Rankings 2026")
-- Headers MUST be specific (e.g., "Brand Name", "Revenue ($M)", "ESG Score", "Country")
-- Extract SPECIFIC facts, numbers, names, dates from the search text
+- Each tab title: specific and descriptive (e.g., "Revenue by Region {current_year}", "Brand Rankings {current_year}")
+- Headers MUST be specific (e.g., "Brand Name", "Revenue ($M)", "Market Share %", "YoY Growth %")
+- Extract SPECIFIC facts, numbers, names, dates from the search data
+- ALL numbers and data should reflect {current_year} current reality
 - If data is insufficient, supplement with your knowledge but mark with (est.)
 - Numbers should be actual numbers, not strings
 - Each row must have the same number of columns as headers
 - DO NOT use generic headers like "Item", "Value", "Date"
-- Main tab: 20-30 rows. Other tabs: 5-15 rows each
+- Main tab: 20-30 rows. Other tabs: 8-15 rows each
 - Return ONLY the JSON object, no markdown, no explanation"""
             
             def _parse_excel_json(raw_json: str, source_name: str) -> dict:
-                """Parse JSON from LLM response with multiple strategies."""
                 for strategy in [
                     lambda t: json.loads(t),
                     lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
@@ -669,17 +860,15 @@ Rules:
                                 logger.info(f"{source_name} Excel multi-tab: {len(result['sheets'])} sheets, {total_rows} total rows")
                                 return result
                             elif "headers" in result and "rows" in result:
-                                data = {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
-                                logger.info(f"{source_name} Excel single-tab: {len(result.get('rows', []))} rows")
-                                return data
+                                return {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
                     except:
                         continue
                 return None
             
-            # Primary: Use Grok (faster for JSON generation)
+            # Primary: Use Grok (faster)
+            excel_data = None
             if grok_client:
                 try:
-                    import functools
                     loop = asyncio.get_event_loop()
                     grok_response = await loop.run_in_executor(None, functools.partial(
                         grok_client.chat.completions.create,
@@ -692,16 +881,13 @@ Rules:
                         max_tokens=8000
                     ))
                     raw_json = grok_response.choices[0].message.content.strip()
-                    logger.info(f"Grok Excel raw response length: {len(raw_json)}")
                     excel_data = _parse_excel_json(raw_json, "Grok")
                 except Exception as e:
                     logger.error(f"Grok Excel generation error: {e}")
             
-            # Fallback: Try Kimi if Grok failed
+            # Fallback: Kimi
             if not excel_data and kimi_client:
                 try:
-                    logger.info("Grok failed for Excel, trying Kimi fallback")
-                    import functools
                     loop = asyncio.get_event_loop()
                     kimi_response = await loop.run_in_executor(None, functools.partial(
                         kimi_client.chat.completions.create,
@@ -714,40 +900,25 @@ Rules:
                         max_tokens=8000
                     ))
                     raw_json = kimi_response.choices[0].message.content.strip()
-                    logger.info(f"Kimi Excel raw response length: {len(raw_json)}")
                     excel_data = _parse_excel_json(raw_json, "Kimi")
                 except Exception as e:
                     logger.error(f"Kimi Excel fallback error: {e}")
             
-            # Helper to create a professionally styled sheet
-            from openpyxl.utils import get_column_letter
-            from openpyxl.formatting.rule import CellIsRule, DataBarRule, ColorScaleRule
-            from openpyxl.worksheet.datavalidation import DataValidation
-            
             # Color palette
             COLORS = {
-                "header_bg": "1A1A2E",
-                "header_font": "FFFFFF",
-                "title_bg": "16213E",
-                "subtitle_bg": "0F3460",
-                "accent": "E94560",
-                "row_even": "F8F9FA",
-                "row_odd": "FFFFFF",
-                "border": "DEE2E6",
-                "number_positive": "28A745",
-                "number_negative": "DC3545",
-                "highlight": "FFF3CD",
+                "header_bg": "1A1A2E", "header_font": "FFFFFF", "title_bg": "16213E",
+                "subtitle_bg": "0F3460", "accent": "E94560", "row_even": "F8F9FA",
+                "row_odd": "FFFFFF", "border": "DEE2E6", "number_positive": "28A745",
+                "number_negative": "DC3545", "highlight": "FFF3CD",
             }
             
             def _create_styled_sheet(wb, sheet_title, headers, rows, prompt_text):
                 ws = wb.create_sheet(cls._sanitize_sheet_title(sheet_title))
                 num_cols = max(len(headers), 1)
                 num_rows = len(rows)
-                
-                # Freeze panes for header row
                 ws.freeze_panes = "A5"
                 
-                # Title row with gradient-style dark background
+                # Title row
                 if num_cols > 1:
                     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
                 title_cell = ws.cell(row=1, column=1, value=sheet_title)
@@ -755,7 +926,6 @@ Rules:
                 title_cell.fill = PatternFill(start_color=COLORS["title_bg"], end_color=COLORS["title_bg"], fill_type="solid")
                 title_cell.alignment = Alignment(horizontal="center", vertical="center")
                 ws.row_dimensions[1].height = 40
-                # Fill all title row cells
                 for c in range(2, num_cols + 1):
                     ws.cell(row=1, column=c).fill = PatternFill(start_color=COLORS["title_bg"], end_color=COLORS["title_bg"], fill_type="solid")
                 
@@ -769,15 +939,11 @@ Rules:
                 for c in range(2, num_cols + 1):
                     ws.cell(row=2, column=c).fill = PatternFill(start_color=COLORS["subtitle_bg"], end_color=COLORS["subtitle_bg"], fill_type="solid")
                 
-                # Empty separator row
                 ws.row_dimensions[3].height = 6
                 
-                # Headers with filter and bold styling
+                # Headers
                 header_fill = PatternFill(start_color=COLORS["header_bg"], end_color=COLORS["header_bg"], fill_type="solid")
-                header_border = Border(
-                    bottom=Side(style='medium', color=COLORS["accent"]),
-                    top=Side(style='thin', color='000000')
-                )
+                header_border = Border(bottom=Side(style='medium', color=COLORS["accent"]), top=Side(style='thin', color='000000'))
                 for col, header in enumerate(headers, 1):
                     cell = ws.cell(row=4, column=col, value=str(header))
                     cell.font = Font(bold=True, color=COLORS["header_font"], size=11, name='Calibri')
@@ -786,11 +952,10 @@ Rules:
                     cell.border = header_border
                 ws.row_dimensions[4].height = 30
                 
-                # Auto-filter on header row
                 if num_cols > 0 and num_rows > 0:
                     ws.auto_filter.ref = f"A4:{get_column_letter(num_cols)}{4 + num_rows}"
                 
-                # Detect column types for smart formatting
+                # Detect column types
                 col_types = []
                 for col_idx in range(num_cols):
                     is_numeric = 0
@@ -810,43 +975,32 @@ Rules:
                             if '$' in val_str or '€' in val_str or '£' in val_str:
                                 is_currency += 1
                     header_lower = str(headers[col_idx]).lower() if col_idx < len(headers) else ""
-                    if is_pct > sample_count * 0.3 or 'rate' in header_lower or 'growth' in header_lower or '%' in header_lower or 'share' in header_lower:
+                    if is_pct > sample_count * 0.3 or any(k in header_lower for k in ['rate', 'growth', '%', 'share', 'margin']):
                         col_types.append('pct')
-                    elif is_currency > sample_count * 0.3 or 'revenue' in header_lower or 'price' in header_lower or 'sales' in header_lower or '$' in header_lower or '€' in header_lower:
+                    elif is_currency > sample_count * 0.3 or any(k in header_lower for k in ['revenue', 'price', 'sales', '$', '€', 'cost', 'value']):
                         col_types.append('currency')
-                    elif is_numeric > sample_count * 0.3 or 'score' in header_lower or 'rank' in header_lower or 'count' in header_lower or 'number' in header_lower or 'year' in header_lower or 'rating' in header_lower:
+                    elif is_numeric > sample_count * 0.3 or any(k in header_lower for k in ['score', 'rank', 'count', 'number', 'year', 'rating', 'index']):
                         col_types.append('number')
                     else:
                         col_types.append('text')
                 
-                # Data rows with alternating colors and smart formatting
-                data_border = Border(
-                    bottom=Side(style='hair', color=COLORS["border"]),
-                    left=Side(style='hair', color=COLORS["border"]),
-                    right=Side(style='hair', color=COLORS["border"])
-                )
+                # Data rows
+                data_border = Border(bottom=Side(style='hair', color=COLORS["border"]), left=Side(style='hair', color=COLORS["border"]), right=Side(style='hair', color=COLORS["border"]))
                 for row_num, row_data in enumerate(rows[:100], 5):
                     bg_color = COLORS["row_even"] if (row_num - 5) % 2 == 0 else COLORS["row_odd"]
                     row_fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
-                    
                     for col_num, value in enumerate(row_data[:num_cols], 1):
                         cell = ws.cell(row=row_num, column=col_num)
                         col_type = col_types[col_num - 1] if col_num - 1 < len(col_types) else 'text'
-                        
-                        # Smart value conversion
                         if value is not None:
                             val_str = str(value).strip()
                             if col_type in ('number', 'currency', 'pct'):
-                                # Try to extract numeric value
                                 clean = val_str.replace('$', '').replace('€', '').replace('£', '').replace('%', '').replace(',', '').replace('B', '').replace('M', '').replace('K', '').strip()
                                 try:
                                     num_val = float(clean)
-                                    # Handle B/M/K suffixes
-                                    if 'B' in val_str.upper() and 'b' not in clean.lower():
-                                        num_val = float(clean.split()[0]) if ' ' in clean else num_val
                                     cell.value = num_val
                                     if col_type == 'pct':
-                                        cell.number_format = '0.0%' if num_val < 1 else '0.0\%'
+                                        cell.number_format = '0.0%' if num_val < 1 else '0.0\\%'
                                     elif col_type == 'currency':
                                         cell.number_format = '#,##0.0'
                                     else:
@@ -855,54 +1009,35 @@ Rules:
                                     cell.value = value
                             else:
                                 cell.value = value
-                        
                         cell.font = Font(size=10, name='Calibri')
                         cell.fill = row_fill
                         cell.border = data_border
-                        cell.alignment = Alignment(
-                            vertical="center",
-                            horizontal="right" if col_type in ('number', 'currency', 'pct') else "left",
-                            wrap_text=True
-                        )
+                        cell.alignment = Alignment(vertical="center", horizontal="right" if col_type in ('number', 'currency', 'pct') else "left", wrap_text=True)
                 
-                # Conditional formatting: data bars for numeric columns
+                # Conditional formatting
                 for col_idx in range(num_cols):
                     col_type = col_types[col_idx] if col_idx < len(col_types) else 'text'
                     col_letter = get_column_letter(col_idx + 1)
                     data_range = f"{col_letter}5:{col_letter}{4 + num_rows}"
-                    
                     if col_type in ('number', 'currency') and num_rows > 2:
-                        # Add data bars for numeric columns
-                        rule = DataBarRule(
-                            start_type='min', end_type='max',
-                            color=COLORS["accent"],
-                            showValue=True
-                        )
+                        rule = DataBarRule(start_type='min', end_type='max', color=COLORS["accent"], showValue=True)
                         ws.conditional_formatting.add(data_range, rule)
-                    
                     elif col_type == 'pct' and num_rows > 2:
-                        # Color scale for percentage columns (red-yellow-green)
-                        rule = ColorScaleRule(
-                            start_type='min', start_color='F8D7DA',
-                            mid_type='percentile', mid_value=50, mid_color='FFF3CD',
-                            end_type='max', end_color='D4EDDA'
-                        )
+                        rule = ColorScaleRule(start_type='min', start_color='F8D7DA', mid_type='percentile', mid_value=50, mid_color='FFF3CD', end_type='max', end_color='D4EDDA')
                         ws.conditional_formatting.add(data_range, rule)
                 
-                # Add SUM/AVERAGE formulas row at bottom for numeric columns
+                # SUM/AVERAGE formulas
                 formula_row = 5 + num_rows
                 has_formulas = False
                 for col_idx in range(num_cols):
                     col_type = col_types[col_idx] if col_idx < len(col_types) else 'text'
                     col_letter = get_column_letter(col_idx + 1)
-                    
                     if col_type in ('number', 'currency') and num_rows > 2:
                         has_formulas = True
-                        # Total/Average row
                         header_lower = str(headers[col_idx]).lower() if col_idx < len(headers) else ""
-                        if 'rank' in header_lower or 'year' in header_lower or 'founded' in header_lower:
+                        if any(k in header_lower for k in ['rank', 'year', 'founded', 'opening']):
                             cell = ws.cell(row=formula_row, column=col_idx + 1, value=f"=COUNT({col_letter}5:{col_letter}{4 + num_rows})")
-                        elif 'average' in header_lower or 'rating' in header_lower or 'score' in header_lower:
+                        elif any(k in header_lower for k in ['average', 'rating', 'score', 'index', 'rate']):
                             cell = ws.cell(row=formula_row, column=col_idx + 1, value=f"=AVERAGE({col_letter}5:{col_letter}{4 + num_rows})")
                         else:
                             cell = ws.cell(row=formula_row, column=col_idx + 1, value=f"=SUM({col_letter}5:{col_letter}{4 + num_rows})")
@@ -928,10 +1063,7 @@ Rules:
                             pass
                     ws.column_dimensions[get_column_letter(col_idx)].width = min(max(max_length + 4, 14), 45)
                 
-                # Print settings
-                ws.sheet_properties.pageSetUpPr = None
                 ws.print_title_rows = '4:4'
-                
                 return ws, num_rows
             
             # Create workbook
@@ -940,7 +1072,6 @@ Rules:
             row_count = 0
             
             if excel_data and excel_data.get("sheets"):
-                # Multi-tab: create each sheet
                 for sheet_info in excel_data["sheets"]:
                     s_title = sheet_info.get("title", "Data")
                     s_headers = sheet_info.get("headers", [])
@@ -949,52 +1080,40 @@ Rules:
                         _, count = _create_styled_sheet(wb, s_title, s_headers, s_rows, prompt)
                         row_count += count
                 
-                # Add a Sources tab automatically
+                # Add Sources tab with REAL source names
                 sources_list = structured_data.get("sources", [])
                 if sources_list:
+                    # Clean sources to show real names
+                    cleaned_sources = clean_sources_for_output(sources_list) if not all(s.get("source", "") not in ("exa", "perplexity", "grok", "google", "bing", "youtube", "firecrawl") for s in sources_list) else sources_list
                     src_headers = ["Source", "Title", "URL"]
-                    src_rows = [[s.get("source", ""), s.get("title", ""), s.get("url", "")] for s in sources_list[:30]]
+                    src_rows = [[s.get("source", ""), s.get("title", ""), s.get("url", "")] for s in cleaned_sources[:30]]
                     _create_styled_sheet(wb, "Sources", src_headers, src_rows, prompt)
             else:
-                # Fallback: use raw search data points
                 headers = ["Title", "Description", "Source", "URL"]
                 fallback_rows = [[dp.get("title", ""), dp.get("description", ""), dp.get("source", ""), dp.get("url", "")] for dp in raw_data_points[:50]]
                 _, row_count = _create_styled_sheet(wb, "Data", headers, fallback_rows, prompt)
             
-            # Save file
             wb.save(filepath)
             
-            # Register file
             cls.files[file_id] = {
-                "filename": filename,
-                "filepath": str(filepath),
-                "file_type": "excel",
-                "user_id": user_id,
-                "created_at": datetime.now().isoformat(),
+                "filename": filename, "filepath": str(filepath), "file_type": "excel",
+                "user_id": user_id, "created_at": datetime.now().isoformat(),
                 "expires_at": (datetime.now() + timedelta(days=7)).isoformat()
             }
             
-            return {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "download_url": f"/api/v1/download/{file_id}",
-                "row_count": row_count
-            }
-            
+            return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}", "row_count": row_count}
         except Exception as e:
             logger.error(f"Excel generation error: {e}")
             return {"success": False, "error": str(e)}
     
+    # ========================================================================
+    # WORD GENERATION - Professional multi-section document
+    # ========================================================================
+    
     @classmethod
     async def generate_word(cls, prompt: str, content: str, user_id: str = None) -> Dict:
-        """Generate Word document with proper markdown rendering."""
+        """Generate Word document with professional formatting and structure."""
         try:
-            import re as _re
-            from docx.shared import Inches, Pt, Cm, RGBColor
-            from docx.enum.text import WD_ALIGN_PARAGRAPH
-            from docx.enum.table import WD_TABLE_ALIGNMENT
-            
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "docx")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
@@ -1015,6 +1134,18 @@ Rules:
                 section.left_margin = Cm(2.5)
                 section.right_margin = Cm(2.5)
             
+            # Customize heading styles
+            for level in range(1, 4):
+                heading_style = doc.styles[f'Heading {level}']
+                heading_style.font.name = 'Calibri'
+                heading_style.font.color.rgb = RGBColor(0x1A, 0x1A, 0x2E)
+                if level == 1:
+                    heading_style.font.size = Pt(22)
+                elif level == 2:
+                    heading_style.font.size = Pt(16)
+                else:
+                    heading_style.font.size = Pt(13)
+            
             # Parse and render markdown content
             lines = content.split('\n')
             i = 0
@@ -1022,27 +1153,26 @@ Rules:
                 line = lines[i]
                 stripped = line.strip()
                 
-                # Skip empty lines
                 if not stripped:
                     i += 1
                     continue
                 
                 # Headers
-                if stripped.startswith('# '):
-                    h = doc.add_heading(stripped[2:].strip(), level=0)
-                    h.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                    i += 1
-                    continue
-                elif stripped.startswith('## '):
-                    h = doc.add_heading(stripped[3:].strip(), level=1)
+                if stripped.startswith('#### '):
+                    doc.add_heading(stripped[5:].strip(), level=3)
                     i += 1
                     continue
                 elif stripped.startswith('### '):
-                    h = doc.add_heading(stripped[4:].strip(), level=2)
+                    doc.add_heading(stripped[4:].strip(), level=2)
                     i += 1
                     continue
-                elif stripped.startswith('#### '):
-                    h = doc.add_heading(stripped[5:].strip(), level=3)
+                elif stripped.startswith('## '):
+                    doc.add_heading(stripped[3:].strip(), level=1)
+                    i += 1
+                    continue
+                elif stripped.startswith('# '):
+                    h = doc.add_heading(stripped[2:].strip(), level=0)
+                    h.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     i += 1
                     continue
                 
@@ -1051,8 +1181,7 @@ Rules:
                     table_lines = []
                     while i < len(lines) and lines[i].strip().startswith('|'):
                         row_text = lines[i].strip()
-                        # Skip separator rows (|---|---|)
-                        if _re.match(r'^\|[\s\-:|]+\|$', row_text):
+                        if re.match(r'^\|[\s\-:|]+\|$', row_text):
                             i += 1
                             continue
                         cells = [c.strip() for c in row_text.split('|')[1:-1]]
@@ -1065,18 +1194,17 @@ Rules:
                         table = doc.add_table(rows=len(table_lines), cols=num_cols)
                         table.style = 'Light Grid Accent 1'
                         table.alignment = WD_TABLE_ALIGNMENT.CENTER
-                        
                         for row_idx, row_data in enumerate(table_lines):
                             for col_idx, cell_text in enumerate(row_data):
                                 if col_idx < num_cols:
                                     cell = table.cell(row_idx, col_idx)
                                     cell.text = cell_text
-                                    # Bold header row
                                     if row_idx == 0:
                                         for paragraph in cell.paragraphs:
                                             for run in paragraph.runs:
                                                 run.bold = True
-                        doc.add_paragraph('')  # spacing after table
+                                                run.font.size = Pt(10)
+                        doc.add_paragraph('')
                     continue
                 
                 # Bullet points
@@ -1087,10 +1215,20 @@ Rules:
                     continue
                 
                 # Numbered lists
-                elif _re.match(r'^\d+\.\s', stripped):
-                    text = _re.sub(r'^\d+\.\s', '', stripped)
+                elif re.match(r'^\d+\.\s', stripped):
+                    text = re.sub(r'^\d+\.\s', '', stripped)
                     p = doc.add_paragraph(style='List Number')
                     cls._add_formatted_text(p, text)
+                    i += 1
+                    continue
+                
+                # Blockquotes
+                elif stripped.startswith('> '):
+                    p = doc.add_paragraph()
+                    p.paragraph_format.left_indent = Cm(1)
+                    run = p.add_run(stripped[2:])
+                    run.italic = True
+                    run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
                     i += 1
                     continue
                 
@@ -1101,7 +1239,7 @@ Rules:
                     i += 1
                     continue
             
-            # Footer with timestamp
+            # Footer
             doc.add_paragraph('')
             footer = doc.add_paragraph()
             footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1111,31 +1249,16 @@ Rules:
             
             doc.save(filepath)
             
-            cls.files[file_id] = {
-                "filename": filename,
-                "filepath": str(filepath),
-                "file_type": "word",
-                "user_id": user_id,
-                "created_at": datetime.now().isoformat()
-            }
-            
-            return {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "download_url": f"/api/v1/download/{file_id}"
-            }
-            
+            cls.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "word", "user_id": user_id, "created_at": datetime.now().isoformat()}
+            return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         except Exception as e:
             logger.error(f"Word generation error: {e}")
             return {"success": False, "error": str(e)}
     
     @staticmethod
     def _add_formatted_text(paragraph, text: str):
-        """Parse inline markdown formatting (bold, italic) and add to paragraph."""
-        import re as _re
-        # Split by bold (**text**) and italic (*text*) patterns
-        parts = _re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', text)
+        """Parse inline markdown formatting and add to paragraph."""
+        parts = re.split(r'(\*\*[^*]+\*\*|\*[^*]+\*)', text)
         for part in parts:
             if part.startswith('**') and part.endswith('**'):
                 run = paragraph.add_run(part[2:-2])
@@ -1146,34 +1269,36 @@ Rules:
             else:
                 paragraph.add_run(part)
     
+    # ========================================================================
+    # PDF GENERATION - Professional layout with HTML/CSS
+    # ========================================================================
+    
     @classmethod
     async def generate_pdf(cls, prompt: str, content: str, user_id: str = None) -> Dict:
-        """Generate PDF document with proper markdown rendering via HTML conversion."""
+        """Generate PDF with professional styling."""
         try:
-            import re as _re
             import markdown as md_lib
             
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "pdf")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
-            # Convert markdown to HTML
             html_content = md_lib.markdown(content, extensions=['tables', 'fenced_code', 'nl2br'])
             
-            # Wrap in styled HTML template
             html_template = f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
 <style>
-    body {{ font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #333; line-height: 1.6; margin: 40px; }}
-    h1 {{ font-size: 22pt; color: #1a1a1a; border-bottom: 2px solid #333; padding-bottom: 8px; margin-top: 24px; }}
-    h2 {{ font-size: 16pt; color: #2d2d2d; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-top: 20px; }}
-    h3 {{ font-size: 13pt; color: #444; margin-top: 16px; }}
+    @page {{ margin: 2cm; size: A4; }}
+    body {{ font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #333; line-height: 1.6; }}
+    h1 {{ font-size: 22pt; color: #1A1A2E; border-bottom: 3px solid #E94560; padding-bottom: 8px; margin-top: 28px; }}
+    h2 {{ font-size: 16pt; color: #16213E; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-top: 22px; }}
+    h3 {{ font-size: 13pt; color: #0F3460; margin-top: 16px; }}
     h4 {{ font-size: 11pt; color: #555; margin-top: 12px; }}
     p {{ margin: 6px 0; }}
     table {{ border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 10pt; }}
-    th {{ background-color: #2d2d2d; color: white; padding: 8px 12px; text-align: left; font-weight: bold; }}
+    th {{ background-color: #1A1A2E; color: white; padding: 8px 12px; text-align: left; font-weight: bold; }}
     td {{ padding: 6px 12px; border-bottom: 1px solid #eee; }}
     tr:nth-child(even) {{ background-color: #f9f9f9; }}
     ul, ol {{ margin: 6px 0; padding-left: 24px; }}
@@ -1181,112 +1306,292 @@ Rules:
     code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 10pt; }}
     pre {{ background: #f4f4f4; padding: 12px; border-radius: 4px; overflow-x: auto; }}
     strong {{ color: #1a1a1a; }}
+    blockquote {{ border-left: 4px solid #E94560; padding-left: 16px; margin: 12px 0; color: #555; font-style: italic; }}
     .footer {{ text-align: center; color: #999; font-size: 8pt; margin-top: 40px; border-top: 1px solid #eee; padding-top: 8px; }}
+    .cover {{ text-align: center; padding: 60px 0 40px 0; }}
+    .cover h1 {{ font-size: 28pt; border: none; color: #1A1A2E; }}
+    .cover .subtitle {{ font-size: 14pt; color: #666; margin-top: 12px; }}
+    .cover .date {{ font-size: 10pt; color: #999; margin-top: 24px; }}
 </style>
 </head>
 <body>
+<div class="cover">
+    <h1>{prompt[:100]}</h1>
+    <p class="subtitle">Comprehensive Analysis & Report</p>
+    <p class="date">Generated by McLeuker AI &bull; {datetime.now().strftime('%B %d, %Y')}</p>
+</div>
+<hr>
 {html_content}
-<div class="footer">Generated by McLeuker AI &bull; {datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
+<div class="footer">Generated by McLeuker AI &bull; {datetime.now().strftime('%Y-%m-%d %H:%M')} &bull; Confidential</div>
 </body>
 </html>"""
             
-            # Convert HTML to PDF using weasyprint
             from weasyprint import HTML
             HTML(string=html_template).write_pdf(str(filepath))
             
-            cls.files[file_id] = {
-                "filename": filename,
-                "filepath": str(filepath),
-                "file_type": "pdf",
-                "user_id": user_id,
-                "created_at": datetime.now().isoformat()
-            }
-            
-            return {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "download_url": f"/api/v1/download/{file_id}"
-            }
-            
+            cls.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "pdf", "user_id": user_id, "created_at": datetime.now().isoformat()}
+            return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         except Exception as e:
             logger.error(f"PDF generation error: {e}")
             return {"success": False, "error": str(e)}
     
+    # ========================================================================
+    # PPTX GENERATION - Professional multi-slide with styling
+    # ========================================================================
+    
     @classmethod
     async def generate_pptx(cls, prompt: str, content: str, user_id: str = None) -> Dict:
-        """Generate PowerPoint presentation with proper markdown parsing."""
+        """Generate professional PowerPoint with structured slides, styling, and data visualization."""
         try:
-            import re as _re
-            from pptx.util import Inches, Pt
-            from pptx.dml.color import RGBColor as PptxRGB
-            from pptx.enum.text import PP_ALIGN
-            
+            import functools
             file_id = str(uuid.uuid4())[:8]
             filename = cls._generate_filename(prompt, "pptx")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
-            prs = Presentation()
+            current_year = get_current_year()
+            current_date = get_current_date_str()
             
-            # Title slide
-            title_slide = prs.slides.add_slide(prs.slide_layouts[0])
-            title_slide.shapes.title.text = prompt[:100]
-            title_slide.placeholders[1].text = f"Generated by McLeuker AI \u2022 {datetime.now().strftime('%Y-%m-%d')}"
+            # Use LLM to generate structured slide content
+            pptx_prompt = f"""Create a professional presentation outline. Today is {current_date}. Return ONLY valid JSON.
+
+Format: {{"slides": [{{"title": "...", "subtitle": "...", "type": "title|content|two_column|data_table|key_metrics|conclusion", "bullets": ["..."], "table": {{"headers": [...], "rows": [[...]]}}, "metrics": [{{"label": "...", "value": "...", "change": "..."}}]}}]}}
+
+Rules:
+- Create 8-12 slides covering the topic comprehensively
+- Slide 1: Title slide with topic and subtitle
+- Slides 2-3: Overview/context with key data points
+- Slides 4-6: Detailed analysis with tables and metrics
+- Slides 7-9: Trends, comparisons, insights
+- Slide 10-11: Key takeaways and recommendations
+- Slide 12: Sources and methodology
+- Each bullet point should be concise (max 15 words)
+- Include specific numbers, percentages, and data from {current_year}
+- Use "data_table" type for slides with tabular data
+- Use "key_metrics" type for slides with 3-4 key statistics
+- Maximum 5 bullets per slide
+- Return ONLY the JSON, no markdown"""
             
-            # Parse markdown into sections by ## headers
-            sections = []
-            current_title = "Overview"
-            current_content = []
+            slides_data = None
             
-            for line in content.split('\n'):
-                stripped = line.strip()
-                if stripped.startswith('## '):
-                    if current_content:
-                        sections.append((current_title, '\n'.join(current_content)))
-                    current_title = stripped[3:].strip()
-                    current_content = []
-                elif stripped.startswith('# '):
-                    if current_content:
-                        sections.append((current_title, '\n'.join(current_content)))
-                    current_title = stripped[2:].strip()
-                    current_content = []
-                else:
-                    # Clean markdown formatting for slides
-                    cleaned = _re.sub(r'\*\*([^*]+)\*\*', r'\1', stripped)  # Remove bold markers
-                    cleaned = _re.sub(r'\*([^*]+)\*', r'\1', cleaned)  # Remove italic markers
-                    if cleaned:
-                        current_content.append(cleaned)
+            # Try Grok first
+            if grok_client:
+                try:
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(None, functools.partial(
+                        grok_client.chat.completions.create,
+                        model="grok-3-mini",
+                        messages=[
+                            {"role": "system", "content": pptx_prompt},
+                            {"role": "user", "content": f"Create presentation for: {prompt}\n\nContent to use:\n{content[:3000]}"}
+                        ],
+                        temperature=0.3,
+                        max_tokens=6000
+                    ))
+                    raw = response.choices[0].message.content.strip()
+                    for strategy in [
+                        lambda t: json.loads(t),
+                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
+                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
+                    ]:
+                        try:
+                            result = strategy(raw)
+                            if result and isinstance(result, dict) and "slides" in result:
+                                slides_data = result
+                                break
+                        except:
+                            continue
+                except Exception as e:
+                    logger.error(f"Grok PPTX generation error: {e}")
             
-            if current_content:
-                sections.append((current_title, '\n'.join(current_content)))
-            
-            # Create slides from sections
-            for title, body in sections[:15]:  # Limit to 15 slides
-                slide = prs.slides.add_slide(prs.slide_layouts[1])
-                slide.shapes.title.text = title[:80]
+            # Fallback: parse markdown content into slides
+            if not slides_data:
+                slides_data = {"slides": []}
+                sections = []
+                current_title = prompt[:80]
+                current_bullets = []
                 
-                # Truncate body for slide readability
-                body_lines = body.split('\n')[:8]  # Max 8 lines per slide
-                slide_text = '\n'.join(line[:120] for line in body_lines)
-                slide.placeholders[1].text = slide_text[:600]
+                for line in content.split('\n'):
+                    stripped = line.strip()
+                    if stripped.startswith('## ') or stripped.startswith('# '):
+                        if current_bullets:
+                            sections.append({"title": current_title, "type": "content", "bullets": current_bullets})
+                        current_title = stripped.lstrip('#').strip()
+                        current_bullets = []
+                    elif stripped.startswith('- ') or stripped.startswith('* '):
+                        bullet = re.sub(r'\*\*([^*]+)\*\*', r'\1', stripped[2:])
+                        current_bullets.append(bullet[:120])
+                    elif stripped and len(stripped) > 20:
+                        current_bullets.append(stripped[:120])
+                
+                if current_bullets:
+                    sections.append({"title": current_title, "type": "content", "bullets": current_bullets})
+                
+                # Add title slide
+                slides_data["slides"].append({"title": prompt[:80], "subtitle": f"Comprehensive Analysis | {datetime.now().strftime('%B %Y')}", "type": "title", "bullets": []})
+                for s in sections[:12]:
+                    slides_data["slides"].append(s)
+            
+            # Create the PPTX
+            prs = PptxPresentation()
+            prs.slide_width = PptxInches(13.333)
+            prs.slide_height = PptxInches(7.5)
+            
+            # Color scheme
+            BG_DARK = PptxRGB(0x1A, 0x1A, 0x2E)
+            BG_MEDIUM = PptxRGB(0x16, 0x21, 0x3E)
+            ACCENT = PptxRGB(0xE9, 0x45, 0x60)
+            TEXT_WHITE = PptxRGB(0xFF, 0xFF, 0xFF)
+            TEXT_LIGHT = PptxRGB(0xCC, 0xCC, 0xCC)
+            TEXT_DARK = PptxRGB(0x33, 0x33, 0x33)
+            
+            def add_background(slide, color=BG_DARK):
+                """Add solid background to slide."""
+                background = slide.background
+                fill = background.fill
+                fill.solid()
+                fill.fore_color.rgb = color
+            
+            def add_text_box(slide, left, top, width, height, text, font_size=18, bold=False, color=TEXT_WHITE, alignment=PP_ALIGN.LEFT):
+                """Add a text box to slide."""
+                txBox = slide.shapes.add_textbox(PptxInches(left), PptxInches(top), PptxInches(width), PptxInches(height))
+                tf = txBox.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.text = text
+                p.font.size = PptxPt(font_size)
+                p.font.bold = bold
+                p.font.color.rgb = color
+                p.alignment = alignment
+                return txBox
+            
+            for slide_info in slides_data.get("slides", [])[:15]:
+                slide_type = slide_info.get("type", "content")
+                title = slide_info.get("title", "")
+                subtitle = slide_info.get("subtitle", "")
+                bullets = slide_info.get("bullets", [])
+                table_data = slide_info.get("table", None)
+                metrics = slide_info.get("metrics", [])
+                
+                # Use blank layout for full control
+                slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
+                add_background(slide)
+                
+                if slide_type == "title":
+                    # Title slide - centered, large text
+                    add_text_box(slide, 1, 2, 11.333, 1.5, title, font_size=36, bold=True, color=TEXT_WHITE, alignment=PP_ALIGN.CENTER)
+                    if subtitle:
+                        add_text_box(slide, 2, 3.8, 9.333, 0.8, subtitle, font_size=18, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
+                    # Accent line
+                    from pptx.shapes.autoshape import Shape
+                    shape = slide.shapes.add_shape(1, PptxInches(4.5), PptxInches(3.5), PptxInches(4.333), PptxPt(4))
+                    shape.fill.solid()
+                    shape.fill.fore_color.rgb = ACCENT
+                    shape.line.fill.background()
+                    # Footer
+                    add_text_box(slide, 3, 6.2, 7.333, 0.5, f"McLeuker AI \u2022 {datetime.now().strftime('%B %Y')}", font_size=12, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
+                
+                elif slide_type == "key_metrics" and metrics:
+                    # Key metrics slide - large numbers
+                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=28, bold=True, color=TEXT_WHITE)
+                    # Accent line under title
+                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.2), PptxInches(2), PptxPt(3))
+                    shape.fill.solid()
+                    shape.fill.fore_color.rgb = ACCENT
+                    shape.line.fill.background()
+                    
+                    # Layout metrics in a grid
+                    num_metrics = min(len(metrics), 4)
+                    metric_width = 10.5 / num_metrics
+                    for idx, metric in enumerate(metrics[:4]):
+                        x = 1.2 + idx * metric_width
+                        # Metric value
+                        add_text_box(slide, x, 2.2, metric_width - 0.5, 1.2, str(metric.get("value", "")), font_size=36, bold=True, color=ACCENT, alignment=PP_ALIGN.CENTER)
+                        # Metric label
+                        add_text_box(slide, x, 3.5, metric_width - 0.5, 0.6, str(metric.get("label", "")), font_size=14, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
+                        # Change indicator
+                        change = metric.get("change", "")
+                        if change:
+                            change_color = PptxRGB(0x28, 0xA7, 0x45) if '+' in str(change) else PptxRGB(0xDC, 0x35, 0x45)
+                            add_text_box(slide, x, 4.1, metric_width - 0.5, 0.4, str(change), font_size=12, color=change_color, alignment=PP_ALIGN.CENTER)
+                
+                elif slide_type == "data_table" and table_data:
+                    # Table slide
+                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=28, bold=True, color=TEXT_WHITE)
+                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.2), PptxInches(2), PptxPt(3))
+                    shape.fill.solid()
+                    shape.fill.fore_color.rgb = ACCENT
+                    shape.line.fill.background()
+                    
+                    headers = table_data.get("headers", [])
+                    rows = table_data.get("rows", [])
+                    if headers and rows:
+                        num_cols = len(headers)
+                        num_rows = min(len(rows) + 1, 8)
+                        table = slide.shapes.add_table(num_rows, num_cols, PptxInches(0.8), PptxInches(1.6), PptxInches(11.733), PptxInches(4.5)).table
+                        
+                        # Style header row
+                        for col_idx, header in enumerate(headers):
+                            cell = table.cell(0, col_idx)
+                            cell.text = str(header)
+                            for paragraph in cell.text_frame.paragraphs:
+                                paragraph.font.size = PptxPt(11)
+                                paragraph.font.bold = True
+                                paragraph.font.color.rgb = TEXT_WHITE
+                            cell.fill.solid()
+                            cell.fill.fore_color.rgb = BG_MEDIUM
+                        
+                        # Style data rows
+                        for row_idx, row in enumerate(rows[:num_rows-1]):
+                            for col_idx, val in enumerate(row[:num_cols]):
+                                cell = table.cell(row_idx + 1, col_idx)
+                                cell.text = str(val) if val is not None else ""
+                                for paragraph in cell.text_frame.paragraphs:
+                                    paragraph.font.size = PptxPt(10)
+                                    paragraph.font.color.rgb = TEXT_WHITE
+                                bg = PptxRGB(0x22, 0x22, 0x3E) if row_idx % 2 == 0 else PptxRGB(0x2A, 0x2A, 0x4E)
+                                cell.fill.solid()
+                                cell.fill.fore_color.rgb = bg
+                
+                elif slide_type == "two_column":
+                    # Two column layout
+                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=28, bold=True, color=TEXT_WHITE)
+                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.2), PptxInches(2), PptxPt(3))
+                    shape.fill.solid()
+                    shape.fill.fore_color.rgb = ACCENT
+                    shape.line.fill.background()
+                    
+                    mid = len(bullets) // 2
+                    left_bullets = bullets[:mid] if mid > 0 else bullets[:3]
+                    right_bullets = bullets[mid:] if mid > 0 else bullets[3:]
+                    
+                    for col, col_bullets in enumerate([left_bullets, right_bullets]):
+                        x = 0.8 + col * 6.2
+                        y_start = 1.8
+                        for bi, bullet in enumerate(col_bullets[:5]):
+                            clean = re.sub(r'\*\*([^*]+)\*\*', r'\1', str(bullet))
+                            add_text_box(slide, x, y_start + bi * 0.7, 5.5, 0.6, f"\u2022 {clean[:100]}", font_size=14, color=TEXT_LIGHT)
+                
+                else:
+                    # Standard content slide
+                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=28, bold=True, color=TEXT_WHITE)
+                    # Accent line
+                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.2), PptxInches(2), PptxPt(3))
+                    shape.fill.solid()
+                    shape.fill.fore_color.rgb = ACCENT
+                    shape.line.fill.background()
+                    
+                    if subtitle:
+                        add_text_box(slide, 0.8, 1.4, 11.733, 0.5, subtitle, font_size=14, color=TEXT_LIGHT)
+                    
+                    y_start = 2.0 if subtitle else 1.6
+                    for bi, bullet in enumerate(bullets[:6]):
+                        clean = re.sub(r'\*\*([^*]+)\*\*', r'\1', str(bullet))
+                        add_text_box(slide, 1.2, y_start + bi * 0.8, 10.933, 0.7, f"\u2022 {clean[:120]}", font_size=16, color=TEXT_LIGHT)
             
             prs.save(filepath)
             
-            cls.files[file_id] = {
-                "filename": filename,
-                "filepath": str(filepath),
-                "file_type": "pptx",
-                "user_id": user_id,
-                "created_at": datetime.now().isoformat()
-            }
-            
-            return {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "download_url": f"/api/v1/download/{file_id}"
-            }
-            
+            cls.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "pptx", "user_id": user_id, "created_at": datetime.now().isoformat()}
+            return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         except Exception as e:
             logger.error(f"PPTX generation error: {e}")
             return {"success": False, "error": str(e)}
@@ -1296,92 +1601,59 @@ Rules:
         """Get file info by ID."""
         return cls.files.get(file_id)
 
+
 # ============================================================================
 # MEMORY MANAGER
 # ============================================================================
 
 class MemoryManager:
-    """Manages conversation memory and persistence."""
+    """Manage conversation history and context."""
     
     @staticmethod
     async def create_conversation(user_id: str, title: str = None, mode: str = "thinking") -> Dict:
         """Create a new conversation."""
-        if not supabase:
-            return {"id": str(uuid.uuid4()), "title": title or "New Conversation"}
-        
-        try:
-            result = supabase.table("conversations").insert({
-                "user_id": user_id,
-                "title": title or "New Conversation",
-                "mode": mode,
-                "status": "active"
-            }).execute()
-            
-            return result.data[0] if result.data else None
-        except Exception as e:
-            logger.error(f"Create conversation error: {e}")
-            return {"id": str(uuid.uuid4()), "title": title or "New Conversation"}
+        conv_id = str(uuid.uuid4())
+        if supabase:
+            try:
+                result = supabase.table("conversations").insert({
+                    "id": conv_id, "user_id": user_id,
+                    "title": title or "New Conversation",
+                    "mode": mode, "status": "active"
+                }).execute()
+                return result.data[0] if result.data else {"id": conv_id}
+            except Exception as e:
+                logger.error(f"Create conversation error: {e}")
+        return {"id": conv_id, "user_id": user_id, "title": title or "New Conversation", "mode": mode}
     
     @staticmethod
-    async def save_message(conversation_id: str, user_id: str, role: str, content: str, 
-                          reasoning_content: str = None, tool_calls: List = None,
-                          tokens_input: int = 0, tokens_output: int = 0) -> Dict:
-        """Save a message to the conversation."""
-        if not supabase:
-            return {"id": str(uuid.uuid4())}
-        
-        try:
-            result = supabase.table("messages").insert({
-                "conversation_id": conversation_id,
-                "role": role,
-                "content": content,
-                "reasoning_content": reasoning_content,
-                "tool_calls": tool_calls or [],
-                "tokens_input": tokens_input,
-                "tokens_output": tokens_output
-            }).execute()
-            
-            # Update conversation last_message_at
-            supabase.table("conversations").update({
-                "updated_at": datetime.now().isoformat(),
-                "last_message_at": datetime.now().isoformat()
-            }).eq("id", conversation_id).execute()
-            
-            return result.data[0] if result.data else {"id": str(uuid.uuid4())}
-        except Exception as e:
-            logger.error(f"Save message error: {e}")
-            return {"id": str(uuid.uuid4())}
+    async def save_message(conversation_id: str, role: str, content: str, metadata: Dict = None):
+        """Save a message to conversation history."""
+        if supabase and conversation_id:
+            try:
+                supabase.table("messages").insert({
+                    "conversation_id": conversation_id,
+                    "role": role,
+                    "content": content[:10000],
+                    "metadata": metadata or {}
+                }).execute()
+                supabase.table("conversations").update({
+                    "updated_at": datetime.now().isoformat()
+                }).eq("id", conversation_id).execute()
+            except Exception as e:
+                logger.error(f"Save message error: {e}")
     
     @staticmethod
     async def get_conversation_messages(conversation_id: str, limit: int = 50) -> List[Dict]:
-        """Get messages for a conversation."""
-        if not supabase:
-            return []
-        
-        try:
-            result = supabase.table("messages").select("*").eq(
-                "conversation_id", conversation_id
-            ).order("created_at", desc=True).limit(limit).execute()
-            
-            return result.data or []
-        except Exception as e:
-            logger.error(f"Get messages error: {e}")
-            return []
-    
-    @staticmethod
-    async def get_conversation_context(conversation_id: str, max_messages: int = 10) -> List[Dict]:
-        """Get recent conversation context for LLM."""
-        messages = await MemoryManager.get_conversation_messages(conversation_id, max_messages)
-        
-        # Convert to LLM format
-        context = []
-        for msg in reversed(messages):  # Reverse to get chronological order
-            context.append({
-                "role": msg.get("role"),
-                "content": msg.get("content")
-            })
-        
-        return context
+        """Get conversation messages."""
+        if supabase:
+            try:
+                result = supabase.table("messages").select("*").eq(
+                    "conversation_id", conversation_id
+                ).order("created_at").limit(limit).execute()
+                return result.data or []
+            except Exception as e:
+                logger.error(f"Get messages error: {e}")
+        return []
 
 
 # ============================================================================
@@ -1389,907 +1661,492 @@ class MemoryManager:
 # ============================================================================
 
 class HybridLLMRouter:
-    """Routes requests between Kimi-2.5 and Grok based on task analysis."""
+    """Route between Kimi and Grok based on mode and task."""
     
     @staticmethod
-    def analyze_intent(query: str) -> Dict:
-        """Analyze query to determine best model and approach."""
-        query_lower = query.lower()
+    async def chat(messages: List[Dict], mode: ChatMode = ChatMode.THINKING) -> AsyncGenerator[str, None]:
+        """Route chat to appropriate LLM."""
+        config = MODE_CONFIGS.get(mode, MODE_CONFIGS[ChatMode.THINKING])
         
-        intent = {
-            "requires_realtime": False,
-            "requires_reasoning": False,
-            "requires_code": False,
-            "requires_file": False,
-            "is_simple": False
-        }
+        # Build system message with real-time data enforcement
+        current_date = get_current_date_str()
+        current_year = get_current_year()
         
-        # Real-time indicators
-        realtime_keywords = ['latest', 'recent', 'news', 'today', 'yesterday', '2026', '2025', 'current', 'update']
-        if any(kw in query_lower for kw in realtime_keywords):
-            intent["requires_realtime"] = True
+        system_enhancement = f"""
+CRITICAL CONTEXT: Today is {current_date}. The current year is {current_year}.
+- ALL data, statistics, and information you provide MUST reflect {current_year} current reality
+- Do NOT use outdated data from previous years unless the user specifically asks for historical data
+- If you are unsure about current {current_year} data, clearly state that and provide the most recent data you have with the year noted
+- Be specific with numbers, dates, and sources
+"""
         
-        # Reasoning indicators
-        reasoning_keywords = ['analyze', 'explain', 'why', 'how to', 'compare', 'evaluate', 'assess']
-        if any(kw in query_lower for kw in reasoning_keywords):
-            intent["requires_reasoning"] = True
-        
-        # Code indicators
-        code_keywords = ['code', 'program', 'script', 'function', 'python', 'javascript', 'sql']
-        if any(kw in query_lower for kw in code_keywords):
-            intent["requires_code"] = True
-        
-        # File indicators
-        file_keywords = ['excel', 'pdf', 'word', 'document', 'spreadsheet', 'presentation', 'file']
-        if any(kw in query_lower for kw in file_keywords):
-            intent["requires_file"] = True
-        
-        # Simple query indicators
-        simple_keywords = ['hello', 'hi', 'hey', 'thanks', 'ok', 'yes', 'no']
-        if query_lower.strip() in simple_keywords or len(query_lower.strip()) < 10:
-            intent["is_simple"] = True
-        
-        return intent
-    
-    @staticmethod
-    async def chat(messages: List[Dict], mode: ChatMode, stream: bool = True) -> AsyncGenerator[str, None]:
-        """Chat with hybrid routing."""
-        config = MODE_CONFIGS[mode]
-        
-        # Get last user message for intent analysis
-        last_user_msg = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                last_user_msg = m.get("content", "")
-                break
-        
-        intent = HybridLLMRouter.analyze_intent(last_user_msg)
-        
-        # Determine primary model
-        if config["primary_model"] == "hybrid":
-            if intent["requires_realtime"] and grok_client:
-                primary_model = "hybrid"
+        # Inject system enhancement into messages
+        enhanced_messages = []
+        has_system = False
+        for msg in messages:
+            if isinstance(msg, dict):
+                if msg.get("role") == "system":
+                    enhanced_messages.append({
+                        "role": "system",
+                        "content": msg["content"] + "\n" + system_enhancement
+                    })
+                    has_system = True
+                else:
+                    enhanced_messages.append(msg)
             else:
-                primary_model = "kimi"
+                enhanced_messages.append({"role": msg.role, "content": msg.content})
+        
+        if not has_system:
+            enhanced_messages.insert(0, {"role": "system", "content": system_enhancement})
+        
+        primary = config["primary_model"]
+        
+        if primary == "grok" and grok_client:
+            async for chunk in HybridLLMRouter._stream_grok(enhanced_messages, config):
+                yield chunk
+        elif primary == "kimi" and kimi_client:
+            async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config):
+                yield chunk
+        elif primary == "hybrid":
+            # Use Grok for speed, then Kimi for depth
+            if grok_client:
+                async for chunk in HybridLLMRouter._stream_grok(enhanced_messages, config):
+                    yield chunk
+            elif kimi_client:
+                async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config):
+                    yield chunk
         else:
-            primary_model = config["primary_model"]
-        
-        # Route to appropriate handler
-        if primary_model == "kimi":
-            async for event in HybridLLMRouter._chat_kimi(messages, config, stream):
-                yield event
-        elif primary_model == "grok":
-            async for event in HybridLLMRouter._chat_grok(messages, config, stream):
-                yield event
-        elif primary_model == "hybrid":
-            async for event in HybridLLMRouter._chat_hybrid(messages, config, stream, intent):
-                yield event
+            # Fallback
+            if kimi_client:
+                async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config):
+                    yield chunk
+            elif grok_client:
+                async for chunk in HybridLLMRouter._stream_grok(enhanced_messages, config):
+                    yield chunk
     
     @staticmethod
-    async def _chat_kimi(messages: List[Dict], config: Dict, stream: bool) -> AsyncGenerator[str, None]:
-        """Chat with Kimi-2.5."""
-        if not kimi_client:
-            yield event("error", {"message": "Kimi client not configured"})
-            return
-        
+    async def _stream_kimi(messages: List[Dict], config: Dict) -> AsyncGenerator[str, None]:
+        """Stream from Kimi-2.5."""
         try:
-            # Kimi K2.5 only allows temperature=1
-            response = kimi_client.chat.completions.create(
+            import functools
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, functools.partial(
+                kimi_client.chat.completions.create,
                 model="kimi-k2.5",
                 messages=messages,
-                temperature=1,
-                max_tokens=config["max_tokens"],
-                stream=stream
-            )
-            
-            if stream:
-                for chunk in response:
-                    delta = chunk.choices[0].delta
-                    content = getattr(delta, 'content', None)
-                    reasoning = getattr(delta, 'reasoning_content', None)
-                    
-                    if reasoning and config.get("show_reasoning"):
-                        yield event("reasoning", {"chunk": reasoning})
-                    if content:
-                        yield event("content", {"chunk": content})
-            else:
-                msg = response.choices[0].message
-                reasoning = getattr(msg, 'reasoning_content', None)
-                if reasoning and config.get("show_reasoning"):
-                    yield event("reasoning", {"chunk": reasoning})
-                content = msg.content
-                yield event("content", {"chunk": content})
-                
-        except Exception as e:
-            logger.error(f"Kimi chat error: {e}")
-            yield event("error", {"message": str(e)})
-    
-    @staticmethod
-    async def _chat_grok(messages: List[Dict], config: Dict, stream: bool) -> AsyncGenerator[str, None]:
-        """Chat with Grok."""
-        if not grok_client:
-            yield event("error", {"message": "Grok client not configured"})
-            return
-        
-        try:
-            response = grok_client.chat.completions.create(
-                model="grok-4-1-fast-reasoning",
-                messages=messages,
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"],
-                stream=stream
-            )
-            
-            if stream:
-                for chunk in response:
-                    delta = chunk.choices[0].delta
-                    content = getattr(delta, 'content', None)
-                    reasoning = getattr(delta, 'reasoning', None) or getattr(delta, 'reasoning_content', None)
-                    
-                    if reasoning and config.get("show_reasoning"):
-                        yield event("reasoning", {"chunk": reasoning})
-                    if content:
-                        yield event("content", {"chunk": content})
-            else:
-                msg = response.choices[0].message
-                reasoning = getattr(msg, 'reasoning', None) or getattr(msg, 'reasoning_content', None)
-                if reasoning and config.get("show_reasoning"):
-                    yield event("reasoning", {"chunk": reasoning})
-                content = msg.content
-                yield event("content", {"chunk": content})
-                
-        except Exception as e:
-            logger.error(f"Grok chat error: {e}")
-            yield event("error", {"message": str(e)})
-    
-    @staticmethod
-    async def _chat_hybrid(messages: List[Dict], config: Dict, stream: bool, intent: Dict) -> AsyncGenerator[str, None]:
-        """Chat with hybrid approach - Grok for search, Kimi for synthesis."""
-        
-        # Step 1: Analyze the query
-        last_user_msg = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                last_user_msg = m.get("content", "")
-                break
-        
-        query_preview = last_user_msg[:80] + ('...' if len(last_user_msg) > 80 else '')
-        
-        yield event("thinking", {"thought": f"Understanding the request: \"{query_preview}\". Let me find the best approach."})
-        await asyncio.sleep(0.2)
-        yield event("thinking", {"thought": "Searching across all available databases in parallel..."})
-        
-        search_results = await SearchLayer.search(last_user_msg, sources=["web", "news", "social"])
-        
-        sources = search_results.get("structured_data", {}).get("sources", [])
-        source_count = len(sources)
-        
-        yield event("thinking", {"thought": f"Found {source_count} relevant sources. Analyzing the data..."})
-        
-        # Send search sources
-        if sources:
-            yield event("search_sources", {"sources": sources})
-        
-        # Step 3: Synthesize with Kimi
-        yield event("thinking", {"thought": "Synthesizing findings and composing a structured response..."})
-        
-        # Build context with search results
-        search_context = ""
-        for source, data in search_results.get("results", {}).items():
-            if "answer" in data:
-                search_context += f"\n[{source.upper()}] {data['answer'][:500]}\n"
-        
-        enriched_messages = messages.copy()
-        enriched_messages.insert(0, {
-            "role": "system",
-            "content": f"Use this real-time search data to answer:\n{search_context}"
-        })
-        
-        # Stream Kimi response
-        if not kimi_client:
-            yield event("error", {"message": "Kimi client not configured"})
-            return
-        
-        try:
-            # Kimi K2.5 only allows temperature=1
-            response = kimi_client.chat.completions.create(
-                model="kimi-k2.5",
-                messages=enriched_messages,
-                temperature=1,
-                max_tokens=config["max_tokens"],
+                temperature=1,  # Required for Kimi
+                max_tokens=config.get("max_tokens", 4096),
                 stream=True
-            )
-            
+            ))
             for chunk in response:
-                delta = chunk.choices[0].delta
-                content = getattr(delta, 'content', None)
-                
-                if content:
-                    yield event("content", {"chunk": content})
-            
-            yield event("thinking", {"thought": "Response complete."})
-            
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield event("content", {"chunk": chunk.choices[0].delta.content})
+                if hasattr(chunk.choices[0].delta, 'reasoning_content') and chunk.choices[0].delta.reasoning_content:
+                    yield event("reasoning", {"chunk": chunk.choices[0].delta.reasoning_content})
         except Exception as e:
-            logger.error(f"Hybrid synthesis error: {e}")
+            logger.error(f"Kimi streaming error: {e}")
             yield event("error", {"message": str(e)})
+    
+    @staticmethod
+    async def _stream_grok(messages: List[Dict], config: Dict) -> AsyncGenerator[str, None]:
+        """Stream from Grok."""
+        try:
+            import functools
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, functools.partial(
+                grok_client.chat.completions.create,
+                model="grok-3-mini",
+                messages=messages,
+                temperature=config.get("temperature", 0.7),
+                max_tokens=config.get("max_tokens", 4096),
+                stream=True
+            ))
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield event("content", {"chunk": chunk.choices[0].delta.content})
+        except Exception as e:
+            logger.error(f"Grok streaming error: {e}")
+            yield event("error", {"message": str(e)})
+
 
 # ============================================================================
 # AGENT ORCHESTRATOR
 # ============================================================================
 
 class AgentOrchestrator:
-    """Orchestrates agent swarm execution."""
-    
-    AGENT_TYPES = {
-        "research": "Expert at finding and analyzing information",
-        "analysis": "Expert at data analysis and pattern recognition",
-        "synthesis": "Expert at combining information into coherent output",
-        "file": "Expert at generating professional files",
-        "code": "Expert at writing and executing code",
-        "critique": "Expert at reviewing and improving outputs"
-    }
+    """Multi-agent execution system."""
     
     @staticmethod
-    async def execute_agent(task: str, agent_type: str, context: Dict = None) -> Dict:
-        """Execute a single agent."""
-        if not kimi_client:
-            return {"error": "Kimi client not configured"}
+    async def execute_agent(task: str, agent_type: str = "research", context: Dict = None) -> Dict:
+        """Execute a single agent task."""
+        client = kimi_client or grok_client
+        if not client:
+            return {"error": "No LLM client available"}
         
-        agent_desc = AgentOrchestrator.AGENT_TYPES.get(agent_type, "AI Assistant")
+        model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+        temp = 1 if client == kimi_client else 0.5
+        current_date = get_current_date_str()
         
-        messages = [
-            {"role": "system", "content": f"You are a {agent_desc}. Be thorough and specific."},
-            {"role": "user", "content": f"Task: {task}\nContext: {json.dumps(context or {})}"}
-        ]
+        system_prompts = {
+            "research": f"You are a research agent. Today is {current_date}. Analyze the topic thoroughly with current {get_current_year()} data.",
+            "analysis": f"You are an analysis agent. Today is {current_date}. Provide deep analytical insights with current data.",
+            "creative": f"You are a creative agent. Today is {current_date}. Generate innovative content.",
+            "code": f"You are a code agent. Today is {current_date}. Write clean, efficient code.",
+            "data": f"You are a data agent. Today is {current_date}. Process and structure data accurately."
+        }
         
         try:
-            response = kimi_client.chat.completions.create(
-                model="kimi-k2.5",
-                messages=messages,
-                temperature=1,
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompts.get(agent_type, system_prompts["research"])},
+                    {"role": "user", "content": task}
+                ],
+                temperature=temp,
                 max_tokens=4096
             )
-            
-            return {
-                "agent_type": agent_type,
-                "task": task,
-                "output": response.choices[0].message.content,
-                "tokens_used": response.usage.total_tokens if response.usage else 0,
-                "success": True
-            }
+            return {"agent_type": agent_type, "result": response.choices[0].message.content, "model": model}
         except Exception as e:
-            logger.error(f"Agent execution error: {e}")
-            return {"error": str(e), "success": False}
+            return {"error": str(e)}
     
     @staticmethod
     async def execute_swarm(task: str, num_agents: int = 5, context: Dict = None) -> AsyncGenerator[str, None]:
         """Execute multiple agents in parallel."""
+        yield event("swarm_start", {"task": task, "num_agents": num_agents})
         
-        # Determine agent types based on task
-        agent_types = ["research", "analysis", "synthesis"]
-        if num_agents > 3:
-            agent_types.extend(["critique"] * (num_agents - 3))
+        agent_types = ["research", "analysis", "creative", "data", "research"][:num_agents]
+        tasks = [AgentOrchestrator.execute_agent(task, at, context) for at in agent_types]
         
-        # Create subtasks
-        subtasks = []
-        for i, agent_type in enumerate(agent_types[:num_agents]):
-            subtask = f"{task} (Focus area {i+1}: {agent_type})"
-            subtasks.append((subtask, agent_type))
-        
-        # Execute in parallel
-        yield event("thinking", {"thought": f"Deploying {len(subtasks)} specialized agents to work in parallel..."})
-        
-        tasks = [AgentOrchestrator.execute_agent(st, at, context) for st, at in subtasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        yield event("thinking", {"thought": f"All agents completed. {len([r for r in results if isinstance(r, dict) and r.get('success')])} returned results."})
-        
-        # Filter successful results
-        successful = [r for r in results if isinstance(r, dict) and r.get("success")]
+        all_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                yield event("agent_error", {"agent_id": i, "error": str(result)})
+            else:
+                yield event("agent_result", {"agent_id": i, "result": result})
+                all_results.append(result)
         
         # Synthesize results
-        yield event("thinking", {"thought": "Synthesizing all agent outputs into a unified response..."})
-        
-        synthesis = await AgentOrchestrator._synthesize_results(successful, task)
-        
-        yield event("thinking", {"thought": "Synthesis complete. Delivering the combined analysis."})
-        
-        yield event("complete", {
-            "task": task,
-            "agents_deployed": len(subtasks),
-            "agents_successful": len(successful),
-            "agent_results": successful,
-            "synthesis": synthesis,
-            "success": True
-        })
-    
-    @staticmethod
-    async def _synthesize_results(results: List[Dict], original_task: str) -> str:
-        """Synthesize multiple agent outputs."""
-        if not results:
-            return "No results to synthesize."
-        
-        if not kimi_client:
-            return "\n\n".join([r.get("output", "") for r in results])
-        
-        # Build synthesis input
-        synthesis_input = "\n\n".join([
-            f"### {r['agent_type'].upper()}\n{r['output'][:1000]}"
-            for r in results
-        ])
-        
-        messages = [
-            {"role": "system", "content": "You are a synthesis expert. Combine these analyses into a coherent response."},
-            {"role": "user", "content": f"Task: {original_task}\n\nAgent Analyses:\n{synthesis_input}\n\nProvide a well-structured final response:"}
-        ]
-        
-        try:
-            response = kimi_client.chat.completions.create(
-                model="kimi-k2.5",
-                messages=messages,
-                temperature=1,
-                max_tokens=4096
-            )
+        if all_results:
+            synthesis_parts = [r.get("result", "") for r in all_results if isinstance(r, dict)]
+            combined = "\n\n".join(synthesis_parts[:3])
             
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Synthesis error: {e}")
-            return "\n\n".join([r.get("output", "") for r in results])
+            client = kimi_client or grok_client
+            if client:
+                model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+                temp = 1 if client == kimi_client else 0.5
+                try:
+                    synth = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": f"Synthesize these agent results into a comprehensive response. Today is {get_current_date_str()}."},
+                            {"role": "user", "content": f"Task: {task}\n\nAgent results:\n{combined[:4000]}"}
+                        ],
+                        temperature=temp,
+                        max_tokens=4096
+                    )
+                    yield event("synthesis", {"content": synth.choices[0].message.content})
+                except Exception as e:
+                    yield event("synthesis", {"content": combined[:2000]})
+        
+        yield event("swarm_complete", {"num_results": len(all_results)})
 
 
 # ============================================================================
-# MAIN CHAT HANDLER
+# CHAT HANDLER - Main orchestration with quality checks
 # ============================================================================
 
 class ChatHandler:
-    """Main chat handler with all modes and features."""
+    """Main chat handler with search, synthesis, file generation, and quality checks."""
     
     @staticmethod
     async def handle_chat(request: ChatRequest) -> AsyncGenerator[str, None]:
-        """Handle chat request with all modes."""
+        """Handle chat with full pipeline: search → synthesize → files → conclusion."""
         
-        user_id = request.user_id or "anonymous"
-        conversation_id = request.conversation_id
-        mode = request.mode
-        
-        # Create or get conversation
-        if not conversation_id:
-            conv = await MemoryManager.create_conversation(user_id, mode=mode.value)
-            conversation_id = conv.get("id")
-            yield event("conversation_created", {"id": conversation_id, "mode": mode.value})
-        
-        # Get conversation context
-        context_messages = await MemoryManager.get_conversation_context(conversation_id)
-        
-        # Combine with new messages
-        all_messages = context_messages + [{"role": m.role, "content": m.content} for m in request.messages]
-        
-        # Get last user message
-        last_user_msg = ""
-        for m in reversed(all_messages):
-            if m.get("role") == "user":
-                last_user_msg = m.get("content", "")
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        user_message = ""
+        for msg in reversed(request.messages):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            if msg.role == "user" and content:
+                user_message = content
                 break
         
-        # Check for file generation intent
-        file_type = ChatHandler._detect_file_intent(last_user_msg)
+        if not user_message:
+            yield event("error", {"message": "No user message found"})
+            return
         
-        # Route based on mode
-        if mode == ChatMode.SWARM:
-            async for e in ChatHandler._handle_swarm_mode(all_messages, last_user_msg, user_id, conversation_id):
-                yield e
-        elif file_type:
-            async for e in ChatHandler._handle_file_generation(last_user_msg, file_type, user_id, conversation_id, mode):
-                yield e
-        elif mode == ChatMode.RESEARCH or mode == ChatMode.HYBRID:
-            async for e in ChatHandler._handle_hybrid_mode(all_messages, last_user_msg, user_id, conversation_id):
-                yield e
-        else:
-            async for e in ChatHandler._handle_standard_mode(all_messages, mode, user_id, conversation_id):
-                yield e
-    
-    @staticmethod
-    def _detect_file_intent(query: str) -> Optional[str]:
-        """Detect if user wants to generate a file."""
-        query_lower = query.lower()
+        yield event("start", {"conversation_id": conversation_id, "mode": request.mode.value})
         
-        file_types = {
-            "excel": ["excel", "spreadsheet", "xlsx", "csv"],
-            "word": ["word", "docx", "document"],
-            "pdf": ["pdf"],
-            "pptx": ["powerpoint", "presentation", "pptx", "slide"]
-        }
+        # Save user message
+        await MemoryManager.save_message(conversation_id, "user", user_message)
         
-        for file_type, keywords in file_types.items():
-            if any(kw in query_lower for kw in keywords):
-                return file_type
+        # Determine if search is needed
+        needs_search = ChatHandler._needs_search(user_message)
         
-        return None
-    
-    @staticmethod
-    async def _handle_standard_mode(messages: List[Dict], mode: ChatMode, user_id: str, conversation_id: str) -> AsyncGenerator[str, None]:
-        """Handle standard chat modes (instant, thinking, agent, code)."""
+        search_results = {}
+        structured_data = {"data_points": [], "sources": []}
         
-        config = MODE_CONFIGS[mode]
-        full_content = ""
-        search_results = None
-        
-        # Extract last user message
-        last_user_msg = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                content = m.get("content", "")
-                last_user_msg = content if isinstance(content, str) else str(content)
-                break
-        
-        # Determine if this is a simple greeting
-        simple_queries = ['hello', 'hi', 'hey', 'thanks', 'ok', 'yes', 'no', 'bye']
-        is_simple = last_user_msg.strip().lower() in simple_queries or len(last_user_msg.strip()) < 8
-        
-        # Generate ChatGPT-style reasoning thoughts based on the query
-        query_short = last_user_msg[:100]
-        
-        # Thought 1: Understanding the request
-        yield event("thinking", {"thought": f"The user wants to know about {query_short.lower().rstrip('.')}. Let me break this down and figure out what information would be most valuable."})
-        await asyncio.sleep(0.3)
-        
-        # Determine query type for contextual thinking
-        query_lower = last_user_msg.lower()
-        if any(kw in query_lower for kw in ['trend', 'market', 'forecast', 'industry', 'brand']):
-            yield event("thinking", {"thought": "This is a market analysis question. I need current market data, revenue figures, growth rates, and competitive positioning. Let me search multiple databases for the latest 2026 numbers."})
-        elif any(kw in query_lower for kw in ['compare', 'vs', 'difference', 'between']):
-            yield event("thinking", {"thought": "This is a comparison request. I need to find data points for both sides, identify key differentiators, and present a balanced analysis with specific metrics."})
-        elif any(kw in query_lower for kw in ['how to', 'guide', 'steps', 'tutorial']):
-            yield event("thinking", {"thought": "The user needs practical guidance. I should find the most current best practices, step-by-step approaches, and real-world examples."})
-        elif any(kw in query_lower for kw in ['list', 'top', 'best', 'recommend']):
-            yield event("thinking", {"thought": "The user wants a curated list. I need to find ranked data with specific criteria — not just names but supporting evidence for why each item qualifies."})
-        else:
-            yield event("thinking", {"thought": "Let me identify the key topics here and determine what data sources would give the most comprehensive answer."})
-        await asyncio.sleep(0.3)
-        
-        # Step 2: ALWAYS search for real-time data (unless simple greeting)
-        if not is_simple:
-            yield event("thinking", {"thought": "Searching across multiple databases in parallel — web, news, academic, social media, and video sources..."})
+        if needs_search:
+            yield event("status", {"message": "Searching across multiple sources..."})
             
-            try:
-                search_results = await SearchLayer.search(last_user_msg, sources=["web", "news"])
-            except Exception as e:
-                logger.error(f"Search error in standard mode: {e}")
-                search_results = None
+            search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
+            structured_data = search_results.get("structured_data", {})
             
-            if search_results:
-                sources = search_results.get("structured_data", {}).get("sources", [])
-                source_count = len(sources)
-                if sources:
-                    yield event("search_sources", {"sources": sources})
-                
-                # Generate contextual thinking about what was found
-                source_domains = set()
-                for s in sources[:10]:
-                    url = s.get('url', '')
-                    if url:
-                        try:
-                            from urllib.parse import urlparse
-                            domain = urlparse(url).netloc.replace('www.', '')
-                            source_domains.add(domain.split('.')[0].title())
-                        except:
-                            pass
-                top_domains = ', '.join(list(source_domains)[:4])
-                yield event("thinking", {"thought": f"Found {source_count} relevant sources including data from {top_domains}. Now analyzing the key findings..."})
-                await asyncio.sleep(0.2)
-                
-                # Extract key data points for thinking display
-                search_context = ""
-                key_findings = []
-                for source, data in search_results.get("results", {}).items():
-                    if isinstance(data, dict) and "answer" in data:
-                        answer = data['answer'][:500]
-                        search_context += f"\n[{source.upper()}] {answer}\n"
-                        # Extract a key finding for thinking display
-                        sentences = answer.split('.')
-                        for s in sentences[:3]:
-                            s = s.strip()
-                            if len(s) > 40 and any(c.isdigit() for c in s):
-                                key_findings.append(s)
-                                break
-                
-                if key_findings:
-                    yield event("thinking", {"thought": f"Key data point: {key_findings[0][:150]}. Let me cross-reference this with other sources..."})
-                    await asyncio.sleep(0.2)
-                
-                yield event("thinking", {"thought": f"Cross-referencing {source_count} sources for accuracy. Checking for conflicting data and identifying the most reliable figures..."})
-                await asyncio.sleep(0.2)
-                
-                if search_context:
-                    messages.insert(0, {
-                        "role": "system",
-                        "content": f"""You are McLeuker AI. Think deeply about the user's question first, then deliver a well-reasoned response.
+            # Emit sources with REAL names (not API tool names)
+            sources_for_ui = clean_sources_for_output(structured_data.get("sources", []))
+            if sources_for_ui:
+                yield event("search_sources", {"sources": sources_for_ui})
+        
+        # Build context for LLM
+        search_context = ""
+        if needs_search:
+            for dp in structured_data.get("data_points", [])[:15]:
+                search_context += f"- {dp.get('title', '')}: {dp.get('description', '')[:200]}\n"
+            for source_name in ["perplexity", "grok", "google", "exa", "bing", "firecrawl"]:
+                if source_name in search_results.get("results", {}):
+                    answer = search_results["results"][source_name].get("answer", "")
+                    if answer:
+                        search_context += f"\n{answer[:1500]}\n"
+        
+        # Build messages for LLM
+        current_date = get_current_date_str()
+        current_year = get_current_year()
+        
+        system_msg = f"""You are McLeuker AI, a professional research and analysis assistant. Today is {current_date}.
 
-APPROACH:
-- Start by reasoning about what the user is really asking and what matters most
-- Structure your response naturally based on the topic — do NOT follow a rigid template
-- Use ## headers to organize sections logically, but let the content dictate the structure
-- For comparisons, use tables. For analysis, use narrative. For lists, use ranked items.
-- Every section should explain WHY something matters, not just WHAT it is
+CRITICAL RULES:
+1. ALL data must reflect {current_year} current reality. Do NOT provide outdated data.
+2. Be specific with numbers, percentages, dates, and sources.
+3. Structure your response with clear headers (##), bullet points, and tables where appropriate.
+4. Provide actionable insights and analysis, not just facts.
+5. If search data is available, integrate it naturally into your response.
+6. Use markdown formatting for readability.
+7. End with a brief insight or recommendation section.
 
-QUALITY RULES:
-- Include specific numbers, dates, percentages, and names from the search data
-- Use **bold** for key figures and important terms
-- NEVER use generic filler like "there are many factors" or "it depends"
-- Show cause-and-effect reasoning: explain relationships between data points
-- If data conflicts, say which source is more reliable and why
-- Keep sections tight — no excessive spacing or padding between paragraphs
-- Write in a professional but conversational tone, like a senior analyst briefing a colleague
-- Do NOT include source citations like [1], [2], [3] or "Sources: ..." in your text — sources are shown separately
-- Do NOT mention "Perplexity", "Grok", "Exa" or any search engine names in your response
-
-Search Data:
-{search_context}"""
-                    })
-            else:
-                source_count = 0
+{f'Search data available:{chr(10)}{search_context[:4000]}' if search_context else ''}"""
+        
+        llm_messages = [{"role": "system", "content": system_msg}]
+        
+        # Add conversation history
+        for msg in request.messages:
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            if msg.role in ("user", "assistant"):
+                llm_messages.append({"role": msg.role, "content": content})
+        
+        # Stream LLM response
+        yield event("status", {"message": "Generating response..."})
+        
+        full_response = ""
+        async for evt in HybridLLMRouter.chat(llm_messages, request.mode):
+            yield evt
+            evt_data = json.loads(evt.replace("data: ", "").strip())
+            if evt_data.get("type") == "content":
+                full_response += evt_data.get("data", {}).get("chunk", "")
+        
+        # Detect if file generation is needed
+        file_types_needed = ChatHandler._detect_file_needs(user_message)
+        
+        if file_types_needed:
+            yield event("status", {"message": f"Generating {', '.join(file_types_needed)} file(s)..."})
             
-            yield event("thinking", {"thought": "Now synthesizing all findings into a comprehensive, well-structured response..."})
-            await asyncio.sleep(0.2)
-        
-        # Step 3: Generate response
-        yield event("thinking", {"thought": "Composing the final analysis with specific data points, reasoning, and actionable insights..."})
-        await asyncio.sleep(0.1)
-        # Composing response now
-        
-        try:
-            async for e in HybridLLMRouter.chat(messages, mode, stream=True):
+            for file_type in file_types_needed:
                 try:
-                    parsed = json.loads(e.replace("data: ", "").strip())
-                    if parsed.get("type") == "content":
-                        chunk = parsed.get("data", {}).get("chunk", "")
-                        full_content += chunk
-                except (json.JSONDecodeError, Exception):
-                    pass
-                yield e
-        except Exception as e:
-            logger.error(f"LLM streaming error: {e}")
-            # Retry with fallback model — never stay silent
-            yield event("thinking", {"thought": "Primary model encountered an issue. Switching to backup model..."})
-            try:
-                fallback_mode = "instant" if mode != "instant" else "thinking"
-                async for e2 in HybridLLMRouter.chat(messages, fallback_mode, stream=True):
-                    try:
-                        parsed = json.loads(e2.replace("data: ", "").strip())
-                        if parsed.get("type") == "content":
-                            chunk = parsed.get("data", {}).get("chunk", "")
-                            full_content += chunk
-                    except (json.JSONDecodeError, Exception):
-                        pass
-                    yield e2
-                yield event("thinking", {"thought": "Recovered successfully with backup model."})
-            except Exception as e2:
-                logger.error(f"Fallback LLM also failed: {e2}")
-                error_msg = "I encountered an issue but I'm working on it. Please try your question again."
-                yield event("content", {"chunk": error_msg})
-                full_content = error_msg
+                    # Generate content for documents using LLM
+                    content_for_file = full_response
+                    if file_type != "excel" and len(full_response) < 500:
+                        content_for_file = await ChatHandler._generate_content(user_message, structured_data)
+                    
+                    full_data_for_excel = {
+                        **structured_data,
+                        "results": search_results.get("results", {})
+                    }
+                    
+                    if file_type == "excel":
+                        result = await FileEngine.generate_excel(user_message, full_data_for_excel, request.user_id)
+                    elif file_type == "word":
+                        result = await FileEngine.generate_word(user_message, content_for_file, request.user_id)
+                    elif file_type == "pdf":
+                        result = await FileEngine.generate_pdf(user_message, content_for_file, request.user_id)
+                    elif file_type == "pptx":
+                        result = await FileEngine.generate_pptx(user_message, content_for_file, request.user_id)
+                    else:
+                        continue
+                    
+                    if result.get("success"):
+                        # Quality double-check
+                        quality_ok = await ChatHandler._quality_check(file_type, user_message, result)
+                        
+                        yield event("download", {
+                            "file_id": result["file_id"],
+                            "filename": result["filename"],
+                            "download_url": result["download_url"],
+                            "file_type": file_type,
+                            "quality_verified": quality_ok
+                        })
+                except Exception as e:
+                    logger.error(f"File generation error for {file_type}: {e}")
+                    yield event("file_error", {"file_type": file_type, "error": str(e)})
         
-        yield event("thinking", {"thought": "Analysis complete. Delivering the response with structured reasoning and specific data points."})
+        # Generate Manus-style conclusion
+        conclusion = await ChatHandler._generate_conclusion(user_message, full_response, file_types_needed, structured_data)
+        if conclusion:
+            yield event("conclusion", {"content": conclusion})
         
-        # Save to memory
-        try:
-            await MemoryManager.save_message(
-                conversation_id=conversation_id,
-                user_id=user_id,
-                role="assistant",
-                content=full_content,
-                tokens_output=len(full_content.split())
-            )
-        except Exception as e:
-            logger.error(f"Memory save error: {e}")
+        # Save assistant message
+        await MemoryManager.save_message(conversation_id, "assistant", full_response[:5000])
         
         # Generate follow-up questions
+        follow_ups = ChatHandler._generate_follow_ups(user_message, full_response)
+        yield event("follow_up", {"questions": follow_ups})
+        
+        yield event("complete", {
+            "content": full_response[:500],
+            "conversation_id": conversation_id,
+            "follow_up_questions": follow_ups
+        })
+    
+    @staticmethod
+    def _needs_search(query: str) -> bool:
+        """Determine if a query needs web search."""
+        no_search_patterns = [
+            r'^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|bye)',
+            r'^(how are you|what can you do|who are you)',
+            r'^(help|menu|settings|preferences)',
+        ]
+        query_lower = query.lower().strip()
+        for pattern in no_search_patterns:
+            if re.match(pattern, query_lower):
+                return False
+        return len(query_lower) > 10
+    
+    @staticmethod
+    def _detect_file_needs(query: str) -> List[str]:
+        """Detect which file types the user needs based on their query."""
+        query_lower = query.lower()
+        file_types = []
+        
+        # Explicit file type requests
+        if any(w in query_lower for w in ['excel', 'spreadsheet', 'xlsx', '.xlsx']):
+            file_types.append("excel")
+        if any(w in query_lower for w in ['word', 'document', 'docx', '.docx']):
+            file_types.append("word")
+        if any(w in query_lower for w in ['pdf', '.pdf']):
+            file_types.append("pdf")
+        if any(w in query_lower for w in ['powerpoint', 'pptx', 'presentation', 'slides', 'ppt', '.pptx']):
+            file_types.append("pptx")
+        if any(w in query_lower for w in ['csv', '.csv']):
+            file_types.append("csv")
+        
+        # Multi-file detection
+        if any(w in query_lower for w in ['all formats', 'all files', 'multiple formats', 'every format']):
+            file_types = ["excel", "word", "pdf", "pptx"]
+        
+        # Implicit: "generate", "create", "make" + "report/analysis/file"
+        if not file_types and any(w in query_lower for w in ['generate', 'create', 'make', 'build', 'export']):
+            if any(w in query_lower for w in ['report', 'analysis', 'file', 'data']):
+                file_types.append("excel")
+        
+        return file_types
+    
+    @staticmethod
+    async def _quality_check(file_type: str, original_query: str, file_result: Dict) -> bool:
+        """LLM quality double-check on generated files."""
+        client = grok_client or kimi_client
+        if not client:
+            return True
+        
         try:
-            follow_ups = ChatHandler._generate_follow_ups(last_user_msg, full_content)
+            model = "grok-3-mini" if client == grok_client else "kimi-k2.5"
+            temp = 0.3 if client == grok_client else 1
+            
+            check_prompt = f"""You are a quality assurance agent. Evaluate if this file generation was successful:
+
+User requested: {original_query[:200]}
+File type: {file_type}
+File generated: {file_result.get('filename', 'unknown')}
+Row count: {file_result.get('row_count', 'N/A')}
+
+Quick check - does this seem like a proper, complete response to the user's request?
+Answer ONLY "PASS" or "FAIL" followed by a brief reason."""
+            
+            result = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": check_prompt}],
+                temperature=temp,
+                max_tokens=100
+            )
+            
+            answer = result.choices[0].message.content.strip().upper()
+            if "FAIL" in answer:
+                logger.warning(f"Quality check FAILED for {file_type}: {answer}")
+                return False
+            return True
         except Exception as e:
-            logger.error(f"Follow-up generation error: {e}")
-            follow_ups = []
-        
-        if follow_ups:
-            yield event("follow_up", {"questions": follow_ups})
-        
-        # Complete
-        yield event("complete", {
-            "content": full_content,
-            "conversation_id": conversation_id,
-            "sources": search_results.get("structured_data", {}).get("sources", []) if search_results else [],
-            "follow_up_questions": follow_ups
-        })
+            logger.error(f"Quality check error: {e}")
+            return True  # Don't block on QA errors
     
     @staticmethod
-    async def _handle_hybrid_mode(messages: List[Dict], query: str, user_id: str, conversation_id: str) -> AsyncGenerator[str, None]:
-        """Handle hybrid mode with Kimi + Grok."""
+    async def _generate_conclusion(query: str, response: str, file_types: List[str], structured_data: Dict) -> str:
+        """Generate Manus-style structured conclusion with reasoning and insights."""
+        client = grok_client or kimi_client
+        if not client:
+            return ""
         
-        full_content = ""
-        
-        # Search with multiple sources
-        yield event("thinking", {"thought": "Searching across all databases in parallel..."})
-        
-        search_results = await SearchLayer.search(query, sources=["web", "news", "social"])
-        
-        source_count_h = len(search_results.get('structured_data', {}).get('sources', []))
-        yield event("thinking", {"thought": f"Found {source_count_h} sources. Synthesizing insights..."})
-        
-        sources = search_results.get("structured_data", {}).get("sources", [])
-        if sources:
-            yield event("search_sources", {"sources": sources})
-        
-        # Synthesize with Kimi
-        yield event("thinking", {"thought": "Reasoning through the data and composing response..."})
-        
-        search_context = ""
-        for source, data in search_results.get("results", {}).items():
-            if "answer" in data:
-                search_context += f"\n[{source.upper()}] {data['answer'][:500]}\n"
-        
-        enriched_messages = messages.copy()
-        enriched_messages.insert(0, {
-            "role": "system",
-            "content": f"You are a research assistant. Use this data:\n{search_context}"
-        })
-        
-        async for e in HybridLLMRouter._chat_kimi(enriched_messages, MODE_CONFIGS[ChatMode.RESEARCH], True):
-            event_data = json.loads(e.replace("data: ", ""))
-            if event_data.get("type") == "content":
-                full_content += event_data.get("data", {}).get("chunk", "")
-            yield e
-        
-        yield event("thinking", {"thought": "Analysis complete."})
-        
-        # Save to memory
-        await MemoryManager.save_message(
-            conversation_id=conversation_id,
-            user_id=user_id,
-            role="assistant",
-            content=full_content
-        )
-        
-        # Follow-ups
-        follow_ups = ChatHandler._generate_follow_ups(query, full_content)
-        yield event("follow_up", {"questions": follow_ups})
-        
-        yield event("complete", {
-            "content": full_content,
-            "conversation_id": conversation_id,
-            "sources": sources,
-            "follow_up_questions": follow_ups
-        })
-    
-    @staticmethod
-    async def _handle_file_generation(query: str, file_type: str, user_id: str, conversation_id: str, mode: ChatMode) -> AsyncGenerator[str, None]:
-        """Handle file generation requests."""
-        
-        # Step 1: Thinking about the request
-        yield event("thinking", {"thought": f"The user wants a {file_type.upper()} file about {query[:80].lower().rstrip('.')}. Let me figure out what data structure and perspectives would be most useful."})
-        await asyncio.sleep(0.3)
-        yield event("thinking", {"thought": f"I'll create a comprehensive {file_type.upper()} with multiple tabs covering different angles — main data, analysis, comparisons, and trends."})
-        await asyncio.sleep(0.3)
-        
-        # Step 2: Search for data
-        yield event("thinking", {"thought": "Searching across all databases in parallel for the most current and reliable data..."})
-        
-        # Run search with keepalive to prevent SSE proxy timeout
-        search_task = asyncio.create_task(SearchLayer.search(query, sources=["web", "news", "social"], num_results=15))
-        search_progress = [
-            "Scanning web databases for relevant data...",
-            "Analyzing and ranking search results...",
-            "Cross-referencing sources for accuracy...",
-            "Extracting structured data points...",
-            "Validating data quality..."
-        ]
-        sp_idx = 0
-        while not search_task.done():
-            await asyncio.sleep(5)
-            if not search_task.done():
-                yield event("thinking", {"thought": search_progress[sp_idx % len(search_progress)]})
-                sp_idx += 1
-        
-        search_results = search_task.result()
-        source_count = len(search_results.get('structured_data', {}).get('sources', []))
-        
-        yield event("thinking", {"thought": f"Collected data from {source_count} verified sources. Now organizing into structured format..."})
-        
-        sources = search_results.get("structured_data", {}).get("sources", [])
-        if sources:
-            yield event("search_sources", {"sources": sources})
-        
-        # Step 3: Generate file
-        yield event("thinking", {"thought": f"Structuring all data into a professional {file_type.upper()} format with multiple perspectives and formatted tables..."})
-        
-        structured_data = search_results.get("structured_data", {})
-        # Pass full search_results to Excel so it can access answer text from Perplexity/Grok
-        full_data_for_excel = {
-            **structured_data,
-            "results": search_results.get("results", {})
-        }
-        
-        # Run file generation with keepalive to prevent SSE proxy timeout
-        # Kimi API calls can take 60-120 seconds; Railway proxy times out after ~60s of inactivity
-        async def _generate_with_keepalive():
-            if file_type == "excel":
-                return await FileEngine.generate_excel(query, full_data_for_excel, user_id)
-            elif file_type == "word":
-                content = await ChatHandler._generate_content(query, structured_data)
-                return await FileEngine.generate_word(query, content, user_id)
-            elif file_type == "pdf":
-                content = await ChatHandler._generate_content(query, structured_data)
-                return await FileEngine.generate_pdf(query, content, user_id)
-            elif file_type == "pptx":
-                content = await ChatHandler._generate_content(query, structured_data)
-                return await FileEngine.generate_pptx(query, content, user_id)
-            else:
-                return {"success": False, "error": "Unknown file type"}
-        
-        gen_task = asyncio.create_task(_generate_with_keepalive())
-        progress_messages = [
-            "Extracting key data points from search results...",
-            "Organizing data into structured tables with headers...",
-            "Creating separate tabs for different analytical perspectives...",
-            "Applying conditional formatting and color coding...",
-            "Validating data integrity across all sheets...",
-            "Adding formulas for totals, averages, and rankings...",
-            "Running final quality checks on all data points...",
-            "Optimizing column widths and cell formatting...",
-            "Adding summary calculations and trend indicators...",
-            "Performing final data validation before export..."
-        ]
-        msg_idx = 0
-        # Send keepalive every 5 seconds to prevent Railway proxy timeout
-        while not gen_task.done():
-            await asyncio.sleep(5)
-            if not gen_task.done():
-                yield event("thinking", {"thought": progress_messages[msg_idx % len(progress_messages)]})
-                msg_idx += 1
-        
-        result = gen_task.result()
-        
-        yield event("thinking", {"thought": f"File created: {result.get('filename', 'report')} with {result.get('row_count', 'multiple')} rows of structured data across multiple tabs."})
-        
-        if result.get("success"):
-            yield event("download", {
-                "file_id": result["file_id"],
-                "filename": result["filename"],
-                "file_type": file_type,
-                "download_url": result["download_url"]
-            })
+        try:
+            model = "grok-3-mini" if client == grok_client else "kimi-k2.5"
+            temp = 0.5 if client == grok_client else 1
+            current_date = get_current_date_str()
             
-            # Step 4: Generate rich conclusion using Kimi
-            yield event("thinking", {"thought": "Reviewing the data and preparing key findings summary..."})
+            num_sources = len(structured_data.get("sources", []))
+            num_data_points = len(structured_data.get("data_points", []))
             
-            # Build search context for conclusion
-            search_context_summary = ""
-            for source, data in search_results.get("results", {}).items():
-                if isinstance(data, dict) and "answer" in data:
-                    search_context_summary += data["answer"][:300] + "\n"
-            
-            source_names = [s.get("title", s.get("source", "")) for s in sources[:5]]
-            
-            # Generate data insights conclusion (NOT process description)
-            conclusion = ""
-            conclusion_system = """Write a brief overview of the KEY FINDINGS from the research data. The user is about to download a file — give them a quick preview of what's inside.
+            conclusion_prompt = f"""You are a senior research analyst. Today is {current_date}. Generate a structured conclusion for this research task.
 
-Format: 3-4 concise bullet points with the most important insights.
-- Each bullet should contain a specific finding, number, or trend
-- Focus on WHAT THE DATA SHOWS, not what you did to create the file
-- Do NOT say "Here's what I did" or "I searched X sources" or "compiled Y rows"
-- Do NOT describe the file format or formatting
-- Be like a senior analyst giving a 10-second brief before handing over a report
+User asked: {query[:300]}
 
-Example good output:
-- L'Oréal leads with €38.2B revenue, 3x larger than nearest competitor Estée Lauder
-- Pharmacy/dermo-cosmetics is the fastest-growing segment at +12% YoY
-- 7 of the top 10 brands are headquartered in France, reflecting domestic market dominance
+Response summary: {response[:1000]}
 
-No headers, no bold, no extra formatting. Maximum 4 bullets."""
-            conclusion_user = f"Topic: {query}\nData collected: {result.get('row_count', 'N/A')} rows across {file_type.upper()} format\nKey sources: {', '.join(source_names[:3])}\nResearch findings:\n{search_context_summary[:800]}"
+Files generated: {', '.join(file_types) if file_types else 'None'}
+Sources consulted: {num_sources}
+Data points collected: {num_data_points}
+
+Create a conclusion with these sections (use markdown):
+
+## Research Summary
+Brief 2-3 sentence summary of what was researched and found.
+
+## Key Insights
+3-4 bullet points with the most important findings. Be specific with data.
+
+## Methodology
+How the research was conducted (sources searched, data analyzed).
+
+## Deliverables
+What files/outputs were generated and what they contain.
+
+## Recommendations
+2-3 actionable next steps based on the findings.
+
+Keep it concise but insightful. Focus on REASONING about what the data means, not just listing facts."""
             
-            # Try Grok first (faster), then Kimi
-            for client, model, temp in [(grok_client, 'grok-3-mini', 0.3), (kimi_client, 'kimi-k2.5', 1)]:
-                if conclusion or not client:
-                    continue
-                try:
-                    import functools
-                    loop = asyncio.get_event_loop()
-                    conclusion_response = await loop.run_in_executor(None, functools.partial(
-                        client.chat.completions.create,
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": conclusion_system},
-                            {"role": "user", "content": conclusion_user}
-                        ],
-                        temperature=temp,
-                        max_tokens=300
-                    ))
-                    conclusion = conclusion_response.choices[0].message.content
-                    logger.info(f"Conclusion generated by {model}")
-                except Exception as e:
-                    logger.error(f"Conclusion generation error ({model}): {e}")
+            result = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": conclusion_prompt}],
+                temperature=temp,
+                max_tokens=1500
+            )
             
-            # Fallback if Kimi fails - still show insights not process
-            if not conclusion:
-                conclusion = f"""- Data compiled from {len(sources)} sources covering \"{query[:60]}\"
-- {result.get('row_count', 'Multiple')} data points structured across multiple perspectives
-- File ready for download with professional formatting"""
-            
-            yield event("content", {"chunk": conclusion})
-            
-            yield event("thinking", {"thought": "File generated successfully. Here are the key findings from the research."})
-            
-            # Save to memory
-            try:
-                await MemoryManager.save_message(
-                    conversation_id=conversation_id,
-                    user_id=user_id,
-                    role="assistant",
-                    content=conclusion
-                )
-            except Exception as e:
-                logger.error(f"Memory save error: {e}")
-            
-            # Follow-ups
-            follow_ups = ChatHandler._generate_follow_ups(query, conclusion)
-            yield event("follow_up", {"questions": follow_ups})
-            
-            yield event("complete", {
-                "content": conclusion,
-                "conversation_id": conversation_id,
-                "downloads": [result],
-                "sources": sources,
-                "follow_up_questions": follow_ups
-            })
-        else:
-            error_msg = f"Error generating file: {result.get('error', 'Unknown error')}"
-            yield event("error", {"message": error_msg})
-            yield event("complete", {"content": error_msg, "conversation_id": conversation_id})
-    
-    @staticmethod
-    async def _handle_swarm_mode(messages: List[Dict], query: str, user_id: str, conversation_id: str) -> AsyncGenerator[str, None]:
-        """Handle swarm mode with multiple agents."""
-        
-        # Execute swarm
-        swarm_gen = AgentOrchestrator.execute_swarm(query, num_agents=5)
-        
-        # Collect swarm events
-        synthesis = ""
-        async for e in swarm_gen:
-            event_data = json.loads(e.replace("data: ", ""))
-            if event_data.get("type") == "task_progress":
-                yield e
-            elif event_data.get("type") == "complete":
-                synthesis = event_data.get("data", {}).get("synthesis", "")
-        
-        # Stream synthesis
-        for chunk in synthesis.split():
-            yield event("content", {"chunk": chunk + " "})
-            await asyncio.sleep(0.01)
-        
-        # Save to memory
-        await MemoryManager.save_message(
-            conversation_id=conversation_id,
-            user_id=user_id,
-            role="assistant",
-            content=synthesis
-        )
-        
-        # Follow-ups
-        follow_ups = ChatHandler._generate_follow_ups(query, synthesis)
-        yield event("follow_up", {"questions": follow_ups})
-        
-        yield event("complete", {
-            "content": synthesis,
-            "conversation_id": conversation_id,
-            "follow_up_questions": follow_ups
-        })
+            return result.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Conclusion generation error: {e}")
+            return ""
     
     @staticmethod
     async def _generate_content(query: str, structured_data: Dict) -> str:
-        """Generate content for documents."""
-        if not kimi_client:
+        """Generate comprehensive content for documents using LLM."""
+        client = kimi_client or grok_client
+        if not client:
             return "Content generation not available."
         
         data_points = structured_data.get("data_points", [])
@@ -2298,29 +2155,35 @@ No headers, no bold, no extra formatting. Maximum 4 bullets."""
             for dp in data_points[:10]
         ])
         
-        # Also include answer text from search results
         answer_text = ""
-        for source_name in ["perplexity", "grok", "exa"]:
+        for source_name in ["perplexity", "grok", "exa", "google", "bing", "firecrawl"]:
             if source_name in structured_data.get("results", {}):
                 answer = structured_data["results"][source_name].get("answer", "")
                 if answer:
                     answer_text += f"\n{answer[:500]}\n"
         
+        current_date = get_current_date_str()
+        current_year = get_current_year()
+        
         messages = [
-            {"role": "system", "content": """You are a professional content writer. Create well-structured, comprehensive content with:
-- Clear markdown headers and sections
-- Specific data points and facts
-- Professional tone and analysis
-- Logical flow from introduction to conclusion"""},
-            {"role": "user", "content": f"Create comprehensive content for: {query}\n\nData points:\n{data_summary}\n\nResearch findings:\n{answer_text[:1000]}\n\nWrite a detailed, well-structured document:"}
+            {"role": "system", "content": f"""You are a professional content writer. Today is {current_date}. Create well-structured, comprehensive content with:
+- Clear markdown headers (##) and sections
+- Specific {current_year} data points and facts
+- Professional tone and deep analysis
+- Tables where data comparisons are useful
+- Logical flow from introduction to conclusion
+- At least 1500 words of substantive content"""},
+            {"role": "user", "content": f"Create comprehensive content for: {query}\n\nData points:\n{data_summary}\n\nResearch findings:\n{answer_text[:2000]}\n\nWrite a detailed, well-structured document:"}
         ]
         
         try:
-            response = kimi_client.chat.completions.create(
-                model="kimi-k2.5",
+            model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+            temp = 1 if client == kimi_client else 0.5
+            response = client.chat.completions.create(
+                model=model,
                 messages=messages,
-                temperature=1,
-                max_tokens=4096
+                temperature=temp,
+                max_tokens=6000
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -2329,8 +2192,7 @@ No headers, no bold, no extra formatting. Maximum 4 bullets."""
     
     @staticmethod
     def _generate_follow_ups(query: str, response: str) -> List[str]:
-        """Generate contextual follow-up questions using LLM based on query AND response."""
-        
+        """Generate contextual follow-up questions using LLM."""
         response_summary = response[:800] if response else ""
         
         system_msg = """Generate exactly 3 follow-up questions based on the user's query and the AI's response. Rules:
@@ -2343,7 +2205,6 @@ Return ONLY a valid JSON array of 3 strings. Nothing else."""
         
         user_msg = f"User asked: {query}\n\nAI responded (summary): {response_summary}\n\nGenerate 3 specific follow-up questions:"
         
-        # Try Grok first (faster, better at following JSON format instructions)
         clients_to_try = []
         if grok_client:
             clients_to_try.append((grok_client, "grok-3-mini", 0.5))
@@ -2364,7 +2225,6 @@ Return ONLY a valid JSON array of 3 strings. Nothing else."""
                 
                 raw = result.choices[0].message.content.strip()
                 
-                # Parse JSON array with multiple strategies
                 for strategy in [
                     lambda t: json.loads(t),
                     lambda t: json.loads(t[t.index('['):t.rindex(']')+1]),
@@ -2377,18 +2237,14 @@ Return ONLY a valid JSON array of 3 strings. Nothing else."""
                     except:
                         continue
                 
-                # Line-by-line extraction as last resort
                 lines = [l.strip().lstrip('0123456789.-) ').strip('"') for l in raw.split('\n') if l.strip() and len(l.strip()) > 15]
                 if len(lines) >= 3:
                     return lines[:5]
-                
-                logger.warning(f"Follow-up parsing failed for {model}, raw: {raw[:200]}")
                 
             except Exception as e:
                 logger.error(f"Follow-up generation error with {model}: {e}")
                 continue
         
-        # Minimal fallback - at least reference the topic
         topic = query[:60] if query else "this topic"
         return [
             f"Can you go deeper into {topic}?",
@@ -2404,7 +2260,7 @@ Return ONLY a valid JSON array of 3 strings. Nothing else."""
 @app.post("/api/v1/chat")
 @app.post("/api/v1/chat/stream")
 async def chat_endpoint(request: ChatRequest):
-    """Streaming chat endpoint - supports both /api/v1/chat and /api/v1/chat/stream."""
+    """Streaming chat endpoint."""
     try:
         async def event_generator():
             async for e in ChatHandler.handle_chat(request):
@@ -2413,11 +2269,7 @@ async def chat_endpoint(request: ChatRequest):
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
         )
     except Exception as e:
         logger.error(f"Chat endpoint error: {e}")
@@ -2431,6 +2283,7 @@ async def chat_non_stream(request: ChatRequest):
         downloads = []
         sources = []
         follow_ups = []
+        conclusion = ""
         
         async for e in ChatHandler.handle_chat(request):
             event_data = json.loads(e.replace("data: ", ""))
@@ -2445,13 +2298,16 @@ async def chat_non_stream(request: ChatRequest):
                 sources = event_data_inner.get("sources", [])
             elif event_type == "follow_up":
                 follow_ups = event_data_inner.get("questions", [])
+            elif event_type == "conclusion":
+                conclusion = event_data_inner.get("content", "")
         
         return {
             "success": True,
             "content": "".join(content_parts),
             "downloads": downloads,
             "sources": sources,
-            "follow_up_questions": follow_ups
+            "follow_up_questions": follow_ups,
+            "conclusion": conclusion
         }
     except Exception as e:
         logger.error(f"Chat non-stream error: {e}")
@@ -2472,7 +2328,6 @@ async def search_endpoint(request: SearchRequest):
 async def generate_file_endpoint(request: FileGenRequest):
     """Generate file endpoint - supports both V1 and V2 interfaces."""
     try:
-        # Determine prompt from V1 or V2 interface
         prompt = request.prompt
         if not prompt and request.content:
             if isinstance(request.content, (dict, list)):
@@ -2488,33 +2343,30 @@ async def generate_file_endpoint(request: FileGenRequest):
         search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15)
         structured_data = search_results.get("structured_data", {})
         
-        # Determine file type
         file_type_val = None
         if request.file_type:
             file_type_val = request.file_type.value if isinstance(request.file_type, FileType) else str(request.file_type)
         else:
-            file_type_val = "excel"  # default
+            file_type_val = "excel"
+        
+        # Handle CSV
         if file_type_val == "csv":
-            # Generate CSV from content
             import csv as csv_mod
-            import io
             file_id = str(uuid.uuid4())[:8]
             filename = FileEngine._generate_filename(prompt, "csv")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             content_text = request.content if isinstance(request.content, str) else ""
             
-            # Parse markdown tables or content into CSV
             csv_lines = []
             for line in content_text.split('\n'):
                 stripped = line.strip()
                 if stripped.startswith('|') and stripped.endswith('|'):
-                    import re as _re
-                    if _re.match(r'^\|[\s\-:|]+\|$', stripped):
-                        continue  # Skip separator rows
+                    if re.match(r'^\|[\s\-:|]+\|$', stripped):
+                        continue
                     cells = [c.strip() for c in stripped.split('|')[1:-1]]
-                    csv_lines.append(cells)
+                    if cells:
+                        csv_lines.append(cells)
                 elif stripped and not stripped.startswith('#'):
-                    # Non-table content as single-column rows
                     cleaned = stripped.lstrip('- *').strip()
                     if cleaned:
                         csv_lines.append([cleaned])
@@ -2524,57 +2376,33 @@ async def generate_file_endpoint(request: FileGenRequest):
                 for row in csv_lines:
                     writer.writerow(row)
             
-            FileEngine.files[file_id] = {
-                "filename": filename,
-                "filepath": str(filepath),
-                "file_type": "csv",
-                "user_id": request.user_id,
-                "created_at": datetime.now().isoformat()
-            }
-            return {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "download_url": f"/api/v1/download/{file_id}"
-            }
+            FileEngine.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "csv", "user_id": request.user_id, "created_at": datetime.now().isoformat()}
+            return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
+        
         if file_type_val == "docx":
             file_type_val = "word"
         
-        # Handle markdown export (client-side content, no search needed)
+        # Handle markdown export
         if file_type_val == "markdown":
             file_id = str(uuid.uuid4())[:8]
             filename = FileEngine._generate_filename(prompt, "md")
             filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             content_text = request.content if isinstance(request.content, str) else prompt
             filepath.write_text(content_text, encoding="utf-8")
-            FileEngine.files[file_id] = {
-                "filename": filename,
-                "filepath": str(filepath),
-                "file_type": "markdown",
-                "user_id": request.user_id,
-                "created_at": datetime.now().isoformat()
-            }
-            return {
-                "success": True,
-                "file_id": file_id,
-                "filename": filename,
-                "download_url": f"/api/v1/download/{file_id}"
-            }
+            FileEngine.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "markdown", "user_id": request.user_id, "created_at": datetime.now().isoformat()}
+            return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         
         # Generate file
         file_type = file_type_val
         
-        # If content is provided directly (export from chat), use it instead of searching
         direct_content = None
         if request.content and isinstance(request.content, str) and len(request.content) > 100:
             direct_content = request.content
         
-        # Only search if we don't have direct content
         if not direct_content:
             search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
         
-        # Pass full search_results to Excel so it can access answer text
         full_data_for_excel = {
             **structured_data,
             "results": search_results.get("results", {}) if not direct_content else {}
@@ -2594,12 +2422,7 @@ async def generate_file_endpoint(request: FileGenRequest):
             raise HTTPException(status_code=400, detail=f"Unknown file type: {file_type}")
         
         if result.get("success"):
-            return {
-                "success": True,
-                "file_id": result["file_id"],
-                "filename": result["filename"],
-                "download_url": result["download_url"]
-            }
+            return {"success": True, "file_id": result["file_id"], "filename": result["filename"], "download_url": result["download_url"]}
         else:
             raise HTTPException(status_code=500, detail=result.get("error", "File generation failed"))
     except Exception as e:
@@ -2612,7 +2435,6 @@ async def download_file(file_id: str):
     """Download generated file."""
     try:
         file_info = FileEngine.get_file(file_id)
-        
         if not file_info:
             raise HTTPException(status_code=404, detail="File not found")
         
@@ -2644,11 +2466,7 @@ async def download_file(file_id: str):
 async def execute_agent(request: AgentRequest):
     """Execute single agent."""
     try:
-        result = await AgentOrchestrator.execute_agent(
-            request.task,
-            request.agent_type,
-            request.context
-        )
+        result = await AgentOrchestrator.execute_agent(request.task, request.agent_type, request.context)
         return {"success": True, "result": result}
     except Exception as e:
         logger.error(f"Agent execution error: {e}")
@@ -2661,11 +2479,7 @@ async def execute_swarm(request: SwarmRequest):
         async def event_generator():
             async for e in AgentOrchestrator.execute_swarm(request.task, request.num_agents, request.context):
                 yield e
-        
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream"
-        )
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
     except Exception as e:
         logger.error(f"Swarm execution error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2680,11 +2494,7 @@ async def list_conversations(user_id: str):
     try:
         if not supabase:
             return {"success": True, "conversations": []}
-        
-        result = supabase.table("conversations").select("*").eq(
-            "user_id", user_id
-        ).eq("status", "active").order("updated_at", desc=True).execute()
-        
+        result = supabase.table("conversations").select("*").eq("user_id", user_id).eq("status", "active").order("updated_at", desc=True).execute()
         return {"success": True, "conversations": result.data or []}
     except Exception as e:
         logger.error(f"List conversations error: {e}")
@@ -2706,20 +2516,9 @@ async def get_conversation(conversation_id: str, user_id: str):
     try:
         if not supabase:
             return {"success": True, "conversation": None, "messages": []}
-        
-        # Get conversation
-        conv_result = supabase.table("conversations").select("*").eq(
-            "id", conversation_id
-        ).eq("user_id", user_id).single().execute()
-        
-        # Get messages
+        conv_result = supabase.table("conversations").select("*").eq("id", conversation_id).eq("user_id", user_id).single().execute()
         messages = await MemoryManager.get_conversation_messages(conversation_id)
-        
-        return {
-            "success": True,
-            "conversation": conv_result.data,
-            "messages": messages
-        }
+        return {"success": True, "conversation": conv_result.data, "messages": messages}
     except Exception as e:
         logger.error(f"Get conversation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2730,57 +2529,11 @@ async def delete_conversation(conversation_id: str, user_id: str):
     try:
         if not supabase:
             return {"success": True}
-        
-        supabase.table("conversations").update({"status": "deleted"}).eq(
-            "id", conversation_id
-        ).eq("user_id", user_id).execute()
-        
+        supabase.table("conversations").update({"status": "deleted"}).eq("id", conversation_id).eq("user_id", user_id).execute()
         return {"success": True}
     except Exception as e:
         logger.error(f"Delete conversation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# ============================================================================
-# HEALTH AND STATUS
-# ============================================================================
-
-@app.get("/health")
-@app.get("/api/v1/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "version": "4.0.0",
-        "timestamp": datetime.now().isoformat(),
-        "services": {
-            "kimi": kimi_client is not None,
-            "grok": grok_client is not None,
-            "perplexity": bool(PERPLEXITY_API_KEY),
-            "exa": bool(EXA_API_KEY),
-            "serpapi": bool(SERPAPI_KEY),
-            "supabase": supabase is not None
-        }
-    }
-
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "name": "McLeuker AI V2",
-        "version": "4.0.0",
-        "description": "AI platform with Kimi-2.5 capabilities",
-        "endpoints": [
-            "/api/v1/chat",
-            "/api/v1/chat/non-stream",
-            "/api/v1/search",
-            "/api/v1/files/generate",
-            "/api/v1/files/{id}/download",
-            "/api/v1/agent/execute",
-            "/api/v1/swarm/execute",
-            "/api/v1/conversations",
-            "/health"
-        ]
-    }
 
 # ============================================================================
 # MULTIMODAL ENDPOINT
@@ -2795,31 +2548,19 @@ async def multimodal_endpoint(
     """Multimodal input (text + image)"""
     try:
         content = [{"type": "text", "text": text}]
-        
         if image:
             image_bytes = await image.read()
             image_b64 = base64.b64encode(image_bytes).decode()
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{image.content_type};base64,{image_b64}", "detail": "high"}
-            })
+            content.append({"type": "image_url", "image_url": {"url": f"data:{image.content_type};base64,{image_b64}", "detail": "high"}})
         
         messages = [{"role": "user", "content": content}]
-        
-        # Use HybridLLMRouter instead of old KimiEngine
         result_content = ""
         async for evt in HybridLLMRouter.chat(messages, ChatMode(mode) if mode in [m.value for m in ChatMode] else ChatMode.thinking):
             evt_data = json.loads(evt.replace("data: ", "").strip())
             if evt_data.get("type") == "content":
                 result_content += evt_data.get("data", {}).get("chunk", "")
         
-        return {
-            "success": True,
-            "response": {
-                "answer": result_content,
-                "mode": mode
-            }
-        }
+        return {"success": True, "response": {"answer": result_content, "mode": mode}}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -2828,10 +2569,10 @@ async def multimodal_endpoint(
 # ============================================================================
 
 _weekly_insights_cache: Dict[str, Dict[str, Any]] = {}
-WEEKLY_INSIGHTS_CACHE_TTL = 3600  # 1 hour cache
+WEEKLY_INSIGHTS_CACHE_TTL = 3600
 
 DOMAIN_INSIGHT_PROMPTS: Dict[str, str] = {
-    "fashion": """You are a fashion industry intelligence analyst. Research and provide 8 of the most significant fashion industry developments from the PAST 7 DAYS (the week ending today). Focus on:
+    "fashion": """You are a fashion industry intelligence analyst. Research and provide 8 of the most significant fashion industry developments from the PAST 7 DAYS. Focus on:
 - Major runway shows, fashion week highlights (NYFW, Milan, Paris, London, Berlin)
 - Designer appointments, creative director changes
 - Luxury brand business moves (acquisitions, IPOs, earnings)
@@ -2862,7 +2603,7 @@ For each insight, provide a compelling headline, a 1-2 sentence summary, the sou
 For each insight, provide a compelling headline, a 1-2 sentence summary, the source publication name, and a category tag.""",
     "sustainability": """You are a sustainable fashion intelligence analyst. Research and provide 8 of the most significant sustainability developments in fashion from the PAST 7 DAYS. Focus on:
 - Circular fashion initiatives and resale market news
-- Brand sustainability commitments and greenwashing expos\u00e9s
+- Brand sustainability commitments and greenwashing exposés
 - Textile recycling technology breakthroughs
 - EU and global regulatory changes (EPR, DPP, due diligence)
 - Copenhagen Fashion Week sustainability highlights
@@ -3016,7 +2757,7 @@ async def weekly_insights_get(domain: str, refresh: bool = False):
 # ============================================================================
 
 _live_signals_cache: Dict[str, Dict[str, Any]] = {}
-LIVE_SIGNALS_CACHE_TTL = 1800  # 30 min cache
+LIVE_SIGNALS_CACHE_TTL = 1800
 
 DOMAIN_LIVE_PROMPTS: Dict[str, str] = {
     "fashion": """You are a real-time fashion intelligence analyst monitoring breaking news RIGHT NOW. Provide 6 urgent, high-priority signals happening TODAY or in the last 48 hours in fashion. Focus on:
@@ -3027,50 +2768,31 @@ DOMAIN_LIVE_PROMPTS: Dict[str, str] = {
 - Celebrity style moments generating buzz today
 - Industry personnel changes announced recently
 
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (one of: Breaking, Market, Viral, Business, Trend, Celebrity), source name, and a relevant metric or stat if available.""",
-    "beauty": """You are a real-time beauty intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours in beauty. Focus on: product launches, viral TikTok moments, brand earnings, ingredient controversies, celebrity beauty news, K-beauty innovations.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Market/Viral/Business/Trend/Celebrity), source name, and a relevant metric.""",
-    "skincare": """You are a real-time skincare intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours in skincare. Focus on: clinical breakthroughs, FDA/EU regulatory news, viral skincare routines, ingredient science updates, brand launches, dermatologist warnings.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Market/Viral/Business/Trend/Science), source name, and a relevant metric.""",
-    "sustainability": """You are a real-time sustainability intelligence analyst for fashion. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: EU regulation updates, brand greenwashing exposures, circular fashion milestones, supply chain transparency news, carbon reduction achievements, textile recycling breakthroughs.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Regulation/Business/Innovation/Trend/Policy), source name, and a relevant metric.""",
-    "fashion-tech": """You are a real-time fashion technology analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: AI fashion tool launches, AR/VR shopping updates, fashion startup funding rounds, retail tech deployments, digital fashion drops, supply chain tech news.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Funding/AI/Retail/Innovation/Launch), source name, and a relevant metric.""",
-    "catwalks": """You are a real-time runway intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: fashion week show reviews, designer debuts, backstage exclusives, model casting news, show production innovations, front row moments.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Show/Designer/Backstage/Trend/Casting), source name, and a relevant metric.""",
-    "culture": """You are a real-time cultural intelligence analyst for fashion. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: art-fashion collaborations, museum exhibitions, film/music crossovers, viral cultural moments, DEI news in fashion, heritage brand moments.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Art/Media/Social/Heritage/Exhibition), source name, and a relevant metric.""",
-    "textile": """You are a real-time textile industry analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: fiber innovation announcements, raw material price changes, mill acquisitions, trade policy updates, sustainable textile breakthroughs, manufacturing shifts.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Price/Innovation/Trade/Business/Supply), source name, and a relevant metric.""",
-    "lifestyle": """You are a real-time lifestyle intelligence analyst. Provide 6 urgent signals happening TODAY or in the last 48 hours. Focus on: wellness trend shifts, luxury experience launches, athleisure market moves, consumer behavior data, travel-fashion crossovers, social media lifestyle moments.
-
-For each signal provide: title (max 70 chars), description (2 sentences, max 180 chars), impact level (high/medium/low), category (Breaking/Wellness/Market/Consumer/Travel/Viral), source name, and a relevant metric.""",
+For each signal provide: title (max 60 chars), summary (max 150 chars), urgency (high/medium/low), source publication name, and category tag.""",
 }
 
+# Copy fashion prompt as default for other domains
+for _domain in ["beauty", "skincare", "sustainability", "fashion-tech", "catwalks", "culture", "textile", "lifestyle"]:
+    if _domain not in DOMAIN_LIVE_PROMPTS:
+        DOMAIN_LIVE_PROMPTS[_domain] = DOMAIN_LIVE_PROMPTS["fashion"].replace("fashion", _domain)
+
+
 async def _fetch_live_signals(domain: str) -> List[Dict[str, Any]]:
-    """Fetch real-time live signals using AI providers"""
+    """Fetch real-time live signals"""
     prompt = DOMAIN_LIVE_PROMPTS.get(domain, DOMAIN_LIVE_PROMPTS.get("fashion", ""))
-    today = datetime.now().strftime("%B %d, %Y")
+    today = datetime.now().strftime("%B %d, %Y %H:%M")
     
-    system_msg = f"""You are a real-time intelligence analyst. Today is {today}. You must provide signals from the LAST 48 HOURS only.
+    system_msg = f"""You are monitoring real-time signals. Right now it is {today}.
 
-Return your response as a valid JSON array of objects. Each object must have exactly these fields:
-- "title": string (compelling headline, max 70 chars)
-- "description": string (2 sentence summary, max 180 chars)
-- "impact": string (one of: "high", "medium", "low")
-- "category": string (short tag)
+Return a JSON array of 6 signal objects. Each must have:
+- "title": string (max 60 chars)
+- "summary": string (max 150 chars)
+- "urgency": string ("high", "medium", or "low")
 - "source": string (publication name)
-- "metric": string (a relevant stat like "+15% stock", "2.3M views", "#1 trending", or "" if none)
-- "timestamp": string (ISO datetime within last 48 hours)
+- "category": string (short tag)
+- "timestamp": string (ISO datetime, within last 48 hours)
 
-Return ONLY the JSON array, no markdown, no code blocks."""
+Return ONLY the JSON array."""
     
     providers = []
     if GROK_API_KEY:
@@ -3083,15 +2805,11 @@ Return ONLY the JSON array, no markdown, no code blocks."""
         if not api_key:
             continue
         try:
-            logger.info(f"Fetching live signals for {domain} via {provider_name}")
-            provider_client = openai.AsyncOpenAI(
-                api_key=api_key, base_url=base_url
-            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
-            
+            provider_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else openai.AsyncOpenAI(api_key=api_key)
             response = await provider_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
-                temperature=0.7, max_tokens=3000
+                temperature=0.7, max_tokens=2000
             )
             raw = response.choices[0].message.content.strip()
             if raw.startswith("```"):
@@ -3143,7 +2861,7 @@ async def live_signals_get(domain: str, refresh: bool = False):
 # ============================================================================
 
 _module_previews_cache: Dict[str, Dict[str, Any]] = {}
-MODULE_PREVIEW_CACHE_TTL = 3600  # 1 hour
+MODULE_PREVIEW_CACHE_TTL = 3600
 
 DOMAIN_MODULE_PROMPTS: Dict[str, str] = {
     "fashion": """Generate 4 intelligence module previews for the FASHION domain. Each module should have a real, current data point from this week. The modules are:
@@ -3239,10 +2957,7 @@ Return ONLY the JSON array."""
         if not api_key:
             continue
         try:
-            provider_client = openai.AsyncOpenAI(
-                api_key=api_key, base_url=base_url
-            ) if base_url else openai.AsyncOpenAI(api_key=api_key)
-            
+            provider_client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else openai.AsyncOpenAI(api_key=api_key)
             response = await provider_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
@@ -3292,6 +3007,56 @@ async def domain_modules_endpoint(request: WeeklyInsightsRequest):
 async def domain_modules_get(domain: str, refresh: bool = False):
     return await domain_modules_endpoint(WeeklyInsightsRequest(domain=domain, force_refresh=refresh))
 
+
+# ============================================================================
+# HEALTH AND STATUS
+# ============================================================================
+
+@app.get("/health")
+@app.get("/api/v1/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "version": "5.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "kimi": kimi_client is not None,
+            "grok": grok_client is not None,
+            "perplexity": bool(PERPLEXITY_API_KEY),
+            "exa": bool(EXA_API_KEY),
+            "serpapi": bool(SERPAPI_KEY),
+            "bing": bool(BING_API_KEY),
+            "firecrawl": bool(FIRECRAWL_API_KEY),
+            "google_custom_search": bool(GOOGLE_CUSTOM_SEARCH_KEY),
+            "youtube": bool(YOUTUBE_API_KEY),
+            "e2b": bool(E2B_API_KEY),
+            "supabase": supabase is not None
+        }
+    }
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "name": "McLeuker AI V5",
+        "version": "5.0.0",
+        "description": "AI platform with Manus-level file generation and 8+ search APIs",
+        "endpoints": [
+            "/api/v1/chat",
+            "/api/v1/chat/non-stream",
+            "/api/v1/search",
+            "/api/v1/files/generate",
+            "/api/v1/files/{id}/download",
+            "/api/v1/agent/execute",
+            "/api/v1/swarm/execute",
+            "/api/v1/conversations",
+            "/api/v1/weekly-insights",
+            "/api/v1/live-signals",
+            "/api/v1/domain-modules",
+            "/health"
+        ]
+    }
 
 # ============================================================================
 # MAIN
