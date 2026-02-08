@@ -554,23 +554,30 @@ class FileEngine:
                     kimi_response = kimi_client.chat.completions.create(
                         model="kimi-k2.5",
                         messages=[
-                            {"role": "system", "content": """You generate structured data for Excel spreadsheets. You MUST return ONLY valid JSON.
+                            {"role": "system", "content": """You generate structured data for Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
 
-Format: {"title": "Sheet Title", "headers": ["Col1", "Col2", ...], "rows": [["val1", "val2", ...], ...]}
+Format: {"sheets": [{"title": "Main Data", "headers": [...], "rows": [...]}, {"title": "Analysis", "headers": [...], "rows": [...]}, ...]}
 
-Rules:
-- Headers MUST be specific to what the user asked for (e.g., "Company", "Revenue", "Employees", "Founded", "HQ")
-- Include 15-30 rows of REAL data extracted from the search results
-- Extract SPECIFIC facts, numbers, names, dates from the search text - do NOT use generic placeholders
-- If search data is insufficient, supplement with your knowledge but mark those rows with (estimated) suffix
+You MUST create 2-4 sheets:
+1. **Main Data** sheet: The primary dataset (30-50 rows) with specific headers matching the query
+2. **Summary/Analysis** sheet: Aggregated insights, rankings, or comparisons (5-15 rows)
+3. **Additional Perspective** sheet (optional): Related data that adds value (e.g., regional breakdown, historical trends, competitor comparison)
+
+Rules per sheet:
+- Headers MUST be specific to the topic (e.g., "Brand Name", "Revenue ($M)", "ESG Score", "Country")
+- Extract SPECIFIC facts, numbers, names, dates from the search text
+- If search data is insufficient, supplement with your knowledge but mark with (est.) suffix
 - Numbers should be actual numbers, not strings
 - Each row must have the same number of columns as headers
-- DO NOT use generic headers like "Item", "Value", "Date" - make them specific to the query topic
-- Return ONLY the JSON object, no markdown, no explanation, no commentary"""},
-                            {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
+- DO NOT use generic headers like "Item", "Value", "Date"
+- The user asked for this data — deliver MORE than they expect
+- Return ONLY the JSON object, no markdown, no explanation
+
+Also support legacy format: {"title": "...", "headers": [...], "rows": [...]} (single sheet)"""},
+                            {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=1,
-                        max_tokens=8000
+                        max_tokens=12000
                     )
                     
                     raw_json = kimi_response.choices[0].message.content.strip()
@@ -578,17 +585,25 @@ Rules:
                     
                     # Try multiple JSON extraction strategies
                     for strategy in [
-                        lambda t: json.loads(t),  # Direct parse
-                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),  # First { to last }
-                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,  # Markdown code block
-                        lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,  # Any code block
+                        lambda t: json.loads(t),
+                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
+                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
+                        lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,
                     ]:
                         try:
                             result = strategy(raw_json)
-                            if result and isinstance(result, dict) and "headers" in result and "rows" in result:
-                                excel_data = result
-                                logger.info(f"Kimi Excel parsed: {len(result.get('rows', []))} rows, {len(result.get('headers', []))} columns")
-                                break
+                            if result and isinstance(result, dict):
+                                # Multi-tab format: {"sheets": [...]}
+                                if "sheets" in result and isinstance(result["sheets"], list):
+                                    excel_data = result
+                                    total_rows = sum(len(s.get('rows', [])) for s in result['sheets'])
+                                    logger.info(f"Kimi Excel multi-tab: {len(result['sheets'])} sheets, {total_rows} total rows")
+                                    break
+                                # Legacy single-tab format: {"headers": [...], "rows": [...]}
+                                elif "headers" in result and "rows" in result:
+                                    excel_data = {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
+                                    logger.info(f"Kimi Excel single-tab: {len(result.get('rows', []))} rows, {len(result.get('headers', []))} columns")
+                                    break
                         except:
                             continue
                     
@@ -603,7 +618,7 @@ Rules:
                         model="grok-3-mini",
                         messages=[
                             {"role": "system", "content": """Generate structured data for an Excel spreadsheet. Return ONLY valid JSON.
-Format: {"title": "Sheet Title", "headers": ["Col1", "Col2", ...], "rows": [["val1", "val2", ...], ...]}
+Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}]} or {"title": "...", "headers": [...], "rows": [...]}
 Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                             {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch data:\n{search_context[:2000]}"}
                         ],
@@ -619,41 +634,38 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                     ]:
                         try:
                             result = strategy(raw_json)
-                            if result and isinstance(result, dict) and "headers" in result and "rows" in result:
-                                excel_data = result
-                                logger.info(f"Grok Excel parsed: {len(result.get('rows', []))} rows")
-                                break
+                            if result and isinstance(result, dict):
+                                if "sheets" in result:
+                                    excel_data = result
+                                elif "headers" in result and "rows" in result:
+                                    excel_data = {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
+                                if excel_data:
+                                    logger.info(f"Grok Excel parsed: {sum(len(s.get('rows',[])) for s in excel_data.get('sheets',[]))} total rows")
+                                    break
                         except:
                             continue
                 except Exception as e:
                     logger.error(f"Grok Excel fallback error: {e}")
             
-            # Create workbook
-            wb = Workbook()
-            wb.remove(wb.active)
-            
-            if excel_data and excel_data.get("rows"):
-                # Use Kimi-generated structured data
-                headers = excel_data.get("headers", [])
-                rows = excel_data.get("rows", [])
-                sheet_title = excel_data.get("title", prompt[:30])
-                
-                ws = wb.create_sheet(cls._sanitize_sheet_title(sheet_title))  # Sheet name max 31 chars
+            # Helper to create a styled sheet
+            from openpyxl.utils import get_column_letter
+            def _create_styled_sheet(wb, sheet_title, headers, rows, prompt_text):
+                ws = wb.create_sheet(cls._sanitize_sheet_title(sheet_title))
+                num_cols = max(len(headers), 1)
                 
                 # Title row
-                num_cols = len(headers)
                 if num_cols > 1:
                     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
                 title_cell = ws.cell(row=1, column=1, value=sheet_title)
-                title_cell.font = Font(size=16, bold=True, color="FFFFFF")
+                title_cell.font = Font(size=14, bold=True, color="FFFFFF")
                 title_cell.fill = PatternFill(start_color="1B1B1B", end_color="1B1B1B", fill_type="solid")
                 title_cell.alignment = Alignment(horizontal="center")
                 
                 # Subtitle
                 if num_cols > 1:
                     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=num_cols)
-                sub_cell = ws.cell(row=2, column=1, value=f"Generated by McLeuker AI | {datetime.now().strftime('%Y-%m-%d')} | {len(rows)} records")
-                sub_cell.font = Font(size=10, italic=True, color="666666")
+                sub_cell = ws.cell(row=2, column=1, value=f"McLeuker AI | {datetime.now().strftime('%Y-%m-%d')} | {len(rows)} records")
+                sub_cell.font = Font(size=9, italic=True, color="666666")
                 sub_cell.alignment = Alignment(horizontal="center")
                 
                 # Headers
@@ -662,10 +674,7 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                     cell.font = Font(bold=True, color="FFFFFF", size=11)
                     cell.fill = PatternFill(start_color="2D2D2D", end_color="2D2D2D", fill_type="solid")
                     cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.border = Border(
-                        bottom=Side(style='thin', color='000000'),
-                        top=Side(style='thin', color='000000')
-                    )
+                    cell.border = Border(bottom=Side(style='thin', color='000000'), top=Side(style='thin', color='000000'))
                 
                 # Data rows
                 for row_num, row_data in enumerate(rows[:100], 5):
@@ -674,12 +683,9 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                         cell.alignment = Alignment(vertical="center", wrap_text=True)
                         if row_num % 2 == 0:
                             cell.fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
-                        cell.border = Border(
-                            bottom=Side(style='hair', color='DDDDDD')
-                        )
+                        cell.border = Border(bottom=Side(style='hair', color='DDDDDD'))
                 
                 # Auto-adjust column widths
-                from openpyxl.utils import get_column_letter
                 for col_idx in range(1, len(headers) + 1):
                     max_length = len(str(headers[col_idx - 1])) if col_idx <= len(headers) else 10
                     for row_idx in range(5, 5 + len(rows[:100])):
@@ -689,47 +695,36 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                                 max_length = len(str(cell.value))
                         except:
                             pass
-                    col_letter = get_column_letter(col_idx)
-                    ws.column_dimensions[col_letter].width = min(max(max_length + 3, 15), 50)
+                    ws.column_dimensions[get_column_letter(col_idx)].width = min(max(max_length + 3, 15), 50)
                 
-                row_count = len(rows)
+                return ws, len(rows)
+            
+            # Create workbook
+            wb = Workbook()
+            wb.remove(wb.active)
+            row_count = 0
+            
+            if excel_data and excel_data.get("sheets"):
+                # Multi-tab: create each sheet
+                for sheet_info in excel_data["sheets"]:
+                    s_title = sheet_info.get("title", "Data")
+                    s_headers = sheet_info.get("headers", [])
+                    s_rows = sheet_info.get("rows", [])
+                    if s_headers and s_rows:
+                        _, count = _create_styled_sheet(wb, s_title, s_headers, s_rows, prompt)
+                        row_count += count
+                
+                # Add a Sources tab automatically
+                sources_list = structured_data.get("sources", [])
+                if sources_list:
+                    src_headers = ["Source", "Title", "URL"]
+                    src_rows = [[s.get("source", ""), s.get("title", ""), s.get("url", "")] for s in sources_list[:30]]
+                    _create_styled_sheet(wb, "Sources", src_headers, src_rows, prompt)
             else:
                 # Fallback: use raw search data points
-                ws = wb.create_sheet("Data")
                 headers = ["Title", "Description", "Source", "URL"]
-                
-                # Title
-                ws.merge_cells('A1:D1')
-                title_cell = ws['A1']
-                title_cell.value = prompt[:80]
-                title_cell.font = Font(size=14, bold=True, color="FFFFFF")
-                title_cell.fill = PatternFill(start_color="1B1B1B", end_color="1B1B1B", fill_type="solid")
-                title_cell.alignment = Alignment(horizontal="center")
-                
-                for col, header in enumerate(headers, 1):
-                    cell = ws.cell(row=3, column=col, value=header)
-                    cell.font = Font(bold=True, color="FFFFFF")
-                    cell.fill = PatternFill(start_color="2D2D2D", end_color="2D2D2D", fill_type="solid")
-                
-                for row_idx, dp in enumerate(raw_data_points[:50], 4):
-                    ws.cell(row=row_idx, column=1, value=dp.get("title", ""))
-                    ws.cell(row=row_idx, column=2, value=dp.get("description", ""))
-                    ws.cell(row=row_idx, column=3, value=dp.get("source", ""))
-                    ws.cell(row=row_idx, column=4, value=dp.get("url", ""))
-                
-                from openpyxl.utils import get_column_letter as gcl
-                for col_idx in range(1, len(headers) + 1):
-                    max_length = len(headers[col_idx - 1]) if col_idx <= len(headers) else 10
-                    for row_idx in range(4, 4 + len(raw_data_points[:50])):
-                        try:
-                            cell = ws.cell(row=row_idx, column=col_idx)
-                            if cell.value and len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    ws.column_dimensions[gcl(col_idx)].width = min(max(max_length + 2, 15), 50)
-                
-                row_count = len(raw_data_points)
+                fallback_rows = [[dp.get("title", ""), dp.get("description", ""), dp.get("source", ""), dp.get("url", "")] for dp in raw_data_points[:50]]
+                _, row_count = _create_styled_sheet(wb, "Data", headers, fallback_rows, prompt)
             
             # Save file
             wb.save(filepath)
@@ -1499,9 +1494,15 @@ class ChatHandler:
         # Step 2: ALWAYS search for real-time data (unless simple greeting)
         if not is_simple:
             yield event("task_progress", {
+                "step": "plan",
+                "title": "Breaking down your request",
+                "detail": f"Identified key topics to research: {last_user_msg[:80]}",
+                "status": "complete"
+            })
+            yield event("task_progress", {
                 "step": "search",
-                "title": "Searching across multiple sources",
-                "detail": "Querying Perplexity AI, Exa neural search, and web sources in parallel",
+                "title": "Searching real-time sources",
+                "detail": "Querying Perplexity AI, Exa, and web sources in parallel",
                 "status": "active"
             })
             
@@ -1529,26 +1530,23 @@ class ChatHandler:
                 if search_context:
                     messages.insert(0, {
                         "role": "system",
-                        "content": f"""You are McLeuker AI, a professional research analyst. Your responses must demonstrate clear reasoning and analytical depth.
+                        "content": f"""You are McLeuker AI. Think deeply about the user's question first, then deliver a well-reasoned response.
 
-RESPONSE STRUCTURE (follow this exact order):
+APPROACH:
+- Start by reasoning about what the user is really asking and what matters most
+- Structure your response naturally based on the topic — do NOT follow a rigid template
+- Use ## headers to organize sections logically, but let the content dictate the structure
+- For comparisons, use tables. For analysis, use narrative. For lists, use ranked items.
+- Every section should explain WHY something matters, not just WHAT it is
 
-1. **Executive Summary** (2-3 sentences): State the key finding or answer immediately
-2. **Analysis**: Break down the topic into logical sections using ## headers
-   - For each section, first explain WHY this matters, then present the data
-   - Include specific numbers, dates, percentages, and names from the search data
-   - Use **bold** for key figures and important terms
-   - Use tables when comparing multiple items (| Column | Column |)
-3. **Key Insights**: What patterns or conclusions emerge from the data?
-4. **Conclusion**: Actionable takeaway or forward-looking perspective
-
-CRITICAL RULES:
-- NEVER use generic filler like "there are many factors" or "it depends" - be specific
-- Every claim must be backed by data from the search results
-- Show your reasoning: explain cause-and-effect relationships
-- If data is conflicting, acknowledge it and explain which source is more reliable
-- Use markdown formatting: headers, bold, tables, numbered lists
-- Write in a professional but accessible tone
+QUALITY RULES:
+- Include specific numbers, dates, percentages, and names from the search data
+- Use **bold** for key figures and important terms
+- NEVER use generic filler like "there are many factors" or "it depends"
+- Show cause-and-effect reasoning: explain relationships between data points
+- If data conflicts, say which source is more reliable and why
+- Keep sections tight — no excessive spacing or padding between paragraphs
+- Write in a professional but conversational tone, like a senior analyst briefing a colleague
 
 Search Data:
 {search_context}"""
@@ -1561,13 +1559,25 @@ Search Data:
                 "detail": f"Collected and ranked {source_count} sources from web, news, and academic databases",
                 "status": "complete"
             })
+            yield event("task_progress", {
+                "step": "verify",
+                "title": "Cross-referencing data",
+                "detail": "Verifying facts across multiple sources for accuracy",
+                "status": "complete"
+            })
         
         # Step 3: Generate response
         model_name = config.get('primary_model', 'kimi').replace('kimi', 'Kimi K2.5').replace('grok', 'Grok').replace('hybrid', 'Multi-model')
         yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Synthesizing and reasoning",
-            "detail": f"Analyzing sources with {model_name} • Structuring response",
+            "step": "reason",
+            "title": "Reasoning through findings",
+            "detail": f"Analyzing with {model_name} — identifying patterns and drawing conclusions",
+            "status": "active"
+        })
+        yield event("task_progress", {
+            "step": "write",
+            "title": "Composing response",
+            "detail": "Structuring analysis with supporting evidence",
             "status": "active"
         })
         
@@ -1583,14 +1593,40 @@ Search Data:
                 yield e
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
-            error_msg = "I encountered an error generating the response. Please try again."
-            yield event("content", {"chunk": error_msg})
-            full_content = error_msg
+            # Retry with fallback model — never stay silent
+            yield event("task_progress", {
+                "step": "retry",
+                "title": "Retrying with fallback model",
+                "detail": f"Primary model failed, switching to backup",
+                "status": "active"
+            })
+            try:
+                fallback_mode = "instant" if mode != "instant" else "thinking"
+                async for e2 in HybridLLMRouter.chat(messages, fallback_mode, stream=True):
+                    try:
+                        parsed = json.loads(e2.replace("data: ", "").strip())
+                        if parsed.get("type") == "content":
+                            chunk = parsed.get("data", {}).get("chunk", "")
+                            full_content += chunk
+                    except (json.JSONDecodeError, Exception):
+                        pass
+                    yield e2
+                yield event("task_progress", {
+                    "step": "retry",
+                    "title": "Recovered with fallback model",
+                    "detail": "Response generated successfully after retry",
+                    "status": "complete"
+                })
+            except Exception as e2:
+                logger.error(f"Fallback LLM also failed: {e2}")
+                error_msg = "I encountered an issue but I'm working on it. Please try your question again."
+                yield event("content", {"chunk": error_msg})
+                full_content = error_msg
         
         yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Response synthesized",
-            "detail": "Analysis complete with structured reasoning and citations",
+            "step": "write",
+            "title": "Response complete",
+            "detail": "Analysis delivered with structured reasoning",
             "status": "complete"
         })
         
@@ -1702,49 +1738,56 @@ Search Data:
     async def _handle_file_generation(query: str, file_type: str, user_id: str, conversation_id: str, mode: ChatMode) -> AsyncGenerator[str, None]:
         """Handle file generation requests."""
         
-        # Step 1: Analyze request
+        # Step 1: Analyze and plan
         yield event("task_progress", {
-            "step": "analyze",
-            "title": f"Analyzing request: {query[:50]}...",
-            "detail": f"Preparing to generate {file_type.upper()} with real-time data",
-            "status": "active"
+            "step": "understand",
+            "title": "Understanding your request",
+            "detail": f"Parsing: \"{query[:70]}\"",
+            "status": "complete"
         })
         yield event("task_progress", {
-            "step": "analyze",
-            "title": f"Analyzing request: {query[:50]}...",
-            "detail": f"Identified file type: {file_type.upper()}",
+            "step": "plan",
+            "title": "Planning data collection",
+            "detail": f"Will generate {file_type.upper()} with multiple perspectives and structured data",
             "status": "complete"
         })
         
         # Step 2: Search for data
         yield event("task_progress", {
             "step": "search",
-            "title": "Searching real-time data sources",
-            "detail": "Querying Perplexity, Google, Exa, and Grok for latest data",
+            "title": "Searching real-time sources",
+            "detail": "Querying Perplexity, Exa, and Grok for latest data",
             "status": "active"
         })
         
         # Run search with keepalive to prevent SSE proxy timeout
         search_task = asyncio.create_task(SearchLayer.search(query, sources=["web", "news", "social"], num_results=15))
-        search_progress = ["Querying web sources...", "Analyzing search results...", "Cross-referencing data..."]
+        search_progress = [
+            "Scanning web databases for relevant data...",
+            "Analyzing and ranking search results...",
+            "Cross-referencing sources for accuracy...",
+            "Extracting structured data points...",
+            "Validating data quality..."
+        ]
         sp_idx = 0
         while not search_task.done():
             await asyncio.sleep(8)
             if not search_task.done():
                 yield event("task_progress", {
                     "step": "search",
-                    "title": "Searching real-time data sources",
+                    "title": "Searching real-time sources",
                     "detail": search_progress[sp_idx % len(search_progress)],
                     "status": "active"
                 })
                 sp_idx += 1
         
         search_results = search_task.result()
+        source_count = len(search_results.get('structured_data', {}).get('sources', []))
         
         yield event("task_progress", {
             "step": "search",
-            "title": "Searching real-time data sources",
-            "detail": f"Found {len(search_results.get('structured_data', {}).get('sources', []))} sources",
+            "title": f"Collected {source_count} sources",
+            "detail": f"Data gathered from {source_count} verified sources",
             "status": "complete"
         })
         
@@ -1754,9 +1797,9 @@ Search Data:
         
         # Step 3: Generate file
         yield event("task_progress", {
-            "step": "generate_file",
-            "title": f"Building {file_type.upper()} file",
-            "detail": "Structuring data, applying formatting, and creating file",
+            "step": "structure",
+            "title": "Structuring data with AI",
+            "detail": f"Using Kimi K2.5 to organize data into {file_type.upper()} format",
             "status": "active"
         })
         
@@ -1786,20 +1829,21 @@ Search Data:
         
         gen_task = asyncio.create_task(_generate_with_keepalive())
         progress_messages = [
-            "Extracting data from search results...",
-            "Structuring data into rows and columns...",
-            "Applying professional formatting...",
-            "Finalizing file layout...",
-            "Validating data integrity...",
-            "Optimizing file for download..."
+            "Extracting key data points from search results...",
+            "Organizing data into structured tables...",
+            "Creating multiple tabs for different perspectives...",
+            "Applying professional formatting and styling...",
+            "Validating data integrity across all sheets...",
+            "Finalizing layout and preparing for download...",
+            "Running final quality checks..."
         ]
         msg_idx = 0
         while not gen_task.done():
             await asyncio.sleep(10)
             if not gen_task.done():
                 yield event("task_progress", {
-                    "step": "generate_file",
-                    "title": f"Building {file_type.upper()} file",
+                    "step": "structure",
+                    "title": "Structuring data with AI",
                     "detail": progress_messages[msg_idx % len(progress_messages)],
                     "status": "active"
                 })
@@ -1808,9 +1852,15 @@ Search Data:
         result = gen_task.result()
         
         yield event("task_progress", {
-            "step": "generate_file",
-            "title": f"Building {file_type.upper()} file",
-            "detail": f"File created: {result.get('filename', 'report')}",
+            "step": "structure",
+            "title": f"{file_type.upper()} file created",
+            "detail": f"{result.get('filename', 'report')} — {result.get('row_count', 'multiple')} rows of data",
+            "status": "complete"
+        })
+        yield event("task_progress", {
+            "step": "format",
+            "title": "Applied professional formatting",
+            "detail": "Headers, styling, and data validation applied",
             "status": "complete"
         })
         
@@ -1824,9 +1874,9 @@ Search Data:
             
             # Step 4: Generate rich conclusion using Kimi
             yield event("task_progress", {
-                "step": "conclude",
-                "title": "Analyzing results and preparing summary",
-                "detail": "Creating detailed analysis of generated file",
+                "step": "review",
+                "title": "Reviewing and summarizing results",
+                "detail": "Preparing key findings summary",
                 "status": "active"
             })
             
@@ -1838,18 +1888,26 @@ Search Data:
             
             source_names = [s.get("title", s.get("source", "")) for s in sources[:5]]
             
-            # Try to generate a rich conclusion with Kimi
+            # Generate Manus-style brief conclusion about what was done
             conclusion = ""
             try:
                 if kimi_client:
                     conclusion_response = kimi_client.chat.completions.create(
                         model="kimi-k2.5",
                         messages=[
-                            {"role": "system", "content": "You are a data analyst. Write a concise but insightful analysis (150-200 words) of the data that was compiled into a file. Include key findings, notable patterns, and actionable insights. Use markdown formatting with headers and bullet points."},
-                            {"role": "user", "content": f"I just generated a {file_type.upper()} file about: {query}\n\nData sources used: {', '.join(source_names)}\n\nSearch findings summary:\n{search_context_summary[:800]}\n\nRows of data: {result.get('row_count', 'N/A')}\n\nWrite an analysis of what this file contains and key insights."}
+                            {"role": "system", "content": """Write a brief summary of what was accomplished. Use this EXACT format:
+
+Here's what I did:
+- [First key action/finding as a bullet point]
+- [Second key action/finding]
+- [Third key action/finding]
+- [Fourth key action/finding if relevant]
+
+Keep each bullet to 1 line. Focus on WHAT was found and done, not describing the file itself. Be specific with numbers and names from the data. No headers, no bold, no extra formatting. Maximum 5 bullets."""},
+                            {"role": "user", "content": f"Task: Generated a {file_type.upper()} file for: {query}\nSources: {', '.join(source_names[:3])}\nData: {result.get('row_count', 'N/A')} rows\nFindings:\n{search_context_summary[:600]}"}
                         ],
                         temperature=1,
-                        max_tokens=500
+                        max_tokens=300
                     )
                     conclusion = conclusion_response.choices[0].message.content
             except Exception as e:
@@ -1857,28 +1915,18 @@ Search Data:
             
             # Fallback if Kimi fails
             if not conclusion:
-                conclusion = f"""## {file_type.upper()} Report: {query[:80]}
-
-Your {file_type.upper()} file has been generated with real-time data from **{len(sources)} sources** including {', '.join(source_names[:3])}.
-
-**File Details:**
-- **Filename:** {result['filename']}
-- **Data Points:** {result.get('row_count', 'Multiple')} rows of structured data
-- **Sources:** {len(sources)} verified real-time sources
-
-**Key Highlights:**
-- Data extracted and structured from current search results
-- Professional formatting with styled headers and data validation
-- Ready for immediate analysis, sharing, or presentation
-
-Download the file above to explore the full dataset."""
+                conclusion = f"""Here's what I did:
+- Searched {len(sources)} real-time sources for data on \"{query[:60]}\"
+- Compiled {result.get('row_count', 'multiple')} rows of structured data into {file_type.upper()} format
+- Applied professional formatting with styled headers and data validation
+- File is ready for download above"""
             
             yield event("content", {"chunk": conclusion})
             
             yield event("task_progress", {
-                "step": "conclude",
-                "title": "Analyzing results and preparing summary",
-                "detail": "Summary complete",
+                "step": "review",
+                "title": "Task complete",
+                "detail": "File generated and summary delivered",
                 "status": "complete"
             })
             

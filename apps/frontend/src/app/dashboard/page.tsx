@@ -101,6 +101,7 @@ interface Message {
   toolProgress?: { message: string; tools: string[] }[];
   searchSources?: { title: string; url: string; source: string }[];
   taskSteps?: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[];
+  _taskExpanded?: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -456,7 +457,7 @@ function MessageContent({
       if (listItems.length > 0 && listType) {
         const ListTag = listType === 'ul' ? 'ul' : 'ol';
         elements.push(
-          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-1 my-3 ml-2`}>
+          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-0.5 my-1.5 ml-2`}>
             {listItems.map((item, idx) => (
               <li key={idx} className="text-white/80 leading-relaxed">
                 {processInlineFormatting(item)}
@@ -515,17 +516,17 @@ function MessageContent({
       // Headers (apply search highlighting)
       if (line.startsWith('### ')) {
         flushList();
-        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{highlightSearchInText(line.slice(4), searchQuery)}</h3>);
+        elements.push(<h3 key={i} className="text-base font-semibold text-white mt-3 mb-1">{highlightSearchInText(line.slice(4), searchQuery)}</h3>);
         return;
       }
       if (line.startsWith('## ')) {
         flushList();
-        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{highlightSearchInText(line.slice(3), searchQuery)}</h2>);
+        elements.push(<h2 key={i} className="text-lg font-semibold text-white mt-3 mb-1.5">{highlightSearchInText(line.slice(3), searchQuery)}</h2>);
         return;
       }
       if (line.startsWith('# ')) {
         flushList();
-        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{highlightSearchInText(line.slice(2), searchQuery)}</h1>);
+        elements.push(<h1 key={i} className="text-xl font-bold text-white mt-4 mb-2">{highlightSearchInText(line.slice(2), searchQuery)}</h1>);
         return;
       }
       
@@ -554,7 +555,7 @@ function MessageContent({
       // Regular paragraph
       flushList();
       elements.push(
-        <p key={i} className="text-white/80 leading-relaxed mb-2">
+        <p key={i} className="text-white/80 leading-relaxed mb-1">
           {processInlineFormatting(line)}
         </p>
       );
@@ -598,42 +599,52 @@ function MessageContent({
       </div>
 
       {/* Action Bar - Below content */}
-      <div className="flex items-center gap-1 mt-3 pt-3 border-t border-white/[0.04]">
+      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/[0.04]">
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all rounded-lg text-[11px]"
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all border",
+            copied
+              ? "bg-[#2E3524]/20 text-[#8a9a7e] border-[#2E3524]/30"
+              : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent hover:border-white/[0.06]"
+          )}
           title="Copy to clipboard"
         >
-          {copied ? <Check className="h-3 w-3 text-[#5c6652]" /> : <Copy className="h-3 w-3" />}
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
         
-        <div className="relative">
+        <div
+          className="relative"
+          onMouseLeave={() => setShowExportMenu(false)}
+        >
           <button
+            onMouseEnter={() => setShowExportMenu(true)}
             onClick={() => setShowExportMenu(!showExportMenu)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-all rounded-lg text-[11px]"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-all rounded-lg text-[11px] font-medium border border-transparent hover:border-white/[0.06]"
             title="Export document"
           >
             <FileDown className="h-3 w-3" />
             Export
+            <ChevronDown className="h-2.5 w-2.5 ml-0.5" />
           </button>
           
           {showExportMenu && (
-            <div className="absolute left-0 bottom-full mb-1 bg-[#1a1a1a] border border-white/[0.08] rounded-xl shadow-2xl z-50 min-w-[180px] py-1.5 backdrop-blur-xl">
+            <div className="absolute left-0 bottom-full mb-1 bg-[#161616] border border-white/[0.10] rounded-xl shadow-2xl z-50 min-w-[180px] py-1 backdrop-blur-xl">
               {[
-                { format: 'pdf', icon: <FileText className="h-4 w-4 text-red-400" />, label: 'PDF Document' },
-                { format: 'docx', icon: <FileText className="h-4 w-4 text-blue-400" />, label: 'Word Document' },
-                { format: 'xlsx', icon: <FileSpreadsheet className="h-4 w-4 text-[#5c6652]" />, label: 'Excel Spreadsheet' },
-                { format: 'pptx', icon: <Presentation className="h-4 w-4 text-orange-400" />, label: 'PowerPoint' },
-                { format: 'markdown', icon: <FileText className="h-4 w-4 text-white/50" />, label: 'Markdown' },
+                { format: 'pdf', icon: <FileText className="h-3.5 w-3.5 text-red-400" />, label: 'PDF' },
+                { format: 'docx', icon: <FileText className="h-3.5 w-3.5 text-blue-400" />, label: 'Word' },
+                { format: 'xlsx', icon: <FileSpreadsheet className="h-3.5 w-3.5 text-[#5c6652]" />, label: 'Excel' },
+                { format: 'pptx', icon: <Presentation className="h-3.5 w-3.5 text-orange-400" />, label: 'PowerPoint' },
+                { format: 'markdown', icon: <FileText className="h-3.5 w-3.5 text-white/40" />, label: 'Markdown' },
               ].map(({ format, icon, label }) => (
                 <button
                   key={format}
                   onClick={() => handleExport(format)}
                   disabled={!!exporting}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-white/60 hover:text-white hover:bg-white/[0.04] transition-colors disabled:opacity-40"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-white/60 hover:text-white hover:bg-white/[0.05] transition-colors disabled:opacity-40 first:rounded-t-lg last:rounded-b-lg"
                 >
-                  {exporting === format ? <Loader2 className="h-4 w-4 animate-spin" /> : icon}
+                  {exporting === format ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
                   {label}
                 </button>
               ))}
@@ -2464,107 +2475,131 @@ function DashboardContent() {
                       {/* Assistant message */}
                       {message.role === 'assistant' && (
                         <div className="space-y-0">
-                          {/* ===== MANUS AI-STYLE TASK PROGRESS TIMELINE ===== */}
-                          {(message.taskSteps && message.taskSteps.length > 0) && (
-                            <div className="mb-5 rounded-xl bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/[0.06] overflow-hidden">
-                              {/* Header */}
-                              <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/[0.04] bg-white/[0.02]">
-                                <div className="relative">
-                                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center">
-                                    {message.isStreaming ? (
-                                      <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin" />
-                                    ) : (
-                                      <CheckCircle2 className="h-3.5 w-3.5 text-[#8a9a7e]" />
+                          {/* ===== TASK PROGRESS TIMELINE (Collapsible) ===== */}
+                          {(message.taskSteps && message.taskSteps.length > 0) && (() => {
+                            const completedCount = message.taskSteps.filter(s => s.status === 'complete').length;
+                            const totalCount = message.taskSteps.length;
+                            const isAllDone = !message.isStreaming && completedCount === totalCount;
+                            const lastActiveStep = [...message.taskSteps].reverse().find(s => s.status === 'active');
+                            const isExpanded = message.isStreaming || message._taskExpanded !== false;
+                            const toggleExpanded = () => {
+                              setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _taskExpanded: !isExpanded } : m));
+                            };
+                            
+                            const getStepIcon = (stepName: string) => {
+                              if (stepName.includes('understand') || stepName.includes('analyze')) return <Brain className="h-3 w-3" />;
+                              if (stepName.includes('plan') || stepName.includes('break')) return <FileText className="h-3 w-3" />;
+                              if (stepName.includes('search') || stepName.includes('collect')) return <Globe className="h-3 w-3" />;
+                              if (stepName.includes('verify') || stepName.includes('cross')) return <CheckCircle2 className="h-3 w-3" />;
+                              if (stepName.includes('reason') || stepName.includes('synthe')) return <Sparkles className="h-3 w-3" />;
+                              if (stepName.includes('write') || stepName.includes('compos')) return <MessageSquare className="h-3 w-3" />;
+                              if (stepName.includes('structure') || stepName.includes('format')) return <FileSpreadsheet className="h-3 w-3" />;
+                              if (stepName.includes('review') || stepName.includes('conclude')) return <Star className="h-3 w-3" />;
+                              if (stepName.includes('retry')) return <Zap className="h-3 w-3" />;
+                              if (stepName.includes('error')) return <X className="h-3 w-3" />;
+                              return <Circle className="h-3 w-3" />;
+                            };
+                            
+                            return (
+                              <div className="mb-4 rounded-xl bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/[0.06] overflow-hidden">
+                                {/* Clickable Header */}
+                                <button
+                                  onClick={toggleExpanded}
+                                  className="flex items-center gap-2.5 px-4 py-2.5 w-full text-left hover:bg-white/[0.02] transition-colors"
+                                >
+                                  <div className="relative">
+                                    <div className="w-5 h-5 rounded-md bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center">
+                                      {message.isStreaming ? (
+                                        <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
+                                      ) : (
+                                        <CheckCircle2 className="h-3 w-3 text-[#8a9a7e]" />
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-[11px] text-white/60 font-medium">
+                                      {message.isStreaming
+                                        ? (lastActiveStep?.title || 'Working...')
+                                        : `Completed ${completedCount} steps`
+                                      }
+                                    </span>
+                                    {message.isStreaming && lastActiveStep?.detail && (
+                                      <span className="text-[10px] text-white/30 ml-2">
+                                        {lastActiveStep.detail.length > 60 ? lastActiveStep.detail.slice(0, 60) + '...' : lastActiveStep.detail}
+                                      </span>
                                     )}
                                   </div>
-                                  {message.isStreaming && (
-                                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#5c6652] animate-pulse" />
-                                  )}
-                                </div>
-                                <div className="flex-1">
-                                  <span className="text-[11px] text-white/60 font-medium">
-                                    {message.isStreaming ? 'Working on your request...' : 'Task completed'}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] text-white/20">
-                                  {message.taskSteps.filter(s => s.status === 'complete').length}/{message.taskSteps.length} steps
-                                </span>
-                              </div>
-                              
-                              {/* Steps */}
-                              <div className="px-4 py-3">
-                                <div className="relative pl-6">
-                                  {/* Vertical connector line */}
-                                  <div className="absolute left-[8px] top-2 bottom-2 w-[1.5px] bg-gradient-to-b from-[#5c6652]/40 via-[#5c6652]/20 to-transparent" />
-                                  
-                                  {message.taskSteps.map((step, stepIdx) => {
-                                    // Map step types to icons
-                                    const getStepIcon = (stepName: string) => {
-                                      if (stepName.includes('analyze') || stepName.includes('understand')) return <Brain className="h-3 w-3" />;
-                                      if (stepName.includes('search')) return <Globe className="h-3 w-3" />;
-                                      if (stepName.includes('synthe') || stepName.includes('generat') || stepName.includes('reason')) return <Sparkles className="h-3 w-3" />;
-                                      if (stepName.includes('file') || stepName.includes('build')) return <FileText className="h-3 w-3" />;
-                                      if (stepName.includes('conclude') || stepName.includes('summar')) return <MessageSquare className="h-3 w-3" />;
-                                      return <Circle className="h-3 w-3" />;
-                                    };
-                                    
-                                    return (
-                                      <div key={`${step.step}-${stepIdx}`} className={cn(
-                                        "relative flex items-start gap-3 pb-4 last:pb-0 transition-all duration-300",
-                                      )}>
-                                        {/* Step indicator */}
-                                        <div className="absolute -left-6 mt-[2px] z-10">
-                                          {step.status === 'complete' ? (
-                                            <div className="w-[17px] h-[17px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#2E3524]/20 shadow-sm shadow-[#2E3524]/30">
-                                              <Check className="h-2.5 w-2.5 text-[#8a9a7e]" />
-                                            </div>
-                                          ) : step.status === 'active' ? (
-                                            <div className="w-[17px] h-[17px] rounded-full bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center ring-2 ring-[#5c6652]/30">
-                                              <Loader2 className="h-2.5 w-2.5 text-[#8a9a7e] animate-spin" />
-                                            </div>
-                                          ) : (
-                                            <div className="w-[17px] h-[17px] rounded-full bg-white/[0.04] border border-white/[0.08]" />
-                                          )}
-                                        </div>
-                                        {/* Step content */}
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-2">
-                                            <span className={cn(
-                                              "flex-shrink-0",
-                                              step.status === 'active' ? "text-[#8a9a7e]" : step.status === 'complete' ? "text-white/30" : "text-white/15"
-                                            )}>
-                                              {getStepIcon(step.step)}
-                                            </span>
-                                            <p className={cn(
-                                              "text-[12px] leading-tight",
-                                              step.status === 'active' ? "text-white/90 font-medium" : step.status === 'complete' ? "text-white/50" : "text-white/25"
-                                            )}>
-                                              {step.title}
-                                            </p>
-                                            {step.status === 'active' && message.isStreaming && (
-                                              <span className="flex gap-0.5 ml-1">
-                                                <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
-                                                <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
-                                                <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
-                                              </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-white/20">
+                                      {completedCount}/{totalCount}
+                                    </span>
+                                    <ChevronDown className={cn(
+                                      "h-3 w-3 text-white/20 transition-transform",
+                                      isExpanded && "rotate-180"
+                                    )} />
+                                  </div>
+                                </button>
+                                
+                                {/* Expandable Steps */}
+                                {isExpanded && (
+                                  <div className="px-4 pb-3 border-t border-white/[0.04]">
+                                    <div className="relative pl-6 pt-3">
+                                      <div className="absolute left-[8px] top-5 bottom-2 w-[1.5px] bg-gradient-to-b from-[#5c6652]/40 via-[#5c6652]/20 to-transparent" />
+                                      
+                                      {message.taskSteps.map((step, stepIdx) => (
+                                        <div key={`${step.step}-${stepIdx}`} className="relative flex items-start gap-3 pb-3 last:pb-0">
+                                          <div className="absolute -left-6 mt-[2px] z-10">
+                                            {step.status === 'complete' ? (
+                                              <div className="w-[17px] h-[17px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#2E3524]/20">
+                                                <Check className="h-2.5 w-2.5 text-[#8a9a7e]" />
+                                              </div>
+                                            ) : step.status === 'active' ? (
+                                              <div className="w-[17px] h-[17px] rounded-full bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center ring-2 ring-[#5c6652]/30">
+                                                <Loader2 className="h-2.5 w-2.5 text-[#8a9a7e] animate-spin" />
+                                              </div>
+                                            ) : (
+                                              <div className="w-[17px] h-[17px] rounded-full bg-white/[0.04] border border-white/[0.08]" />
                                             )}
                                           </div>
-                                          {step.detail && (
-                                            <p className={cn(
-                                              "text-[10px] mt-1 leading-relaxed pl-5",
-                                              step.status === 'active' ? "text-white/40" : "text-white/20"
-                                            )}>
-                                              {step.detail}
-                                            </p>
-                                          )}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                              <span className={cn(
+                                                "flex-shrink-0",
+                                                step.status === 'active' ? "text-[#8a9a7e]" : step.status === 'complete' ? "text-white/30" : "text-white/15"
+                                              )}>
+                                                {getStepIcon(step.step)}
+                                              </span>
+                                              <p className={cn(
+                                                "text-[12px] leading-tight",
+                                                step.status === 'active' ? "text-white/90 font-medium" : step.status === 'complete' ? "text-white/50" : "text-white/25"
+                                              )}>
+                                                {step.title}
+                                              </p>
+                                              {step.status === 'active' && message.isStreaming && (
+                                                <span className="flex gap-0.5 ml-1">
+                                                  <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                                                  <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                                                  <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
+                                                </span>
+                                              )}
+                                            </div>
+                                            {step.detail && (
+                                              <p className={cn(
+                                                "text-[10px] mt-0.5 leading-relaxed pl-5",
+                                                step.status === 'active' ? "text-white/40" : "text-white/20"
+                                              )}>
+                                                {step.detail}
+                                              </p>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* ===== REASONING LAYERS (Thinking mode) ===== */}
                           {message.reasoning_layers.length > 0 && (
