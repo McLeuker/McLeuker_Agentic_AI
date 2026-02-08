@@ -520,7 +520,7 @@ Rules:
 - Return ONLY the JSON object, no markdown, no explanation, no commentary"""},
                             {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
-                        temperature=0.4,
+                        temperature=1,
                         max_tokens=8000
                     )
                     
@@ -1017,10 +1017,11 @@ class HybridLLMRouter:
             return
         
         try:
+            # Kimi K2.5 only allows temperature=1
             response = kimi_client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=messages,
-                temperature=config["temperature"],
+                temperature=1,
                 max_tokens=config["max_tokens"],
                 stream=stream
             )
@@ -1140,10 +1141,11 @@ class HybridLLMRouter:
             return
         
         try:
+            # Kimi K2.5 only allows temperature=1
             response = kimi_client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=enriched_messages,
-                temperature=config["temperature"],
+                temperature=1,
                 max_tokens=config["max_tokens"],
                 stream=True
             )
@@ -1198,7 +1200,7 @@ class AgentOrchestrator:
             response = kimi_client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=messages,
-                temperature=0.5,
+                temperature=1,
                 max_tokens=4096
             )
             
@@ -1295,7 +1297,7 @@ class AgentOrchestrator:
             response = kimi_client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=messages,
-                temperature=0.6,
+                temperature=1,
                 max_tokens=4096
             )
             
@@ -1697,7 +1699,7 @@ class ChatHandler:
                             {"role": "system", "content": "You are a data analyst. Write a concise but insightful analysis (150-200 words) of the data that was compiled into a file. Include key findings, notable patterns, and actionable insights. Use markdown formatting with headers and bullet points."},
                             {"role": "user", "content": f"I just generated a {file_type.upper()} file about: {query}\n\nData sources used: {', '.join(source_names)}\n\nSearch findings summary:\n{search_context_summary[:800]}\n\nRows of data: {result.get('row_count', 'N/A')}\n\nWrite an analysis of what this file contains and key insights."}
                         ],
-                        temperature=0.5,
+                        temperature=1,
                         max_tokens=500
                     )
                     conclusion = conclusion_response.choices[0].message.content
@@ -1818,7 +1820,7 @@ Download the file above to explore the full dataset."""
             response = kimi_client.chat.completions.create(
                 model="kimi-k2.5",
                 messages=messages,
-                temperature=0.6,
+                temperature=1,
                 max_tokens=4096
             )
             return response.choices[0].message.content
