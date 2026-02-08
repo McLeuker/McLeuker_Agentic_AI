@@ -1,5 +1,5 @@
 """
-McLeuker AI V5.1 - Complete Backend with Kimi-2.5 Full Capabilities
+McLeuker AI V5.4 - Complete Backend with Kimi-2.5 Full Capabilities + Critical Fixes
 ====================================================================
 
 Features:
@@ -101,9 +101,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 app = FastAPI(
-    title="McLeuker AI V5.1",
+    title="McLeuker AI V5.4",
     description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
-    version="5.1.0"
+    version="5.4.0"
 )
 
 # CORS
@@ -2220,15 +2220,22 @@ class ChatHandler:
         structured_data = {"data_points": [], "sources": []}
         
         if needs_search:
-            yield event("status", {"message": "Searching across multiple sources..."})
+            yield event("status", {"message": "Analyzing query and planning search strategy...", "step": 1, "total_steps": 5})
+            yield event("status", {"message": "Searching across multiple sources...", "step": 2, "total_steps": 5})
             
             search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
+            
+            num_sources = len(structured_data.get("sources", []))
+            num_data_points = len(structured_data.get("data_points", []))
+            yield event("status", {"message": f"Found {num_sources} sources with {num_data_points} data points. Processing results...", "step": 3, "total_steps": 5})
             
             # Emit sources with REAL names (not API tool names)
             sources_for_ui = clean_sources_for_output(structured_data.get("sources", []))
             if sources_for_ui:
                 yield event("search_sources", {"sources": sources_for_ui})
+        else:
+            yield event("status", {"message": "Processing your request...", "step": 1, "total_steps": 3})
         
         # Build context for LLM
         search_context = ""
@@ -2285,7 +2292,10 @@ CRITICAL RULES:
                 llm_messages.append({"role": msg.role, "content": content})
         
         # Stream LLM response
-        yield event("status", {"message": "Generating response..."})
+        if needs_search:
+            yield event("status", {"message": "Synthesizing research into response...", "step": 4, "total_steps": 5})
+        else:
+            yield event("status", {"message": "Generating response...", "step": 2, "total_steps": 3})
         
         full_response = ""
         async for evt in HybridLLMRouter.chat(llm_messages, request.mode):
@@ -4831,7 +4841,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "5.1.0",
+        "version": "5.4.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -4867,8 +4877,8 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {
-        "name": "McLeuker AI V5.1",
-        "version": "5.1.0",
+        "name": "McLeuker AI V5.4",
+        "version": "5.4.0",
         "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
         "endpoints": {
             "chat": ["/api/v1/chat", "/api/v1/chat/non-stream"],
@@ -4891,7 +4901,7 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize persistent file store on server boot."""
-    logger.info("McLeuker AI V5.2 starting up...")
+    logger.info("McLeuker AI V5.4 starting up...")
     await PersistentFileStore.initialize()
     logger.info(f"Persistent file store loaded: {len(PersistentFileStore._file_cache)} files cached")
     logger.info("Startup complete.")

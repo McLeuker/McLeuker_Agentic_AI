@@ -18,6 +18,8 @@ export interface Message {
   isStreaming?: boolean;
   downloads?: DownloadableFile[];
   searchSources?: SearchSource[];
+  followUpQuestions?: string[];
+  conclusion?: string;
   metadata?: {
     tokens?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     latency_ms?: number;
@@ -31,11 +33,68 @@ interface ChatInterfaceProps {
   onConversationUpdate?: (id: string, title: string) => void;
 }
 
-export default function ChatInterface({ conversationId, onConversationUpdate }: ChatInterfaceProps) {
+// ============================================================================
+// LOCAL STORAGE PERSISTENCE
+// ============================================================================
+
+const STORAGE_KEY = 'mcleuker_chat_messages';
+const CONVERSATION_ID_KEY = 'mcleuker_conversation_id';
+
+function saveMessagesToStorage(messages: Message[]) {
+  try {
+    // Only save the last 100 messages to avoid storage limits
+    const toSave = messages.slice(-100).map(m => ({
+      ...m,
+      timestamp: m.timestamp.toISOString(),
+    }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (e) {
+    console.warn('Failed to save messages to localStorage:', e);
+  }
+}
+
+function loadMessagesFromStorage(): Message[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return parsed.map((m: any) => ({
+      ...m,
+      timestamp: new Date(m.timestamp),
+      isStreaming: false, // Never restore as streaming
+    }));
+  } catch (e) {
+    console.warn('Failed to load messages from localStorage:', e);
+    return [];
+  }
+}
+
+function saveConversationId(id: string) {
+  try {
+    localStorage.setItem(CONVERSATION_ID_KEY, id);
+  } catch (e) { /* ignore */ }
+}
+
+function loadConversationId(): string | null {
+  try {
+    return localStorage.getItem(CONVERSATION_ID_KEY);
+  } catch (e) {
+    return null;
+  }
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+export default function ChatInterface({ conversationId: propConversationId, onConversationUpdate }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [mode, setMode] = useState<ChatMode>('agent'); // Default to agent for tool use
+  const [mode, setMode] = useState<ChatMode>('research'); // Default to research (recommended)
   const [isLoading, setIsLoading] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState<string | null>(null);
+  const [statusStep, setStatusStep] = useState<{ step: number; total: number } | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(propConversationId || null);
   const [activeTools, setActiveTools] = useState<{ search: boolean; fileGen: boolean; code: boolean }>({ 
     search: false, 
     fileGen: false, 
@@ -52,10 +111,33 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
 
+  // Load messages from localStorage on mount
+  useEffect(() => {
+    const stored = loadMessagesFromStorage();
+    if (stored.length > 0) {
+      setMessages(stored);
+    }
+    const storedConvId = loadConversationId();
+    if (storedConvId && !propConversationId) {
+      setConversationId(storedConvId);
+    }
+  }, [propConversationId]);
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      saveMessagesToStorage(messages);
+    }
+  }, [messages]);
+
   // Auto-scroll when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, currentStatus]);
+
+  // ============================================================================
+  // UNIFIED STREAMING HANDLER - All modes use streaming now
+  // ============================================================================
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return;
@@ -84,11 +166,13 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInput('');
     setIsLoading(true);
+    setCurrentStatus('Initializing...');
+    setStatusStep(null);
 
     // Detect what tools might be needed
     const fileRequest = detectFileRequest(input);
     const needsSearch = mode === 'agent' || mode === 'research' || mode === 'swarm' ||
-      /\b(what's happening|latest|recent|news|today|current|now|202[4-6])\b/i.test(input);
+      /\b(what's happening|latest|recent|news|today|current|now|202[4-6]|market|trend|brand|company|price|stock)\b/i.test(input);
     
     setActiveTools({
       search: needsSearch,
@@ -97,101 +181,113 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
     });
 
     try {
-      // For swarm mode, use the swarm endpoint
-      if (mode === 'swarm') {
-        const result = await api.swarm(input, 5, true, fileRequest.type !== null, 
-          fileRequest.type === 'excel' ? 'spreadsheet' : fileRequest.type || undefined
-        );
-        
-        if (result.success) {
-          const deliverable = result.response.deliverable;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantMessage.id
-              ? {
-                  ...msg,
-                  content: result.response.answer,
-                  downloads: deliverable ? [{
-                    filename: deliverable.filename,
-                    download_url: deliverable.download_url,
-                    file_id: deliverable.file_id,
-                    file_type: deliverable.type
-                  }] : undefined,
-                  isStreaming: false,
-                  metadata: {
-                    latency_ms: result.response.latency_ms,
-                    tokens: result.response.metadata?.total_tokens
-                  }
-                }
-              : msg
-          ));
-        }
-      } 
-      // For research mode
-      else if (mode === 'research') {
-        const result = await api.research(input, 'deep', fileRequest.type !== null);
-        
-        if (result.success) {
-          const deliverable = result.response.deliverable;
-          setMessages(prev => prev.map(msg => 
-            msg.id === assistantMessage.id
-              ? {
-                  ...msg,
-                  content: result.response.answer,
-                  downloads: deliverable ? [{
-                    filename: deliverable.filename,
-                    download_url: deliverable.download_url,
-                    file_id: deliverable.file_id,
-                    file_type: deliverable.type
-                  }] : undefined,
-                  isStreaming: false
-                }
-              : msg
-          ));
-        }
-      }
-      // For streaming modes (thinking, instant, agent, code)
-      else {
-        let fullContent = '';
-        let fullReasoning = '';
-        let streamDownloads: DownloadableFile[] = [];
-        let toolCallCount = 0;
-        const enableTools = mode === 'agent' || mode === 'code';
-        
-        for await (const chunk of api.chatStream(
-          [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          { mode, enable_tools: enableTools }
-        )) {
-          if (chunk.type === 'content') {
-            fullContent += chunk.data;
+      // ALL modes now use streaming for consistent UX
+      let fullContent = '';
+      let fullReasoning = '';
+      let streamDownloads: DownloadableFile[] = [];
+      let streamSources: SearchSource[] = [];
+      let followUps: string[] = [];
+      let conclusionText = '';
+      let toolCallCount = 0;
+      const enableTools = mode === 'agent' || mode === 'code';
+      
+      // Build message history for context
+      const chatHistory = [...messages, userMessage].map(m => ({ 
+        role: m.role, 
+        content: m.content 
+      }));
+      
+      for await (const event of api.chatStream(chatHistory, { mode, enable_tools: enableTools })) {
+        // event = { type: string, data: any, timestamp: string }
+        const eventType = event.type;
+        const eventData = event.data;
+
+        switch (eventType) {
+          case 'start':
+            // Capture conversation_id from backend
+            if (eventData?.conversation_id) {
+              setConversationId(eventData.conversation_id);
+              saveConversationId(eventData.conversation_id);
+            }
+            setCurrentStatus('Connected. Processing...');
+            break;
+
+          case 'status':
+            // Progress status events from backend
+            const statusMsg = eventData?.message || 'Processing...';
+            setCurrentStatus(statusMsg);
+            if (eventData?.step && eventData?.total_steps) {
+              setStatusStep({ step: eventData.step, total: eventData.total_steps });
+            }
+            // Update tool status on the message
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessage.id
+                ? { ...msg, toolStatus: statusMsg }
+                : msg
+            ));
+            break;
+
+          case 'content':
+            // CRITICAL FIX: eventData is { chunk: "text" }, not a string
+            const textChunk = typeof eventData === 'string' ? eventData : (eventData?.chunk || eventData?.text || '');
+            fullContent += textChunk;
+            setCurrentStatus(null); // Clear status when content starts flowing
+            setStatusStep(null);
             setMessages(prev => prev.map(msg => 
               msg.id === assistantMessage.id
                 ? { ...msg, content: fullContent, toolStatus: undefined }
                 : msg
             ));
-          } else if (chunk.type === 'reasoning') {
-            fullReasoning += chunk.data;
+            break;
+
+          case 'reasoning':
+            // CRITICAL FIX: same as content - extract the chunk
+            const reasonChunk = typeof eventData === 'string' ? eventData : (eventData?.chunk || eventData?.text || '');
+            fullReasoning += reasonChunk;
             setMessages(prev => prev.map(msg => 
               msg.id === assistantMessage.id
                 ? { ...msg, reasoning: fullReasoning }
                 : msg
             ));
-          } else if (chunk.type === 'tool_call') {
+            break;
+
+          case 'tool_call':
             toolCallCount++;
-            const toolMsg = chunk.data?.message || 'Executing tool...';
+            const toolMsg = eventData?.message || 'Executing tool...';
+            setCurrentStatus(toolMsg);
             setMessages(prev => prev.map(msg => 
               msg.id === assistantMessage.id
                 ? { ...msg, toolStatus: toolMsg }
                 : msg
             ));
-            // Update active tool indicators
             if (toolMsg.toLowerCase().includes('search') || toolMsg.toLowerCase().includes('source')) {
               setActiveTools(prev => ({ ...prev, search: true }));
             }
             if (toolMsg.toLowerCase().includes('generat') || toolMsg.toLowerCase().includes('build') || toolMsg.toLowerCase().includes('file')) {
               setActiveTools(prev => ({ ...prev, fileGen: true }));
             }
-          } else if (chunk.type === 'download') {
-            const dl = chunk.data as DownloadableFile;
+            break;
+
+          case 'search_sources':
+            // Sources found during search
+            const sources = eventData?.sources || [];
+            streamSources = [...streamSources, ...sources];
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessage.id
+                ? { ...msg, searchSources: streamSources }
+                : msg
+            ));
+            setShowSources(true);
+            break;
+
+          case 'download':
+            // File generated and ready for download
+            const dl: DownloadableFile = {
+              filename: eventData?.filename || 'file',
+              download_url: eventData?.download_url || '',
+              file_id: eventData?.file_id || '',
+              file_type: eventData?.file_type || 'unknown',
+            };
             streamDownloads.push(dl);
             setMessages(prev => prev.map(msg => 
               msg.id === assistantMessage.id
@@ -199,36 +295,91 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
                 : msg
             ));
             setShowDownloads(true);
-          } else if (chunk.type === 'complete') {
-            // Final event with all data
-            if (chunk.data?.content) fullContent = chunk.data.content;
-            if (chunk.data?.reasoning) fullReasoning = chunk.data.reasoning;
-            if (chunk.data?.downloads?.length) {
-              streamDownloads = [...streamDownloads, ...chunk.data.downloads.filter(
-                (d: DownloadableFile) => !streamDownloads.some(sd => sd.file_id === d.file_id)
-              )];
-            }
-          }
-        }
+            setCurrentStatus(`Generated ${dl.filename}`);
+            break;
 
-        setMessages(prev => prev.map(msg => 
-          msg.id === assistantMessage.id
-            ? {
-                ...msg,
-                content: fullContent,
-                reasoning: fullReasoning,
-                downloads: streamDownloads.length > 0 ? streamDownloads : undefined,
-                toolStatus: undefined,
-                isStreaming: false,
-                metadata: {
-                  tool_calls: toolCallCount > 0 ? toolCallCount : undefined
-                }
-              }
-            : msg
-        ));
+          case 'file_error':
+            console.error('File generation error:', eventData);
+            setCurrentStatus(`File error: ${eventData?.error || 'Unknown error'}`);
+            break;
+
+          case 'conclusion':
+            // Manus-style conclusion
+            conclusionText = eventData?.content || '';
+            if (conclusionText) {
+              fullContent += '\n\n---\n\n' + conclusionText;
+              setMessages(prev => prev.map(msg => 
+                msg.id === assistantMessage.id
+                  ? { ...msg, content: fullContent, conclusion: conclusionText }
+                  : msg
+              ));
+            }
+            break;
+
+          case 'follow_up':
+            // Follow-up question suggestions
+            followUps = eventData?.questions || [];
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessage.id
+                ? { ...msg, followUpQuestions: followUps }
+                : msg
+            ));
+            break;
+
+          case 'complete':
+            // Final event - use as fallback if content was missed
+            if (eventData?.content && !fullContent) {
+              fullContent = eventData.content;
+            }
+            if (eventData?.reasoning && !fullReasoning) {
+              fullReasoning = eventData.reasoning;
+            }
+            if (eventData?.downloads?.length) {
+              const newDls = eventData.downloads.filter(
+                (d: DownloadableFile) => !streamDownloads.some(sd => sd.file_id === d.file_id)
+              );
+              streamDownloads = [...streamDownloads, ...newDls];
+            }
+            if (eventData?.follow_up_questions?.length && followUps.length === 0) {
+              followUps = eventData.follow_up_questions;
+            }
+            break;
+
+          case 'error':
+            const errorMsg = eventData?.message || 'An error occurred';
+            fullContent += `\n\n**Error:** ${errorMsg}`;
+            setCurrentStatus(null);
+            break;
+
+          default:
+            console.log('Unhandled SSE event type:', eventType, eventData);
+            break;
+        }
       }
+
+      // Final message update after stream ends
+      setMessages(prev => prev.map(msg => 
+        msg.id === assistantMessage.id
+          ? {
+              ...msg,
+              content: fullContent || 'No response received. Please try again.',
+              reasoning: fullReasoning || undefined,
+              downloads: streamDownloads.length > 0 ? streamDownloads : undefined,
+              searchSources: streamSources.length > 0 ? streamSources : undefined,
+              followUpQuestions: followUps.length > 0 ? followUps : undefined,
+              conclusion: conclusionText || undefined,
+              toolStatus: undefined,
+              isStreaming: false,
+              metadata: {
+                tool_calls: toolCallCount > 0 ? toolCallCount : undefined
+              }
+            }
+          : msg
+      ));
+
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
+        console.error('Chat error:', error);
         setMessages(prev => prev.map(msg => 
           msg.id === assistantMessage.id
             ? { ...msg, content: 'Sorry, an error occurred. Please try again.', isStreaming: false }
@@ -237,16 +388,22 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
       }
     } finally {
       setIsLoading(false);
+      setCurrentStatus(null);
+      setStatusStep(null);
       setActiveTools({ search: false, fileGen: false, code: false });
       abortControllerRef.current = null;
     }
   }, [input, messages, mode, isLoading]);
 
+  // ============================================================================
+  // FILE UPLOAD HANDLERS
+  // ============================================================================
+
   const handleFileUpload = async (file: File) => {
     const userMessage: Message = {
       id: generateId(),
       role: 'user',
-      content: `[Image: ${file.name}]`,
+      content: `[File: ${file.name}]`,
       timestamp: new Date()
     };
 
@@ -260,15 +417,16 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
 
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setIsLoading(true);
+    setCurrentStatus('Uploading and analyzing file...');
 
     try {
-      const result = await api.multimodal('Analyze this image in detail', file, mode);
+      const result = await api.multimodal('Analyze this file in detail', file, mode);
       
       setMessages(prev => prev.map(msg => 
         msg.id === assistantMessage.id
           ? {
               ...msg,
-              content: result.response?.answer || 'Analysis complete',
+              content: result.response?.answer || result.response?.content || 'Analysis complete',
               isStreaming: false
             }
           : msg
@@ -276,11 +434,12 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
     } catch (error) {
       setMessages(prev => prev.map(msg => 
         msg.id === assistantMessage.id
-          ? { ...msg, content: 'Error analyzing image.', isStreaming: false }
+          ? { ...msg, content: 'Error analyzing file. Please try again.', isStreaming: false }
           : msg
       ));
     } finally {
       setIsLoading(false);
+      setCurrentStatus(null);
     }
   };
 
@@ -302,6 +461,7 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
 
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setIsLoading(true);
+    setCurrentStatus('Analyzing UI mockup...');
 
     try {
       const base64 = await fileToBase64(file);
@@ -329,6 +489,7 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
       ));
     } finally {
       setIsLoading(false);
+      setCurrentStatus(null);
     }
   };
 
@@ -341,9 +502,28 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
     });
   };
 
-  // Collect all downloads from messages
+  // Handle follow-up question click
+  const handleFollowUp = (question: string) => {
+    setInput(question);
+  };
+
+  // Clear chat
+  const handleClearChat = () => {
+    setMessages([]);
+    setConversationId(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(CONVERSATION_ID_KEY);
+    } catch (e) { /* ignore */ }
+  };
+
+  // Collect all downloads and sources from messages
   const allDownloads = messages.flatMap(m => m.downloads || []);
   const allSearchSources = messages.flatMap(m => m.searchSources || []);
+
+  // Get the last message's follow-up questions
+  const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant' && !m.isStreaming);
+  const followUpQuestions = lastAssistantMsg?.followUpQuestions || [];
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -360,6 +540,19 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
         </div>
         
         <div className="flex items-center gap-2">
+          {/* Clear Chat Button */}
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChat}
+              className="flex items-center gap-1 px-3 py-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+              title="Clear chat"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
+
           {allDownloads.length > 0 && (
             <button
               onClick={() => setShowDownloads(!showDownloads)}
@@ -380,16 +573,46 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <span className="text-sm font-medium">Sources</span>
+              <span className="text-sm font-medium">{allSearchSources.length} Sources</span>
             </button>
           )}
           
-          <ModeSelector mode={mode} onChange={setMode} />
+          <ModeSelector mode={mode} onChange={setMode} disabled={isLoading} />
         </div>
       </header>
 
+      {/* Progress Bar */}
+      {currentStatus && (
+        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-b px-4 py-2.5">
+          <div className="flex items-center gap-3">
+            {/* Animated spinner */}
+            <div className="relative w-5 h-5 flex-shrink-0">
+              <div className="absolute inset-0 rounded-full border-2 border-blue-200"></div>
+              <div className="absolute inset-0 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-blue-800 font-medium truncate">{currentStatus}</p>
+              {statusStep && (
+                <div className="mt-1 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${(statusStep.step / statusStep.total) * 100}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-blue-600 font-mono flex-shrink-0">
+                    {statusStep.step}/{statusStep.total}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tool Indicators */}
-      {(activeTools.search || activeTools.fileGen || activeTools.code) && (
+      {!currentStatus && (activeTools.search || activeTools.fileGen || activeTools.code) && (
         <ToolIndicator 
           isSearching={activeTools.search}
           isGeneratingFile={activeTools.fileGen}
@@ -418,6 +641,25 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
           <WelcomeScreen onPromptClick={setInput} />
         )}
         <MessageList messages={messages} />
+        
+        {/* Follow-up Questions */}
+        {followUpQuestions.length > 0 && !isLoading && (
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xs text-gray-500 mb-2 font-medium">Suggested follow-ups:</p>
+            <div className="flex flex-wrap gap-2">
+              {followUpQuestions.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleFollowUp(q)}
+                  className="text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-full border border-blue-200 transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        
         <div ref={messagesEndRef} />
       </div>
 
@@ -434,6 +676,10 @@ export default function ChatInterface({ conversationId, onConversationUpdate }: 
     </div>
   );
 }
+
+// ============================================================================
+// WELCOME SCREEN
+// ============================================================================
 
 function WelcomeScreen({ onPromptClick }: { onPromptClick: (prompt: string) => void }) {
   const categories = [
