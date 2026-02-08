@@ -1614,11 +1614,26 @@ class ChatHandler:
         yield event("task_progress", {
             "step": "search",
             "title": "Searching real-time data sources",
-            "detail": "Querying Perplexity, Google, and Exa for latest data",
+            "detail": "Querying Perplexity, Google, Exa, and Grok for latest data",
             "status": "active"
         })
         
-        search_results = await SearchLayer.search(query, sources=["web", "news", "social"], num_results=15)
+        # Run search with keepalive to prevent SSE proxy timeout
+        search_task = asyncio.create_task(SearchLayer.search(query, sources=["web", "news", "social"], num_results=15))
+        search_progress = ["Querying web sources...", "Analyzing search results...", "Cross-referencing data..."]
+        sp_idx = 0
+        while not search_task.done():
+            await asyncio.sleep(8)
+            if not search_task.done():
+                yield event("task_progress", {
+                    "step": "search",
+                    "title": "Searching real-time data sources",
+                    "detail": search_progress[sp_idx % len(search_progress)],
+                    "status": "active"
+                })
+                sp_idx += 1
+        
+        search_results = search_task.result()
         
         yield event("task_progress", {
             "step": "search",
@@ -1646,20 +1661,45 @@ class ChatHandler:
             "results": search_results.get("results", {})
         }
         
-        if file_type == "excel":
-            result = await FileEngine.generate_excel(query, full_data_for_excel, user_id)
-        elif file_type == "word":
-            # Generate content first
-            content = await ChatHandler._generate_content(query, structured_data)
-            result = await FileEngine.generate_word(query, content, user_id)
-        elif file_type == "pdf":
-            content = await ChatHandler._generate_content(query, structured_data)
-            result = await FileEngine.generate_pdf(query, content, user_id)
-        elif file_type == "pptx":
-            content = await ChatHandler._generate_content(query, structured_data)
-            result = await FileEngine.generate_pptx(query, content, user_id)
-        else:
-            result = {"success": False, "error": "Unknown file type"}
+        # Run file generation with keepalive to prevent SSE proxy timeout
+        # Kimi API calls can take 60-120 seconds; Railway proxy times out after ~60s of inactivity
+        async def _generate_with_keepalive():
+            if file_type == "excel":
+                return await FileEngine.generate_excel(query, full_data_for_excel, user_id)
+            elif file_type == "word":
+                content = await ChatHandler._generate_content(query, structured_data)
+                return await FileEngine.generate_word(query, content, user_id)
+            elif file_type == "pdf":
+                content = await ChatHandler._generate_content(query, structured_data)
+                return await FileEngine.generate_pdf(query, content, user_id)
+            elif file_type == "pptx":
+                content = await ChatHandler._generate_content(query, structured_data)
+                return await FileEngine.generate_pptx(query, content, user_id)
+            else:
+                return {"success": False, "error": "Unknown file type"}
+        
+        gen_task = asyncio.create_task(_generate_with_keepalive())
+        progress_messages = [
+            "Extracting data from search results...",
+            "Structuring data into rows and columns...",
+            "Applying professional formatting...",
+            "Finalizing file layout...",
+            "Validating data integrity...",
+            "Optimizing file for download..."
+        ]
+        msg_idx = 0
+        while not gen_task.done():
+            await asyncio.sleep(10)
+            if not gen_task.done():
+                yield event("task_progress", {
+                    "step": "generate_file",
+                    "title": f"Building {file_type.upper()} file",
+                    "detail": progress_messages[msg_idx % len(progress_messages)],
+                    "status": "active"
+                })
+                msg_idx += 1
+        
+        result = gen_task.result()
         
         yield event("task_progress", {
             "step": "generate_file",
