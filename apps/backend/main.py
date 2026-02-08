@@ -1771,7 +1771,7 @@ Search Data:
         ]
         sp_idx = 0
         while not search_task.done():
-            await asyncio.sleep(8)
+            await asyncio.sleep(5)
             if not search_task.done():
                 yield event("task_progress", {
                     "step": "search",
@@ -1835,11 +1835,15 @@ Search Data:
             "Applying professional formatting and styling...",
             "Validating data integrity across all sheets...",
             "Finalizing layout and preparing for download...",
-            "Running final quality checks..."
+            "Running final quality checks...",
+            "Optimizing cell formatting and column widths...",
+            "Adding summary calculations and insights...",
+            "Performing data quality validation..."
         ]
         msg_idx = 0
+        # Send keepalive every 5 seconds to prevent Railway proxy timeout
         while not gen_task.done():
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)
             if not gen_task.done():
                 yield event("task_progress", {
                     "step": "structure",
