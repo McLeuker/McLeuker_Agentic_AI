@@ -1992,55 +1992,64 @@ Download the file above to explore the full dataset."""
     @staticmethod
     def _generate_follow_ups(query: str, response: str) -> List[str]:
         """Generate contextual follow-up questions using LLM based on query AND response."""
-        try:
-            client = kimi_client or grok_client
-            if not client:
-                return []
-            
-            model = "kimi-k2.5" if kimi_client else "grok-3-mini"
-            temp = 1 if kimi_client else 0.5
-            
-            # Truncate response for context
-            response_summary = response[:600] if response else ""
-            
-            result = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": """Generate exactly 5 follow-up questions. These must be:
-1. Directly relevant to the user's original query AND the AI's response
-2. Represent logical next steps the user would want to take
-3. Progress from understanding → deeper analysis → actionable output
-4. Include at least one that suggests generating a file (Excel/PDF/report)
-5. Be specific to the topic, NOT generic
+        
+        response_summary = response[:800] if response else ""
+        
+        system_msg = """Generate exactly 5 follow-up questions based on the user's query and the AI's response. Rules:
+1. Each question must be directly relevant to the specific topic discussed
+2. Questions should represent logical next steps: deeper analysis, comparisons, actionable outputs
+3. Include at least one that suggests generating a file (e.g. "Generate an Excel spreadsheet comparing...")
+4. Be SPECIFIC - mention actual entities, numbers, or topics from the response
+5. Do NOT use generic questions like "Tell me more" or "What are the key takeaways"
 
-Return ONLY a JSON array of 5 strings. No explanation.
-Example: ["How do the top 3 compare in revenue growth?", "Generate an Excel with detailed financials", ...]"""},
-                    {"role": "user", "content": f"User asked: {query}\n\nAI responded (summary): {response_summary}\n\nGenerate 5 contextual follow-up questions:"}
-                ],
-                temperature=temp,
-                max_tokens=400
-            )
-            
-            raw = result.choices[0].message.content.strip()
-            # Parse JSON array
-            for strategy in [
-                lambda t: json.loads(t),
-                lambda t: json.loads(t[t.index('['):t.rindex(']')+1]),
-            ]:
-                try:
-                    parsed = strategy(raw)
-                    if isinstance(parsed, list) and len(parsed) >= 3:
-                        return [str(q).strip() for q in parsed[:5]]
-                except:
-                    continue
-            
-            # If JSON parsing fails, try line-by-line extraction
-            lines = [l.strip().lstrip('0123456789.-) ') for l in raw.split('\n') if l.strip() and len(l.strip()) > 10]
-            if lines:
-                return lines[:5]
-            
-        except Exception as e:
-            logger.error(f"Follow-up generation error: {e}")
+Return ONLY a valid JSON array of 5 strings. Nothing else."""
+        
+        user_msg = f"User asked: {query}\n\nAI responded (summary): {response_summary}\n\nGenerate 5 specific follow-up questions:"
+        
+        # Try Grok first (faster, better at following JSON format instructions)
+        clients_to_try = []
+        if grok_client:
+            clients_to_try.append((grok_client, "grok-3-mini", 0.5))
+        if kimi_client:
+            clients_to_try.append((kimi_client, "kimi-k2.5", 1))
+        
+        for client, model, temp in clients_to_try:
+            try:
+                result = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_msg},
+                        {"role": "user", "content": user_msg}
+                    ],
+                    temperature=temp,
+                    max_tokens=500
+                )
+                
+                raw = result.choices[0].message.content.strip()
+                
+                # Parse JSON array with multiple strategies
+                for strategy in [
+                    lambda t: json.loads(t),
+                    lambda t: json.loads(t[t.index('['):t.rindex(']')+1]),
+                    lambda t: json.loads(t.split('```json')[-1].split('```')[0].strip()) if '```' in t else None,
+                ]:
+                    try:
+                        parsed = strategy(raw)
+                        if parsed and isinstance(parsed, list) and len(parsed) >= 3:
+                            return [str(q).strip().strip('"') for q in parsed[:5]]
+                    except:
+                        continue
+                
+                # Line-by-line extraction as last resort
+                lines = [l.strip().lstrip('0123456789.-) ').strip('"') for l in raw.split('\n') if l.strip() and len(l.strip()) > 15]
+                if len(lines) >= 3:
+                    return lines[:5]
+                
+                logger.warning(f"Follow-up parsing failed for {model}, raw: {raw[:200]}")
+                
+            except Exception as e:
+                logger.error(f"Follow-up generation error with {model}: {e}")
+                continue
         
         # Minimal fallback - at least reference the topic
         topic = query[:60] if query else "this topic"
