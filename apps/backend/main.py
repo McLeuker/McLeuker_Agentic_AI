@@ -195,12 +195,251 @@ grok_client = openai.OpenAI(
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+# Generated files storage bucket name
+GENERATED_FILES_BUCKET = "generated-files"
+
 # Current date for real-time data enforcement
 def get_current_date_str():
     return datetime.now().strftime('%Y-%m-%d')
 
 def get_current_year():
     return datetime.now().year
+
+
+# ============================================================================
+# PERSISTENT FILE STORE - Supabase Storage for permanent file access
+# ============================================================================
+
+class PersistentFileStore:
+    """
+    Stores generated files in Supabase Storage so they persist across deploys.
+    Files are accessible forever (like ChatGPT) — users can always re-download
+    from chat history even after server restarts.
+    
+    Architecture:
+    1. File generated → saved to local /tmp first
+    2. Uploaded to Supabase Storage bucket 'generated-files'
+    3. Metadata stored in 'generated_files' Supabase table
+    4. Download endpoint checks Supabase first, local fallback
+    5. On startup, file registry is loaded from Supabase table
+    """
+    
+    # In-memory cache of file metadata (loaded from DB on startup)
+    _file_cache: Dict[str, Dict] = {}
+    _initialized: bool = False
+    
+    @classmethod
+    async def initialize(cls):
+        """Load file registry from Supabase on startup."""
+        if cls._initialized or not supabase:
+            return
+        try:
+            # Ensure the storage bucket exists
+            try:
+                supabase.storage.get_bucket(GENERATED_FILES_BUCKET)
+            except Exception:
+                try:
+                    supabase.storage.create_bucket(GENERATED_FILES_BUCKET, options={
+                        "public": True,
+                        "file_size_limit": 52428800  # 50MB
+                    })
+                    logger.info(f"Created storage bucket: {GENERATED_FILES_BUCKET}")
+                except Exception as e:
+                    logger.warning(f"Could not create bucket (may already exist): {e}")
+            
+            # Load existing file metadata from DB
+            result = supabase.table("generated_files").select("*").order("created_at", desc=True).limit(500).execute()
+            if result.data:
+                for row in result.data:
+                    cls._file_cache[row["file_id"]] = {
+                        "file_id": row["file_id"],
+                        "filename": row["filename"],
+                        "filepath": row.get("local_path", ""),
+                        "file_type": row["file_type"],
+                        "storage_path": row.get("storage_path", ""),
+                        "public_url": row.get("public_url", ""),
+                        "user_id": row.get("user_id"),
+                        "conversation_id": row.get("conversation_id"),
+                        "created_at": row.get("created_at"),
+                        "size_bytes": row.get("size_bytes", 0)
+                    }
+                logger.info(f"Loaded {len(cls._file_cache)} files from persistent store")
+            cls._initialized = True
+        except Exception as e:
+            logger.error(f"PersistentFileStore init error: {e}")
+    
+    @classmethod
+    async def store_file(cls, file_id: str, filename: str, filepath: str, file_type: str,
+                         user_id: str = None, conversation_id: str = None) -> Dict:
+        """
+        Upload a generated file to Supabase Storage and register in DB.
+        Returns file metadata with permanent download URL.
+        """
+        local_path = Path(filepath)
+        if not local_path.exists():
+            logger.error(f"Cannot store file - local path not found: {filepath}")
+            return {"success": False, "error": "Local file not found"}
+        
+        storage_path = f"{user_id or 'anonymous'}/{file_type}/{file_id}_{filename}"
+        public_url = ""
+        size_bytes = local_path.stat().st_size
+        
+        # Upload to Supabase Storage
+        if supabase:
+            try:
+                with open(filepath, "rb") as f:
+                    file_bytes = f.read()
+                
+                # Determine content type
+                content_types = {
+                    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "pdf": "application/pdf",
+                    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    "csv": "text/csv",
+                    "markdown": "text/markdown",
+                    "json": "application/json"
+                }
+                content_type = content_types.get(file_type, "application/octet-stream")
+                
+                supabase.storage.from_(GENERATED_FILES_BUCKET).upload(
+                    path=storage_path,
+                    file=file_bytes,
+                    file_options={"content-type": content_type, "upsert": "true"}
+                )
+                
+                # Get public URL
+                url_data = supabase.storage.from_(GENERATED_FILES_BUCKET).get_public_url(storage_path)
+                public_url = url_data if isinstance(url_data, str) else ""
+                
+                logger.info(f"File uploaded to Supabase Storage: {storage_path}")
+            except Exception as e:
+                logger.error(f"Supabase Storage upload error: {e}")
+                # Continue without storage - file still available locally until restart
+        
+        # Store metadata in DB
+        metadata = {
+            "file_id": file_id,
+            "filename": filename,
+            "filepath": str(filepath),
+            "file_type": file_type,
+            "storage_path": storage_path,
+            "public_url": public_url,
+            "user_id": user_id or "anonymous",
+            "conversation_id": conversation_id,
+            "size_bytes": size_bytes,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        if supabase:
+            try:
+                supabase.table("generated_files").upsert({
+                    "file_id": file_id,
+                    "filename": filename,
+                    "local_path": str(filepath),
+                    "file_type": file_type,
+                    "storage_path": storage_path,
+                    "public_url": public_url,
+                    "user_id": user_id or "anonymous",
+                    "conversation_id": conversation_id,
+                    "size_bytes": size_bytes,
+                    "created_at": datetime.now().isoformat()
+                }).execute()
+            except Exception as e:
+                logger.error(f"DB insert error for generated file: {e}")
+        
+        # Update in-memory cache
+        cls._file_cache[file_id] = metadata
+        
+        return {"success": True, **metadata}
+    
+    @classmethod
+    def get_file(cls, file_id: str) -> Optional[Dict]:
+        """Get file metadata by ID. Checks cache first, then DB."""
+        # Check in-memory cache
+        if file_id in cls._file_cache:
+            return cls._file_cache[file_id]
+        
+        # Check DB
+        if supabase:
+            try:
+                result = supabase.table("generated_files").select("*").eq("file_id", file_id).single().execute()
+                if result.data:
+                    metadata = {
+                        "file_id": result.data["file_id"],
+                        "filename": result.data["filename"],
+                        "filepath": result.data.get("local_path", ""),
+                        "file_type": result.data["file_type"],
+                        "storage_path": result.data.get("storage_path", ""),
+                        "public_url": result.data.get("public_url", ""),
+                        "user_id": result.data.get("user_id"),
+                        "conversation_id": result.data.get("conversation_id"),
+                        "created_at": result.data.get("created_at"),
+                        "size_bytes": result.data.get("size_bytes", 0)
+                    }
+                    cls._file_cache[file_id] = metadata
+                    return metadata
+            except Exception as e:
+                logger.error(f"DB lookup error for file {file_id}: {e}")
+        
+        return None
+    
+    @classmethod
+    async def get_file_content(cls, file_id: str) -> Optional[bytes]:
+        """Download file content from Supabase Storage."""
+        file_info = cls.get_file(file_id)
+        if not file_info:
+            return None
+        
+        # Try local first (faster)
+        local_path = Path(file_info.get("filepath", ""))
+        if local_path.exists():
+            return local_path.read_bytes()
+        
+        # Download from Supabase Storage
+        storage_path = file_info.get("storage_path", "")
+        if storage_path and supabase:
+            try:
+                data = supabase.storage.from_(GENERATED_FILES_BUCKET).download(storage_path)
+                if data:
+                    # Cache locally for faster subsequent access
+                    try:
+                        OUTPUT_DIR.mkdir(exist_ok=True)
+                        local_cache = OUTPUT_DIR / f"{file_id}_{file_info['filename']}"
+                        local_cache.write_bytes(data)
+                        cls._file_cache[file_id]["filepath"] = str(local_cache)
+                    except Exception:
+                        pass
+                    return data
+            except Exception as e:
+                logger.error(f"Supabase Storage download error: {e}")
+        
+        return None
+    
+    @classmethod
+    async def list_files(cls, user_id: str = None, conversation_id: str = None,
+                         limit: int = 50) -> List[Dict]:
+        """List generated files, optionally filtered by user or conversation."""
+        if supabase:
+            try:
+                query = supabase.table("generated_files").select("*").order("created_at", desc=True).limit(limit)
+                if user_id:
+                    query = query.eq("user_id", user_id)
+                if conversation_id:
+                    query = query.eq("conversation_id", conversation_id)
+                result = query.execute()
+                return result.data or []
+            except Exception as e:
+                logger.error(f"List files error: {e}")
+        
+        # Fallback to cache
+        files = list(cls._file_cache.values())
+        if user_id:
+            files = [f for f in files if f.get("user_id") == user_id]
+        if conversation_id:
+            files = [f for f in files if f.get("conversation_id") == conversation_id]
+        return sorted(files, key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
+
 
 # ============================================================================
 # ENUMS AND CONSTANTS
@@ -1179,6 +1418,9 @@ Rules:
                 "expires_at": (datetime.now() + timedelta(days=7)).isoformat()
             }
             
+            # Persist to Supabase Storage for permanent access
+            asyncio.create_task(PersistentFileStore.store_file(file_id, filename, str(filepath), "excel", user_id))
+            
             return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}", "row_count": row_count}
         except Exception as e:
             logger.error(f"Excel generation error: {e}")
@@ -1328,6 +1570,10 @@ Rules:
             doc.save(filepath)
             
             cls.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "word", "user_id": user_id, "created_at": datetime.now().isoformat()}
+            
+            # Persist to Supabase Storage for permanent access
+            asyncio.create_task(PersistentFileStore.store_file(file_id, filename, str(filepath), "word", user_id))
+            
             return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         except Exception as e:
             logger.error(f"Word generation error: {e}")
@@ -1408,6 +1654,10 @@ Rules:
             HTML(string=html_template).write_pdf(str(filepath))
             
             cls.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "pdf", "user_id": user_id, "created_at": datetime.now().isoformat()}
+            
+            # Persist to Supabase Storage for permanent access
+            asyncio.create_task(PersistentFileStore.store_file(file_id, filename, str(filepath), "pdf", user_id))
+            
             return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         except Exception as e:
             logger.error(f"PDF generation error: {e}")
@@ -1669,6 +1919,10 @@ Rules:
             prs.save(filepath)
             
             cls.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "pptx", "user_id": user_id, "created_at": datetime.now().isoformat()}
+            
+            # Persist to Supabase Storage for permanent access
+            asyncio.create_task(PersistentFileStore.store_file(file_id, filename, str(filepath), "pptx", user_id))
+            
             return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         except Exception as e:
             logger.error(f"PPTX generation error: {e}")
@@ -2455,6 +2709,10 @@ async def generate_file_endpoint(request: FileGenRequest):
                     writer.writerow(row)
             
             FileEngine.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "csv", "user_id": request.user_id, "created_at": datetime.now().isoformat()}
+            
+            # Persist to Supabase Storage for permanent access
+            asyncio.create_task(PersistentFileStore.store_file(file_id, filename, str(filepath), "csv", request.user_id))
+            
             return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         
         if file_type_val == "docx":
@@ -2468,6 +2726,10 @@ async def generate_file_endpoint(request: FileGenRequest):
             content_text = request.content if isinstance(request.content, str) else prompt
             filepath.write_text(content_text, encoding="utf-8")
             FileEngine.files[file_id] = {"filename": filename, "filepath": str(filepath), "file_type": "markdown", "user_id": request.user_id, "created_at": datetime.now().isoformat()}
+            
+            # Persist to Supabase Storage for permanent access
+            asyncio.create_task(PersistentFileStore.store_file(file_id, filename, str(filepath), "markdown", request.user_id))
+            
             return {"success": True, "file_id": file_id, "filename": filename, "download_url": f"/api/v1/download/{file_id}"}
         
         # Generate file
@@ -2510,35 +2772,97 @@ async def generate_file_endpoint(request: FileGenRequest):
 @app.get("/api/v1/download/{file_id}")
 @app.get("/api/v1/files/{file_id}/download")
 async def download_file(file_id: str):
-    """Download generated file."""
+    """
+    Download generated file. Checks multiple sources:
+    1. In-memory FileEngine cache (fastest, current session)
+    2. PersistentFileStore / Supabase Storage (permanent, survives restarts)
+    3. Returns redirect to public URL if file is in Supabase Storage
+    """
+    media_types = {
+        "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pdf": "application/pdf",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "markdown": "text/markdown",
+        "csv": "text/csv"
+    }
+    
     try:
+        # 1. Check in-memory FileEngine (current session files)
         file_info = FileEngine.get_file(file_id)
-        if not file_info:
-            raise HTTPException(status_code=404, detail="File not found")
+        if file_info:
+            filepath = Path(file_info["filepath"])
+            if filepath.exists():
+                return FileResponse(
+                    path=str(filepath),
+                    filename=file_info["filename"],
+                    media_type=media_types.get(file_info["file_type"], "application/octet-stream")
+                )
         
-        filepath = Path(file_info["filepath"])
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail="File not found on disk")
+        # 2. Check PersistentFileStore (Supabase Storage - permanent)
+        persistent_info = PersistentFileStore.get_file(file_id)
+        if persistent_info:
+            filename = persistent_info["filename"]
+            file_type = persistent_info["file_type"]
+            
+            # Try local cache first
+            local_path = Path(persistent_info.get("filepath", ""))
+            if local_path.exists():
+                return FileResponse(
+                    path=str(local_path),
+                    filename=filename,
+                    media_type=media_types.get(file_type, "application/octet-stream")
+                )
+            
+            # If public URL exists, redirect to it
+            public_url = persistent_info.get("public_url", "")
+            if public_url:
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(url=public_url)
+            
+            # Download from Supabase Storage and serve
+            file_bytes = await PersistentFileStore.get_file_content(file_id)
+            if file_bytes:
+                # Cache locally for this session
+                OUTPUT_DIR.mkdir(exist_ok=True)
+                local_cache = OUTPUT_DIR / f"{file_id}_{filename}"
+                local_cache.write_bytes(file_bytes)
+                return FileResponse(
+                    path=str(local_cache),
+                    filename=filename,
+                    media_type=media_types.get(file_type, "application/octet-stream")
+                )
         
-        media_types = {
-            "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "pdf": "application/pdf",
-            "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            "markdown": "text/markdown",
-            "csv": "text/csv"
-        }
-        
-        return FileResponse(
-            path=str(filepath),
-            filename=file_info["filename"],
-            media_type=media_types.get(file_info["file_type"], "application/octet-stream")
-        )
+        raise HTTPException(status_code=404, detail="File not found. It may have been deleted or expired.")
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Download error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/files/generated")
+async def list_generated_files(user_id: str = None, conversation_id: str = None, limit: int = 50):
+    """List generated files for a user or conversation. Files persist permanently."""
+    try:
+        files = await PersistentFileStore.list_files(user_id=user_id, conversation_id=conversation_id, limit=limit)
+        return {
+            "success": True,
+            "files": [{
+                "file_id": f.get("file_id"),
+                "filename": f.get("filename"),
+                "file_type": f.get("file_type"),
+                "download_url": f"/api/v1/download/{f.get('file_id')}",
+                "public_url": f.get("public_url", ""),
+                "size_bytes": f.get("size_bytes", 0),
+                "created_at": f.get("created_at"),
+                "conversation_id": f.get("conversation_id")
+            } for f in files],
+            "count": len(files)
+        }
+    except Exception as e:
+        logger.error(f"List files error: {e}")
+        return {"success": False, "files": [], "error": str(e)}
 
 @app.post("/api/v1/agent/execute")
 async def execute_agent(request: AgentRequest):
@@ -4505,6 +4829,19 @@ async def root():
             "health": ["/health"]
         }
     }
+
+# ============================================================================
+# STARTUP EVENT - Initialize persistent stores
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize persistent file store on server boot."""
+    logger.info("McLeuker AI V5.2 starting up...")
+    await PersistentFileStore.initialize()
+    logger.info(f"Persistent file store loaded: {len(PersistentFileStore._file_cache)} files cached")
+    logger.info("Startup complete.")
+
 
 # ============================================================================
 # MAIN

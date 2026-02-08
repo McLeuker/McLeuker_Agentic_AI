@@ -1,9 +1,10 @@
 /**
- * McLeuker AI V2 - Frontend API Service
+ * McLeuker AI V5.2 - Frontend API Service
  * Handles all API communication with standardized event parsing
+ * Includes persistent file download and background search support
  */
 
-import { ChatMode } from './ModeSelector';
+import { ChatMode } from '@/components/chat/ModeSelector';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -294,6 +295,225 @@ export class APIService {
   }
 
   /**
+   * List generated files (persistent - survives server restarts)
+   */
+  async listGeneratedFiles(userId?: string, conversationId?: string): Promise<{
+    success: boolean;
+    files: Array<{
+      file_id: string;
+      filename: string;
+      file_type: string;
+      download_url: string;
+      public_url: string;
+      size_bytes: number;
+      created_at: string;
+      conversation_id?: string;
+    }>;
+    count: number;
+  }> {
+    const params = new URLSearchParams();
+    if (userId) params.set('user_id', userId);
+    if (conversationId) params.set('conversation_id', conversationId);
+    
+    const response = await fetch(`${this.baseUrl}/api/v1/files/generated?${params}`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Get file download URL (works even after server restart)
+   */
+  getFileDownloadUrl(fileId: string): string {
+    return `${this.baseUrl}/api/v1/download/${fileId}`;
+  }
+
+  /**
+   * Start background search (survives page refresh)
+   */
+  async startBackgroundSearch(query: string, userId?: string): Promise<{
+    task_id: string;
+    status: string;
+  }> {
+    const response = await fetch(`${this.baseUrl}/api/v1/search/background`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, user_id: userId })
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Check background search status
+   */
+  async getBackgroundSearchStatus(taskId: string): Promise<{
+    task_id: string;
+    status: string;
+    progress: number;
+    result?: any;
+    error?: string;
+  }> {
+    const response = await fetch(`${this.baseUrl}/api/v1/search/background/${taskId}`);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Streaming chat generator - yields SSE events
+   */
+  async *chatStream(
+    messages: Array<{ role: string; content: string }>,
+    options: { mode?: ChatMode; enable_tools?: boolean } = {}
+  ): AsyncGenerator<{ type: string; data: any }> {
+    const response = await fetch(`${this.baseUrl}/api/v1/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify({
+        messages,
+        mode: options.mode || 'research',
+        stream: true,
+        enable_tools: options.enable_tools ?? true
+      })
+    });
+
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    if (!response.body) throw new Error('No response body');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              yield event;
+            } catch (e) {
+              console.error('Failed to parse SSE event:', e);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * Swarm endpoint - multi-agent execution
+   */
+  async swarm(
+    masterTask: string,
+    numAgents: number = 5,
+    autoSynthesize: boolean = true,
+    generateFile: boolean = false,
+    fileType?: string
+  ): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/api/v1/swarm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        master_task: masterTask,
+        context: {},
+        num_agents: numAgents,
+        auto_synthesize: autoSynthesize,
+        generate_file: generateFile,
+        file_type: fileType
+      })
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Research endpoint - deep research with file generation
+   */
+  async research(
+    query: string,
+    depth: string = 'deep',
+    generateFile: boolean = false
+  ): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/api/v1/research`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        depth,
+        generate_file: generateFile
+      })
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Multimodal endpoint - image/video analysis
+   */
+  async multimodal(
+    text: string,
+    file?: File,
+    mode: string = 'research'
+  ): Promise<any> {
+    const formData = new FormData();
+    formData.append('text', text);
+    formData.append('mode', mode);
+    if (file) formData.append('image', file);
+
+    const response = await fetch(`${this.baseUrl}/api/v1/multimodal`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Vision-to-code endpoint
+   */
+  async visionToCode(
+    imageBase64: string,
+    requirements: string = '',
+    framework: 'html' | 'react' | 'vue' = 'react'
+  ): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/api/v1/vision-to-code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_base64: imageBase64,
+        requirements,
+        framework
+      })
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
+   * Upload file for analysis
+   */
+  async uploadFile(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${this.baseUrl}/api/v1/upload`, {
+      method: 'POST',
+      body: formData
+    });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    return response.json();
+  }
+
+  /**
    * Health check
    */
   async healthCheck(): Promise<{
@@ -483,3 +703,34 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 // Export singleton instance
 export const api = new APIService();
 export default api;
+
+// Re-export ChatMode for backward compatibility
+export type { ChatMode } from '@/components/chat/ModeSelector';
+
+// Legacy type aliases for backward compatibility
+export type DownloadableFile = DownloadInfo;
+export type SearchSource = SourceInfo;
+
+// Legacy function aliases
+export const handleChatResponse = () => {};
+export const sendChatMessage = async (request: any) => {
+  const apiInstance = new APIService();
+  return apiInstance.chat(request);
+};
+export const detectFileRequest = (msg: string): { type: string | null } => {
+  const lower = msg.toLowerCase();
+  if (lower.includes('excel') || lower.includes('spreadsheet')) return { type: 'excel' };
+  if (lower.includes('word') || lower.includes('document') || lower.includes('docx')) return { type: 'word' };
+  if (lower.includes('pdf') || lower.includes('report')) return { type: 'pdf' };
+  if (lower.includes('ppt') || lower.includes('presentation') || lower.includes('slide')) return { type: 'pptx' };
+  return { type: null };
+};
+export const formatTokenCount = (count: number): string => {
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+  return count.toString();
+};
+export const formatLatency = (ms: number): string => {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+};
