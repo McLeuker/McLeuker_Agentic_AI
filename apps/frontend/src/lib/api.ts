@@ -1,408 +1,485 @@
 /**
- * McLeuker AI - Complete API Client
- * All Kimi 2.5 capabilities with TypeScript support
+ * McLeuker AI V2 - Frontend API Service
+ * Handles all API communication with standardized event parsing
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
+import { ChatMode } from './ModeSelector';
 
-// Types
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | any[];
-  tool_calls?: any[];
-  tool_call_id?: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
 }
 
-export type ChatMode = 'instant' | 'thinking' | 'agent' | 'swarm' | 'research' | 'code';
-
-export interface ChatOptions {
-  mode?: ChatMode;
+export interface ChatRequest {
+  messages: ChatMessage[];
+  mode: ChatMode;
   stream?: boolean;
-  enable_tools?: boolean;
-  context_id?: string;
+  conversation_id?: string;
+  user_id?: string;
 }
 
-export interface DownloadableFile {
-  filename: string;
-  download_url: string;
+export interface StreamEvent {
+  type: string;
+  data: any;
+  timestamp: string;
+}
+
+export interface SourceInfo {
+  title: string;
+  url: string;
+  snippet?: string;
+  source: string;
+}
+
+export interface DownloadInfo {
   file_id: string;
+  filename: string;
   file_type: string;
+  download_url: string;
 }
 
-export interface SearchSource {
-  type: 'search' | 'file';
-  filename?: string;
-  download_url?: string;
-  file_id?: string;
-  sources?: string[];
+export interface TaskProgress {
+  step: string;
+  title: string;
+  status: 'pending' | 'active' | 'complete' | 'error';
+  detail?: string;
+  progress?: number;
 }
 
-export interface ChatResponse {
-  success: boolean;
-  response?: {
-    answer: string;
-    reasoning?: string;
-    mode: ChatMode;
-    downloads: DownloadableFile[];
-    search_sources: SearchSource[];
-    metadata: {
-      tokens: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-      };
-      latency_ms: number;
-      tool_calls: number;
-    };
-  };
-  error?: string;
+// ============================================================================
+// EVENT HANDLERS
+// ============================================================================
+
+export interface ChatEventHandlers {
+  onTaskProgress?: (progress: TaskProgress) => void;
+  onReasoning?: (chunk: string) => void;
+  onContent?: (chunk: string) => void;
+  onToolCall?: (tool: string, status: string, output?: any) => void;
+  onSearchSources?: (sources: SourceInfo[]) => void;
+  onDownload?: (download: DownloadInfo) => void;
+  onFollowUp?: (questions: string[]) => void;
+  onComplete?: (data: {
+    content: string;
+    conversation_id?: string;
+    downloads: DownloadInfo[];
+    sources: SourceInfo[];
+    follow_up_questions: string[];
+  }) => void;
+  onError?: (message: string) => void;
+  onConversationCreated?: (id: string, mode: string) => void;
 }
 
-// Main API client
-export const api = {
-  // ==================== CHAT ====================
-  
-  async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResponse> {
-    const response = await fetch(`${API_URL}/api/v1/chat`, {
+// ============================================================================
+// API SERVICE
+// ============================================================================
+
+export class APIService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = API_BASE_URL) {
+    this.baseUrl = baseUrl;
+  }
+
+  /**
+   * Stream chat with event handlers
+   */
+  async streamChat(
+    request: ChatRequest,
+    handlers: ChatEventHandlers
+  ): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/v1/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages,
-        mode: options.mode || 'thinking',
-        stream: options.stream || false,
-        enable_tools: options.enable_tools !== false,
-        context_id: options.context_id
-      })
-    });
-    return response.json();
-  },
-
-  async *chatStream(messages: ChatMessage[], options: ChatOptions = {}) {
-    const response = await fetch(`${API_URL}/api/v1/chat/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages,
-        mode: options.mode || 'thinking',
-        enable_tools: options.enable_tools !== false
-      })
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify(request)
     });
 
-    const reader = response.body?.getReader();
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    if (!response.body) {
+      throw new Error('No response body');
+    }
+
+    const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = '';
 
-    if (!reader) return;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
 
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            yield data;
-          } catch (e) {
-            // Ignore parse errors
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event: StreamEvent = JSON.parse(line.slice(6));
+              this.handleEvent(event, handlers);
+            } catch (e) {
+              console.error('Failed to parse event:', line, e);
+            }
           }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
-  },
+  }
 
-  // ==================== AGENT SWARM ====================
-  
-  async swarm(
-    masterTask: string, 
-    numAgents: number = 5, 
-    enableSearch: boolean = true,
-    generateDeliverable: boolean = false,
-    deliverableType?: 'report' | 'presentation' | 'spreadsheet'
-  ) {
-    const response = await fetch(`${API_URL}/api/v1/swarm`, {
+  /**
+   * Non-streaming chat
+   */
+  async chat(request: ChatRequest): Promise<{
+    content: string;
+    downloads: DownloadInfo[];
+    sources: SourceInfo[];
+    follow_up_questions: string[];
+  }> {
+    const response = await fetch(`${this.baseUrl}/api/v1/chat/non-stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        master_task: masterTask,
-        context: {},
-        num_agents: numAgents,
-        enable_search: enableSearch,
-        generate_deliverable: generateDeliverable,
-        deliverable_type: deliverableType
-      })
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
     });
-    return response.json();
-  },
 
-  // ==================== SEARCH ====================
-  
-  async search(
-    query: string, 
-    sources: string[] = ['web', 'news'], 
-    numResults: number = 10,
-    recencyDays?: number
-  ) {
-    const response = await fetch(`${API_URL}/api/v1/search`, {
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Search
+   */
+  async search(query: string, sources: string[] = ['web', 'news']): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/api/v1/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query,
-        sources,
-        num_results: numResults,
-        recency_days: recencyDays
-      })
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ query, sources })
     });
-    return response.json();
-  },
 
-  // ==================== RESEARCH ====================
-  
-  async research(
-    query: string, 
-    depth: 'quick' | 'deep' | 'exhaustive' = 'deep',
-    generateDeliverable: boolean = false,
-    deliverableType: 'report' | 'presentation' | 'spreadsheet' = 'report'
-  ) {
-    const response = await fetch(`${API_URL}/api/v1/research`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query,
-        depth,
-        generate_deliverable: generateDeliverable,
-        deliverable_type: deliverableType
-      })
-    });
-    return response.json();
-  },
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
 
-  // ==================== VISION TO CODE ====================
-  
-  async visionToCode(
-    imageBase64: string, 
-    requirements: string = '', 
-    framework: 'html' | 'react' | 'vue' | 'svelte' | 'angular' = 'html',
-    stylingPreference: 'tailwind' | 'bootstrap' | 'css' | 'styled-components' = 'tailwind'
-  ) {
-    const response = await fetch(`${API_URL}/api/v1/vision-to-code`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image_base64: imageBase64,
-        requirements,
-        framework,
-        styling_preference: stylingPreference
-      })
-    });
     return response.json();
-  },
+  }
 
-  // ==================== CODE EXECUTION ====================
-  
-  async executeCode(
-    code: string,
-    language: 'python' | 'javascript' | 'typescript' | 'bash' | 'sql' = 'python',
-    timeout: number = 30,
-    dependencies?: string[],
-    inputs?: Record<string, any>
-  ) {
-    const response = await fetch(`${API_URL}/api/v1/execute-code`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        language,
-        timeout,
-        dependencies,
-        inputs
-      })
-    });
-    return response.json();
-  },
-
-  // ==================== FILE GENERATION ====================
-  
+  /**
+   * Generate file
+   */
   async generateFile(
-    content: string | object,
-    fileType: 'excel' | 'word' | 'pdf' | 'pptx' | 'csv' | 'json',
-    options: {
-      title?: string;
-      subtitle?: string;
-      filename?: string;
-      includeCharts?: boolean;
-    } = {}
-  ) {
-    const response = await fetch(`${API_URL}/api/v1/generate-file`, {
+    prompt: string,
+    fileType: 'excel' | 'word' | 'pdf' | 'pptx',
+    userId?: string,
+    conversationId?: string
+  ): Promise<{
+    success: boolean;
+    file_id?: string;
+    filename?: string;
+    download_url?: string;
+    error?: string;
+  }> {
+    const response = await fetch(`${this.baseUrl}/api/v1/files/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        content: typeof content === 'string' ? content : JSON.stringify(content),
+        prompt,
         file_type: fileType,
-        title: options.title,
-        subtitle: options.subtitle,
-        filename: options.filename,
-        include_charts: options.includeCharts
+        user_id: userId,
+        conversation_id: conversationId
       })
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     return response.json();
-  },
+  }
 
-  async generateExcel(
-    data: Record<string, any[]> | any[],
-    options: {
-      title?: string;
-      filename?: string;
-      includeCharts?: boolean;
-    } = {}
-  ) {
-    return this.generateFile(data, 'excel', options);
-  },
+  /**
+   * Download file
+   */
+  downloadFile(fileId: string): string {
+    return `${this.baseUrl}/api/v1/files/${fileId}/download`;
+  }
 
-  async generateWord(
-    content: string,
-    options: {
-      title?: string;
-      subtitle?: string;
-      filename?: string;
-    } = {}
-  ) {
-    return this.generateFile(content, 'word', options);
-  },
+  /**
+   * Get conversations
+   */
+  async getConversations(userId: string): Promise<any[]> {
+    const response = await fetch(`${this.baseUrl}/api/v1/conversations?user_id=${userId}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
 
-  async generatePDF(
-    content: string,
-    options: {
-      title?: string;
-      filename?: string;
-      includeToc?: boolean;
-    } = {}
-  ) {
-    return this.generateFile(content, 'pdf', {
-      ...options,
-      includeCharts: options.includeToc
-    });
-  },
+    const data = await response.json();
+    return data.conversations || [];
+  }
 
-  async generatePresentation(
-    content: string,
-    options: {
-      title?: string;
-      filename?: string;
-      theme?: 'professional' | 'modern' | 'dark';
-    } = {}
-  ) {
-    return this.generateFile(content, 'pptx', options);
-  },
-
-  // ==================== MULTIMODAL ====================
-  
-  async multimodal(text: string, imageFile?: File, mode: ChatMode = 'thinking') {
-    const formData = new FormData();
-    formData.append('text', text);
-    formData.append('mode', mode);
-    if (imageFile) formData.append('image', imageFile);
-
-    const response = await fetch(`${API_URL}/api/v1/multimodal`, {
+  /**
+   * Create conversation
+   */
+  async createConversation(
+    userId: string,
+    title?: string,
+    mode: ChatMode = 'thinking'
+  ): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/api/v1/conversations`, {
       method: 'POST',
-      body: formData
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ user_id: userId, title, mode })
     });
-    return response.json();
-  },
 
-  // ==================== DOWNLOAD ====================
-  
-  downloadFile(fileId: string, filename: string) {
-    const link = document.createElement('a');
-    link.href = `${API_URL}/api/v1/download/${fileId}`;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  },
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
 
-  getDownloadUrl(fileId: string) {
-    return `${API_URL}/api/v1/download/${fileId}`;
-  },
-
-  // ==================== HEALTH & STATUS ====================
-  
-  async health() {
-    const response = await fetch(`${API_URL}/api/v1/health`);
     return response.json();
   }
-};
 
-// ==================== HELPERS ====================
+  /**
+   * Get conversation with messages
+   */
+  async getConversation(conversationId: string, userId: string): Promise<{
+    conversation: any;
+    messages: any[];
+  }> {
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/conversations/${conversationId}?user_id=${userId}`
+    );
 
-export function handleChatResponse(response: ChatResponse) {
-  if (!response.success) {
-    return {
-      error: response.error,
-      answer: null,
-      reasoning: null,
-      downloads: [] as DownloadableFile[],
-      searchSources: [] as SearchSource[],
-      metadata: null
-    };
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
   }
 
-  const { answer, reasoning, downloads = [], search_sources = [], metadata } = response.response!;
+  /**
+   * Delete conversation
+   */
+  async deleteConversation(conversationId: string, userId: string): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/conversations/${conversationId}?user_id=${userId}`,
+      { method: 'DELETE' }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+  }
+
+  /**
+   * Health check
+   */
+  async healthCheck(): Promise<{
+    status: string;
+    version: string;
+    services: Record<string, boolean>;
+  }> {
+    const response = await fetch(`${this.baseUrl}/health`);
+    return response.json();
+  }
+
+  // ============================================================================
+  // PRIVATE METHODS
+  // ============================================================================
+
+  private handleEvent(event: StreamEvent, handlers: ChatEventHandlers): void {
+    const { type, data } = event;
+
+    switch (type) {
+      case 'task_progress':
+        handlers.onTaskProgress?.(data as TaskProgress);
+        break;
+
+      case 'reasoning':
+        handlers.onReasoning?.(data.chunk);
+        break;
+
+      case 'content':
+        handlers.onContent?.(data.chunk);
+        break;
+
+      case 'tool_call':
+        handlers.onToolCall?.(data.tool, data.status, data.output);
+        break;
+
+      case 'search_sources':
+        handlers.onSearchSources?.(data.sources as SourceInfo[]);
+        break;
+
+      case 'download':
+        handlers.onDownload?.(data as DownloadInfo);
+        break;
+
+      case 'follow_up':
+        handlers.onFollowUp?.(data.questions);
+        break;
+
+      case 'complete':
+        handlers.onComplete?.({
+          content: data.content,
+          conversation_id: data.conversation_id,
+          downloads: data.downloads || [],
+          sources: data.sources || [],
+          follow_up_questions: data.follow_up_questions || []
+        });
+        break;
+
+      case 'error':
+        handlers.onError?.(data.message);
+        break;
+
+      case 'conversation_created':
+        handlers.onConversationCreated?.(data.id, data.mode);
+        break;
+
+      default:
+        console.log('Unknown event type:', type, data);
+    }
+  }
+}
+
+// ============================================================================
+// HOOK
+// ============================================================================
+
+import { useState, useCallback } from 'react';
+
+export interface UseChatOptions {
+  userId?: string;
+  conversationId?: string;
+  mode?: ChatMode;
+}
+
+export interface UseChatReturn {
+  messages: ChatMessage[];
+  isLoading: boolean;
+  error: string | null;
+  currentContent: string;
+  downloads: DownloadInfo[];
+  sources: SourceInfo[];
+  followUpQuestions: string[];
+  taskProgress: TaskProgress | null;
+  sendMessage: (content: string) => Promise<void>;
+  clearMessages: () => void;
+}
+
+export function useChat(options: UseChatOptions = {}): UseChatReturn {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentContent, setCurrentContent] = useState('');
+  const [downloads, setDownloads] = useState<DownloadInfo[]>([]);
+  const [sources, setSources] = useState<SourceInfo[]>([]);
+  const [followUpQuestions, setFollowUpQuestions] = useState<string[]>([]);
+  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
+
+  const api = new APIService();
+
+  const sendMessage = useCallback(async (content: string) => {
+    setIsLoading(true);
+    setError(null);
+    setCurrentContent('');
+    setDownloads([]);
+    setSources([]);
+    setFollowUpQuestions([]);
+
+    // Add user message
+    const userMessage: ChatMessage = { role: 'user', content };
+    setMessages(prev => [...prev, userMessage]);
+
+    try {
+      await api.streamChat(
+        {
+          messages: [...messages, userMessage],
+          mode: options.mode || 'thinking',
+          stream: true,
+          conversation_id: options.conversationId,
+          user_id: options.userId
+        },
+        {
+          onTaskProgress: setTaskProgress,
+          onContent: (chunk) => {
+            setCurrentContent(prev => prev + chunk);
+          },
+          onSearchSources: setSources,
+          onDownload: (download) => {
+            setDownloads(prev => [...prev, download]);
+          },
+          onFollowUp: setFollowUpQuestions,
+          onComplete: (data) => {
+            setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
+            setCurrentContent('');
+            setDownloads(data.downloads);
+            setSources(data.sources);
+            setFollowUpQuestions(data.follow_up_questions);
+          },
+          onError: (message) => {
+            setError(message);
+          },
+          onConversationCreated: (id) => {
+            // Handle conversation creation if needed
+            console.log('Conversation created:', id);
+          }
+        }
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsLoading(false);
+      setTaskProgress(null);
+    }
+  }, [messages, options.mode, options.conversationId, options.userId]);
+
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+    setCurrentContent('');
+    setDownloads([]);
+    setSources([]);
+    setFollowUpQuestions([]);
+    setError(null);
+  }, []);
 
   return {
-    answer,
-    reasoning,
+    messages,
+    isLoading,
+    error,
+    currentContent,
     downloads,
-    searchSources: search_sources,
-    metadata
+    sources,
+    followUpQuestions,
+    taskProgress,
+    sendMessage,
+    clearMessages
   };
 }
 
-export function createExcelData(items: any[], sheetName: string = 'Data'): Record<string, any[]> {
-  return { [sheetName]: items };
-}
-
-export function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-export function detectFileRequest(text: string): { type: 'excel' | 'word' | 'pdf' | 'pptx' | null; confidence: number } {
-  const lower = text.toLowerCase();
-  
-  const patterns = [
-    { type: 'excel' as const, keywords: ['excel', 'spreadsheet', '.xlsx', 'csv', 'sheet', 'table data'] },
-    { type: 'word' as const, keywords: ['word', 'document', '.docx', 'report', 'write up'] },
-    { type: 'pdf' as const, keywords: ['pdf', 'whitepaper', 'download as pdf'] },
-    { type: 'pptx' as const, keywords: ['presentation', 'powerpoint', 'pptx', 'slides', 'deck'] }
-  ];
-  
-  for (const pattern of patterns) {
-    const matches = pattern.keywords.filter(kw => lower.includes(kw)).length;
-    if (matches > 0) {
-      return { type: pattern.type, confidence: matches / pattern.keywords.length };
-    }
-  }
-  
-  return { type: null, confidence: 0 };
-}
-
-export function formatTokenCount(count: number): string {
-  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-  return count.toString();
-}
-
-export function formatLatency(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
+// Export singleton instance
+export const api = new APIService();
+export default api;
