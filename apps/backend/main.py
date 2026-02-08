@@ -465,13 +465,13 @@ class FileType(str, Enum):
     DOCX = "docx"
 
 MODE_CONFIGS = {
-    ChatMode.INSTANT: {"primary_model": "grok", "temperature": 0.7, "max_tokens": 2048, "show_reasoning": False, "enable_tools": True},
-    ChatMode.THINKING: {"primary_model": "kimi", "temperature": 0.6, "max_tokens": 4096, "show_reasoning": True, "enable_tools": True},
-    ChatMode.AGENT: {"primary_model": "kimi", "temperature": 0.5, "max_tokens": 4096, "show_reasoning": True, "enable_tools": True},
-    ChatMode.SWARM: {"primary_model": "kimi", "temperature": 0.5, "max_tokens": 8192, "show_reasoning": True, "enable_tools": True, "parallel_agents": 5},
-    ChatMode.RESEARCH: {"primary_model": "hybrid", "temperature": 0.4, "max_tokens": 8192, "show_reasoning": True, "enable_tools": True},
-    ChatMode.CODE: {"primary_model": "kimi", "temperature": 0.3, "max_tokens": 4096, "show_reasoning": False, "enable_tools": True},
-    ChatMode.HYBRID: {"primary_model": "hybrid", "temperature": 0.5, "max_tokens": 4096, "show_reasoning": True, "enable_tools": True}
+    ChatMode.INSTANT: {"primary_model": "grok", "temperature": 0.7, "max_tokens": 16384, "show_reasoning": False, "enable_tools": True},
+    ChatMode.THINKING: {"primary_model": "kimi", "temperature": 0.6, "max_tokens": 16384, "show_reasoning": True, "enable_tools": True},
+    ChatMode.AGENT: {"primary_model": "kimi", "temperature": 0.5, "max_tokens": 16384, "show_reasoning": True, "enable_tools": True},
+    ChatMode.SWARM: {"primary_model": "kimi", "temperature": 0.5, "max_tokens": 16384, "show_reasoning": True, "enable_tools": True, "parallel_agents": 5},
+    ChatMode.RESEARCH: {"primary_model": "hybrid", "temperature": 0.4, "max_tokens": 16384, "show_reasoning": True, "enable_tools": True},
+    ChatMode.CODE: {"primary_model": "kimi", "temperature": 0.3, "max_tokens": 16384, "show_reasoning": False, "enable_tools": True},
+    ChatMode.HYBRID: {"primary_model": "hybrid", "temperature": 0.5, "max_tokens": 16384, "show_reasoning": True, "enable_tools": True}
 }
 
 # ============================================================================
@@ -1195,7 +1195,7 @@ Rules:
                             {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=0.3,
-                        max_tokens=8000
+                        max_tokens=16384
                     ))
                     raw_json = grok_response.choices[0].message.content.strip()
                     excel_data = _parse_excel_json(raw_json, "Grok")
@@ -1214,7 +1214,7 @@ Rules:
                             {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=1,
-                        max_tokens=8000
+                        max_tokens=16384
                     ))
                     raw_json = kimi_response.choices[0].message.content.strip()
                     excel_data = _parse_excel_json(raw_json, "Kimi")
@@ -1713,7 +1713,7 @@ Rules:
                             {"role": "user", "content": f"Create presentation for: {prompt}\n\nContent to use:\n{content[:3000]}"}
                         ],
                         temperature=0.3,
-                        max_tokens=6000
+                        max_tokens=16384
                     ))
                     raw = response.choices[0].message.content.strip()
                     for strategy in [
@@ -2135,7 +2135,7 @@ class AgentOrchestrator:
                     {"role": "user", "content": task}
                 ],
                 temperature=temp,
-                max_tokens=4096
+                max_tokens=16384
             )
             return {"agent_type": agent_type, "result": response.choices[0].message.content, "model": model}
         except Exception as e:
@@ -2176,7 +2176,7 @@ class AgentOrchestrator:
                             {"role": "user", "content": f"Task: {task}\n\nAgent results:\n{combined[:4000]}"}
                         ],
                         temperature=temp,
-                        max_tokens=4096
+                        max_tokens=16384
                     )
                     yield event("synthesis", {"content": synth.choices[0].message.content})
                 except Exception as e:
@@ -2245,7 +2245,20 @@ class ChatHandler:
         current_date = get_current_date_str()
         current_year = get_current_year()
         
-        system_msg = f"""You are McLeuker AI, a professional research and analysis assistant. Today is {current_date}.
+        # Build conversation summary from previous messages for context
+        conversation_summary = ""
+        prev_messages = request.messages[:-1] if len(request.messages) > 1 else []
+        if prev_messages:
+            recent_exchanges = []
+            for msg in prev_messages[-10:]:  # Last 10 messages for context
+                content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                if content and len(content) > 5:
+                    role_label = "User" if msg.role == "user" else "Assistant"
+                    recent_exchanges.append(f"{role_label}: {content[:500]}")
+            if recent_exchanges:
+                conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context and follow-ups):\n" + "\n".join(recent_exchanges)
+        
+        system_msg = f"""You are McLeuker AI, a professional research and analysis assistant. Today is {current_date}. The current year is {current_year}.
 
 CRITICAL RULES:
 1. ALL data must reflect {current_year} current reality. Do NOT provide outdated data.
@@ -2255,8 +2268,13 @@ CRITICAL RULES:
 5. If search data is available, integrate it naturally into your response.
 6. Use markdown formatting for readability.
 7. End with a brief insight or recommendation section.
-
-{f'Search data available:{chr(10)}{search_context[:4000]}' if search_context else ''}"""
+8. ALWAYS complete your full response. NEVER stop mid-sentence or mid-paragraph. If your response is long, finish it properly with a conclusion.
+9. You HAVE the ability to generate files: Excel (.xlsx), Word (.docx), PDF (.pdf), PowerPoint (.pptx), and CSV. When a user asks you to "generate", "create", or "make" a file, DO IT. Do NOT say you cannot generate files.
+10. When the user asks you to repeat, rewrite, continue, or finish something, refer to the CONVERSATION HISTORY below to understand what they are referring to. Do NOT search the web for follow-up requests.
+11. STAY ON TOPIC. If the user asked about fashion, and then says "can you rewrite that" or "generate a PDF about this", the topic is STILL fashion. Do not switch topics.
+12. If you are unsure about current {current_year} data, clearly state that and provide the most recent data you have with the year noted.
+{conversation_summary}
+{f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}"""
         
         llm_messages = [{"role": "system", "content": system_msg}]
         
@@ -2340,17 +2358,53 @@ CRITICAL RULES:
     
     @staticmethod
     def _needs_search(query: str) -> bool:
-        """Determine if a query needs web search."""
-        no_search_patterns = [
-            r'^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|bye)',
-            r'^(how are you|what can you do|who are you)',
-            r'^(help|menu|settings|preferences)',
-        ]
+        """Determine if a query needs web search.
+        
+        CRITICAL: Follow-up messages, conversational messages, and requests
+        to repeat/rewrite/continue should NOT trigger search. Only new
+        research questions should trigger search.
+        """
         query_lower = query.lower().strip()
+        
+        # Greetings and simple conversational messages - NO SEARCH
+        no_search_patterns = [
+            r'^(hi|hello|hey|thanks|thank you|ok|okay|sure|yes|no|bye|good)',
+            r'^(how are you|what can you do|who are you|what is your name|who made you)',
+            r'^(help|menu|settings|preferences)',
+            r'^(do you have|are you|can you feel|when is your)',
+        ]
         for pattern in no_search_patterns:
             if re.match(pattern, query_lower):
                 return False
-        return len(query_lower) > 10
+        
+        # Follow-up / continuation requests - NO SEARCH
+        # These reference previous conversation and should use memory, not search
+        followup_patterns = [
+            r'(can you|could you|please).*(write|rewrite|repeat|say|finish|complete|continue|redo|regenerate).*(again|that|it|this|them|those|the same)',
+            r'(write|rewrite|repeat|say|finish|complete|continue|redo|regenerate).*(again|that|it|this|them|those)',
+            r'^(again|repeat|rewrite|redo|regenerate|continue|go on|keep going)',
+            r'(i lost|i missed|lost your|where is|what was|what did you)',
+            r'(you (didn.?t|did not) finish|you (didn.?t|did not) complete|you lost|you stopped|you cut off)',
+            r'(can you|could you) (explain|elaborate|expand|clarify) (that|this|it|more|further)',
+            r'^(what|which) (do you mean|did you mean|was that|were you)',
+            r'(i asked you|i was asking|my question was|i meant|i said)',
+            r'(more detail|more info|tell me more|go deeper|elaborate)',
+            r'^(and|but|so|also|what about|how about)',
+        ]
+        for pattern in followup_patterns:
+            if re.search(pattern, query_lower):
+                return False
+        
+        # Very short messages are likely conversational - NO SEARCH
+        if len(query_lower) < 15 and not any(w in query_lower for w in ['what', 'how', 'why', 'when', 'where', 'who', 'which', 'best', 'top', 'compare']):
+            return False
+        
+        # File generation requests that reference previous content - NO SEARCH
+        if re.search(r'(generate|create|make|build|export).*(pdf|word|excel|pptx|document|file|report).*(about this|about that|from this|from that|of this|of that)', query_lower):
+            return False
+        
+        # Everything else: SEARCH
+        return True
     
     @staticmethod
     def _detect_file_needs(query: str) -> List[str]:
@@ -2515,7 +2569,7 @@ Keep it concise but insightful. Focus on REASONING about what the data means, no
                 model=model,
                 messages=messages,
                 temperature=temp,
-                max_tokens=6000
+                max_tokens=16384
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -3444,7 +3498,7 @@ class FileUploadManager:
                 model=model,
                 messages=messages,
                 temperature=temp,
-                max_tokens=4096
+                max_tokens=16384
             )
             analysis = response.choices[0].message.content
             
@@ -3846,7 +3900,7 @@ Structure with headers (##), bullet points, and tables.
                     {"role": "user", "content": query}
                 ],
                 temperature=temp,
-                max_tokens=6000
+                max_tokens=16384
             )
             full_response = response.choices[0].message.content
             
@@ -4266,7 +4320,7 @@ Keep it to 3-6 steps. Return ONLY valid JSON."""
                         model=model,
                         messages=[{"role": "user", "content": f"Task: {context['task']}\nPrevious results: {prev_results}\n\n{step_input}"}],
                         temperature=temp,
-                        max_tokens=2000
+                        max_tokens=8192
                     )
                     return {"reasoning": response.choices[0].message.content}
                 return {"reasoning": step_input}
@@ -4296,7 +4350,7 @@ Keep it to 3-6 steps. Return ONLY valid JSON."""
                     {"role": "user", "content": f"Task: {task}\n\nWorkflow results:\n{results_summary}\n\nProvide a comprehensive synthesis:"}
                 ],
                 temperature=temp,
-                max_tokens=4000
+                max_tokens=16384
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -4458,7 +4512,7 @@ Return ONLY the JSON array, no markdown formatting, no code blocks, no explanati
             response = await provider_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
-                temperature=0.7, max_tokens=3000
+                temperature=0.7, max_tokens=8192
             )
             raw = response.choices[0].message.content.strip()
             if raw.startswith("```"):
@@ -4568,7 +4622,7 @@ Return ONLY the JSON array."""
             response = await provider_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
-                temperature=0.7, max_tokens=2000
+                temperature=0.7, max_tokens=8192
             )
             raw = response.choices[0].message.content.strip()
             if raw.startswith("```"):
@@ -4720,7 +4774,7 @@ Return ONLY the JSON array."""
             response = await provider_client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system_msg}, {"role": "user", "content": prompt}],
-                temperature=0.7, max_tokens=2000
+                temperature=0.7, max_tokens=8192
             )
             raw = response.choices[0].message.content.strip()
             if raw.startswith("```"):
