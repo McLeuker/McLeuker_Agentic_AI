@@ -630,16 +630,18 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                         )
                 
                 # Auto-adjust column widths
-                for column in ws.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
+                from openpyxl.utils import get_column_letter
+                for col_idx in range(1, len(headers) + 1):
+                    max_length = len(str(headers[col_idx - 1])) if col_idx <= len(headers) else 10
+                    for row_idx in range(5, 5 + len(rows[:100])):
                         try:
+                            cell = ws.cell(row=row_idx, column=col_idx)
                             if cell.value and len(str(cell.value)) > max_length:
                                 max_length = len(str(cell.value))
                         except:
                             pass
-                    ws.column_dimensions[column_letter].width = min(max(max_length + 3, 15), 50)
+                    col_letter = get_column_letter(col_idx)
+                    ws.column_dimensions[col_letter].width = min(max(max_length + 3, 15), 50)
                 
                 row_count = len(rows)
             else:
@@ -666,16 +668,17 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                     ws.cell(row=row_idx, column=3, value=dp.get("source", ""))
                     ws.cell(row=row_idx, column=4, value=dp.get("url", ""))
                 
-                for column in ws.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
+                from openpyxl.utils import get_column_letter as gcl
+                for col_idx in range(1, len(headers) + 1):
+                    max_length = len(headers[col_idx - 1]) if col_idx <= len(headers) else 10
+                    for row_idx in range(4, 4 + len(raw_data_points[:50])):
                         try:
+                            cell = ws.cell(row=row_idx, column=col_idx)
                             if cell.value and len(str(cell.value)) > max_length:
                                 max_length = len(str(cell.value))
                         except:
                             pass
-                    ws.column_dimensions[column_letter].width = min(max(max_length + 2, 15), 50)
+                    ws.column_dimensions[gcl(col_idx)].width = min(max(max_length + 2, 15), 50)
                 
                 row_count = len(raw_data_points)
             
