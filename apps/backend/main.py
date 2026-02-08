@@ -581,16 +581,7 @@ Rules:
             
             # Use Kimi to generate proper structured data for the Excel
             excel_data = None
-            if kimi_client:
-                try:
-                    # Run in executor to avoid blocking the event loop (enables keepalive)
-                    import functools
-                    loop = asyncio.get_event_loop()
-                    kimi_response = await loop.run_in_executor(None, functools.partial(
-                        kimi_client.chat.completions.create,
-                        model="kimi-k2.5",
-                        messages=[
-                            {"role": "system", "content": """You generate comprehensive Excel spreadsheets with MANY TABS. Return ONLY valid JSON.
+            excel_prompt = """You generate comprehensive Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
 
 Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
 
@@ -610,83 +601,73 @@ Rules:
 - Each row must have the same number of columns as headers
 - DO NOT use generic headers like "Item", "Value", "Date"
 - Main tab: 20-30 rows. Other tabs: 5-15 rows each
-- Return ONLY the JSON object, no markdown, no explanation"""},
-                            {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
-                        ],
-                        temperature=1,
-                        max_tokens=8000
-                    ))
-                    
-                    raw_json = kimi_response.choices[0].message.content.strip()
-                    logger.info(f"Kimi Excel raw response length: {len(raw_json)}")
-                    
-                    # Try multiple JSON extraction strategies
-                    for strategy in [
-                        lambda t: json.loads(t),
-                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
-                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
-                        lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,
-                    ]:
-                        try:
-                            result = strategy(raw_json)
-                            if result and isinstance(result, dict):
-                                # Multi-tab format: {"sheets": [...]}
-                                if "sheets" in result and isinstance(result["sheets"], list):
-                                    excel_data = result
-                                    total_rows = sum(len(s.get('rows', [])) for s in result['sheets'])
-                                    logger.info(f"Kimi Excel multi-tab: {len(result['sheets'])} sheets, {total_rows} total rows")
-                                    break
-                                # Legacy single-tab format: {"headers": [...], "rows": [...]}
-                                elif "headers" in result and "rows" in result:
-                                    excel_data = {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
-                                    logger.info(f"Kimi Excel single-tab: {len(result.get('rows', []))} rows, {len(result.get('headers', []))} columns")
-                                    break
-                        except:
-                            continue
-                    
-                except Exception as e:
-                    logger.error(f"Kimi Excel content generation error: {e}")
+- Return ONLY the JSON object, no markdown, no explanation"""
             
-            # Fallback: Try Grok if Kimi failed
-            if not excel_data and grok_client:
+            def _parse_excel_json(raw_json: str, source_name: str) -> dict:
+                """Parse JSON from LLM response with multiple strategies."""
+                for strategy in [
+                    lambda t: json.loads(t),
+                    lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
+                    lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
+                    lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,
+                ]:
+                    try:
+                        result = strategy(raw_json)
+                        if result and isinstance(result, dict):
+                            if "sheets" in result and isinstance(result["sheets"], list):
+                                total_rows = sum(len(s.get('rows', [])) for s in result['sheets'])
+                                logger.info(f"{source_name} Excel multi-tab: {len(result['sheets'])} sheets, {total_rows} total rows")
+                                return result
+                            elif "headers" in result and "rows" in result:
+                                data = {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
+                                logger.info(f"{source_name} Excel single-tab: {len(result.get('rows', []))} rows")
+                                return data
+                    except:
+                        continue
+                return None
+            
+            # Primary: Use Grok (faster for JSON generation)
+            if grok_client:
                 try:
-                    logger.info("Kimi failed for Excel, trying Grok fallback")
                     import functools
                     loop = asyncio.get_event_loop()
                     grok_response = await loop.run_in_executor(None, functools.partial(
                         grok_client.chat.completions.create,
                         model="grok-3-mini",
                         messages=[
-                            {"role": "system", "content": """Generate structured data for an Excel spreadsheet with MULTIPLE TABS. Return ONLY valid JSON.
-Format: {"sheets": [{"title": "...", "headers": [...], "rows": [...]}, ...]}
-Create 4-5 sheets with different perspectives. Main data: 20-30 rows. Other tabs: 5-15 rows each.
-Return ONLY the JSON, no markdown."""},
-                            {"role": "user", "content": f"Generate Excel data for: {prompt}\n\nSearch data:\n{search_context[:2000]}"}
+                            {"role": "system", "content": excel_prompt},
+                            {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
                         ],
                         temperature=0.3,
-                        max_tokens=6000
+                        max_tokens=8000
                     ))
                     raw_json = grok_response.choices[0].message.content.strip()
-                    for strategy in [
-                        lambda t: json.loads(t),
-                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
-                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
-                        lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,
-                    ]:
-                        try:
-                            result = strategy(raw_json)
-                            if result and isinstance(result, dict):
-                                if "sheets" in result:
-                                    excel_data = result
-                                elif "headers" in result and "rows" in result:
-                                    excel_data = {"sheets": [{"title": result.get("title", prompt[:30]), "headers": result["headers"], "rows": result["rows"]}]}
-                                if excel_data:
-                                    logger.info(f"Grok Excel parsed: {sum(len(s.get('rows',[])) for s in excel_data.get('sheets',[]))} total rows")
-                                    break
-                        except:
-                            continue
+                    logger.info(f"Grok Excel raw response length: {len(raw_json)}")
+                    excel_data = _parse_excel_json(raw_json, "Grok")
                 except Exception as e:
-                    logger.error(f"Grok Excel fallback error: {e}")
+                    logger.error(f"Grok Excel generation error: {e}")
+            
+            # Fallback: Try Kimi if Grok failed
+            if not excel_data and kimi_client:
+                try:
+                    logger.info("Grok failed for Excel, trying Kimi fallback")
+                    import functools
+                    loop = asyncio.get_event_loop()
+                    kimi_response = await loop.run_in_executor(None, functools.partial(
+                        kimi_client.chat.completions.create,
+                        model="kimi-k2.5",
+                        messages=[
+                            {"role": "system", "content": excel_prompt},
+                            {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
+                        ],
+                        temperature=1,
+                        max_tokens=8000
+                    ))
+                    raw_json = kimi_response.choices[0].message.content.strip()
+                    logger.info(f"Kimi Excel raw response length: {len(raw_json)}")
+                    excel_data = _parse_excel_json(raw_json, "Kimi")
+                except Exception as e:
+                    logger.error(f"Kimi Excel fallback error: {e}")
             
             # Helper to create a styled sheet
             from openpyxl.utils import get_column_letter
