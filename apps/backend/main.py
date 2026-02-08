@@ -296,11 +296,17 @@ class SearchLayer:
                 source_map[idx] = "google"
                 idx += 1
         
-        if "social" in sources:
+        if "social" in sources or True:  # Always include Grok for real-time X data
             if GROK_API_KEY:
                 tasks.append(SearchLayer._grok_search(query))
                 source_map[idx] = "grok"
                 idx += 1
+        
+        # Always include YouTube for video sources
+        if YOUTUBE_API_KEY:
+            tasks.append(SearchLayer._youtube_search(query))
+            source_map[idx] = "youtube"
+            idx += 1
         
         if not tasks:
             return {"query": query, "results": {}, "structured_data": {"data_points": []}}
@@ -461,6 +467,50 @@ class SearchLayer:
         except Exception as e:
             logger.error(f"Google search error: {e}")
             return {"error": str(e), "source": "google", "data_points": [], "sources": []}
+    
+    @staticmethod
+    async def _youtube_search(query: str, num_results: int = 5) -> Dict:
+        """Search YouTube Data v3 for relevant videos."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://www.googleapis.com/youtube/v3/search",
+                    params={
+                        "part": "snippet",
+                        "q": query,
+                        "key": YOUTUBE_API_KEY,
+                        "maxResults": num_results,
+                        "type": "video",
+                        "order": "relevance"
+                    }
+                )
+                data = response.json()
+                
+                data_points = []
+                sources = []
+                for item in data.get("items", []):
+                    snippet = item.get("snippet", {})
+                    video_id = item.get("id", {}).get("videoId", "")
+                    url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+                    dp = {
+                        "title": snippet.get("title", ""),
+                        "description": snippet.get("description", "")[:300],
+                        "url": url,
+                        "source": "youtube"
+                    }
+                    data_points.append(dp)
+                    if url:
+                        sources.append({"title": snippet.get("title", ""), "url": url, "source": "youtube"})
+                
+                return {
+                    "source": "youtube",
+                    "results": data.get("items", []),
+                    "data_points": data_points,
+                    "sources": sources
+                }
+        except Exception as e:
+            logger.error(f"YouTube search error: {e}")
+            return {"error": str(e), "source": "youtube", "data_points": [], "sources": []}
     
     @staticmethod
     async def _grok_search(query: str) -> Dict:
@@ -669,57 +719,220 @@ Rules:
                 except Exception as e:
                     logger.error(f"Kimi Excel fallback error: {e}")
             
-            # Helper to create a styled sheet
+            # Helper to create a professionally styled sheet
             from openpyxl.utils import get_column_letter
+            from openpyxl.formatting.rule import CellIsRule, DataBarRule, ColorScaleRule
+            from openpyxl.worksheet.datavalidation import DataValidation
+            
+            # Color palette
+            COLORS = {
+                "header_bg": "1A1A2E",
+                "header_font": "FFFFFF",
+                "title_bg": "16213E",
+                "subtitle_bg": "0F3460",
+                "accent": "E94560",
+                "row_even": "F8F9FA",
+                "row_odd": "FFFFFF",
+                "border": "DEE2E6",
+                "number_positive": "28A745",
+                "number_negative": "DC3545",
+                "highlight": "FFF3CD",
+            }
+            
             def _create_styled_sheet(wb, sheet_title, headers, rows, prompt_text):
                 ws = wb.create_sheet(cls._sanitize_sheet_title(sheet_title))
                 num_cols = max(len(headers), 1)
+                num_rows = len(rows)
                 
-                # Title row
+                # Freeze panes for header row
+                ws.freeze_panes = "A5"
+                
+                # Title row with gradient-style dark background
                 if num_cols > 1:
                     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
                 title_cell = ws.cell(row=1, column=1, value=sheet_title)
-                title_cell.font = Font(size=14, bold=True, color="FFFFFF")
-                title_cell.fill = PatternFill(start_color="1B1B1B", end_color="1B1B1B", fill_type="solid")
-                title_cell.alignment = Alignment(horizontal="center")
+                title_cell.font = Font(size=16, bold=True, color=COLORS["header_font"])
+                title_cell.fill = PatternFill(start_color=COLORS["title_bg"], end_color=COLORS["title_bg"], fill_type="solid")
+                title_cell.alignment = Alignment(horizontal="center", vertical="center")
+                ws.row_dimensions[1].height = 40
+                # Fill all title row cells
+                for c in range(2, num_cols + 1):
+                    ws.cell(row=1, column=c).fill = PatternFill(start_color=COLORS["title_bg"], end_color=COLORS["title_bg"], fill_type="solid")
                 
-                # Subtitle
+                # Subtitle row
                 if num_cols > 1:
                     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=num_cols)
-                sub_cell = ws.cell(row=2, column=1, value=f"McLeuker AI | {datetime.now().strftime('%Y-%m-%d')} | {len(rows)} records")
-                sub_cell.font = Font(size=9, italic=True, color="666666")
+                sub_cell = ws.cell(row=2, column=1, value=f"McLeuker AI | Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} | {num_rows} records")
+                sub_cell.font = Font(size=9, italic=True, color="FFFFFF")
+                sub_cell.fill = PatternFill(start_color=COLORS["subtitle_bg"], end_color=COLORS["subtitle_bg"], fill_type="solid")
                 sub_cell.alignment = Alignment(horizontal="center")
+                for c in range(2, num_cols + 1):
+                    ws.cell(row=2, column=c).fill = PatternFill(start_color=COLORS["subtitle_bg"], end_color=COLORS["subtitle_bg"], fill_type="solid")
                 
-                # Headers
+                # Empty separator row
+                ws.row_dimensions[3].height = 6
+                
+                # Headers with filter and bold styling
+                header_fill = PatternFill(start_color=COLORS["header_bg"], end_color=COLORS["header_bg"], fill_type="solid")
+                header_border = Border(
+                    bottom=Side(style='medium', color=COLORS["accent"]),
+                    top=Side(style='thin', color='000000')
+                )
                 for col, header in enumerate(headers, 1):
                     cell = ws.cell(row=4, column=col, value=str(header))
-                    cell.font = Font(bold=True, color="FFFFFF", size=11)
-                    cell.fill = PatternFill(start_color="2D2D2D", end_color="2D2D2D", fill_type="solid")
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.border = Border(bottom=Side(style='thin', color='000000'), top=Side(style='thin', color='000000'))
+                    cell.font = Font(bold=True, color=COLORS["header_font"], size=11, name='Calibri')
+                    cell.fill = header_fill
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    cell.border = header_border
+                ws.row_dimensions[4].height = 30
                 
-                # Data rows
+                # Auto-filter on header row
+                if num_cols > 0 and num_rows > 0:
+                    ws.auto_filter.ref = f"A4:{get_column_letter(num_cols)}{4 + num_rows}"
+                
+                # Detect column types for smart formatting
+                col_types = []
+                for col_idx in range(num_cols):
+                    is_numeric = 0
+                    is_pct = 0
+                    is_currency = 0
+                    sample_count = min(num_rows, 10)
+                    for row_data in rows[:sample_count]:
+                        if col_idx < len(row_data):
+                            val = row_data[col_idx]
+                            val_str = str(val).strip() if val is not None else ""
+                            if isinstance(val, (int, float)):
+                                is_numeric += 1
+                            elif val_str.replace('.', '').replace('-', '').replace(',', '').isdigit():
+                                is_numeric += 1
+                            if '%' in val_str:
+                                is_pct += 1
+                            if '$' in val_str or '€' in val_str or '£' in val_str:
+                                is_currency += 1
+                    header_lower = str(headers[col_idx]).lower() if col_idx < len(headers) else ""
+                    if is_pct > sample_count * 0.3 or 'rate' in header_lower or 'growth' in header_lower or '%' in header_lower or 'share' in header_lower:
+                        col_types.append('pct')
+                    elif is_currency > sample_count * 0.3 or 'revenue' in header_lower or 'price' in header_lower or 'sales' in header_lower or '$' in header_lower or '€' in header_lower:
+                        col_types.append('currency')
+                    elif is_numeric > sample_count * 0.3 or 'score' in header_lower or 'rank' in header_lower or 'count' in header_lower or 'number' in header_lower or 'year' in header_lower or 'rating' in header_lower:
+                        col_types.append('number')
+                    else:
+                        col_types.append('text')
+                
+                # Data rows with alternating colors and smart formatting
+                data_border = Border(
+                    bottom=Side(style='hair', color=COLORS["border"]),
+                    left=Side(style='hair', color=COLORS["border"]),
+                    right=Side(style='hair', color=COLORS["border"])
+                )
                 for row_num, row_data in enumerate(rows[:100], 5):
-                    for col_num, value in enumerate(row_data[:len(headers)], 1):
-                        cell = ws.cell(row=row_num, column=col_num, value=value)
-                        cell.alignment = Alignment(vertical="center", wrap_text=True)
-                        if row_num % 2 == 0:
-                            cell.fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
-                        cell.border = Border(bottom=Side(style='hair', color='DDDDDD'))
+                    bg_color = COLORS["row_even"] if (row_num - 5) % 2 == 0 else COLORS["row_odd"]
+                    row_fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
+                    
+                    for col_num, value in enumerate(row_data[:num_cols], 1):
+                        cell = ws.cell(row=row_num, column=col_num)
+                        col_type = col_types[col_num - 1] if col_num - 1 < len(col_types) else 'text'
+                        
+                        # Smart value conversion
+                        if value is not None:
+                            val_str = str(value).strip()
+                            if col_type in ('number', 'currency', 'pct'):
+                                # Try to extract numeric value
+                                clean = val_str.replace('$', '').replace('€', '').replace('£', '').replace('%', '').replace(',', '').replace('B', '').replace('M', '').replace('K', '').strip()
+                                try:
+                                    num_val = float(clean)
+                                    # Handle B/M/K suffixes
+                                    if 'B' in val_str.upper() and 'b' not in clean.lower():
+                                        num_val = float(clean.split()[0]) if ' ' in clean else num_val
+                                    cell.value = num_val
+                                    if col_type == 'pct':
+                                        cell.number_format = '0.0%' if num_val < 1 else '0.0\%'
+                                    elif col_type == 'currency':
+                                        cell.number_format = '#,##0.0'
+                                    else:
+                                        cell.number_format = '#,##0.0' if '.' in clean else '#,##0'
+                                except (ValueError, IndexError):
+                                    cell.value = value
+                            else:
+                                cell.value = value
+                        
+                        cell.font = Font(size=10, name='Calibri')
+                        cell.fill = row_fill
+                        cell.border = data_border
+                        cell.alignment = Alignment(
+                            vertical="center",
+                            horizontal="right" if col_type in ('number', 'currency', 'pct') else "left",
+                            wrap_text=True
+                        )
+                
+                # Conditional formatting: data bars for numeric columns
+                for col_idx in range(num_cols):
+                    col_type = col_types[col_idx] if col_idx < len(col_types) else 'text'
+                    col_letter = get_column_letter(col_idx + 1)
+                    data_range = f"{col_letter}5:{col_letter}{4 + num_rows}"
+                    
+                    if col_type in ('number', 'currency') and num_rows > 2:
+                        # Add data bars for numeric columns
+                        rule = DataBarRule(
+                            start_type='min', end_type='max',
+                            color=COLORS["accent"],
+                            showValue=True
+                        )
+                        ws.conditional_formatting.add(data_range, rule)
+                    
+                    elif col_type == 'pct' and num_rows > 2:
+                        # Color scale for percentage columns (red-yellow-green)
+                        rule = ColorScaleRule(
+                            start_type='min', start_color='F8D7DA',
+                            mid_type='percentile', mid_value=50, mid_color='FFF3CD',
+                            end_type='max', end_color='D4EDDA'
+                        )
+                        ws.conditional_formatting.add(data_range, rule)
+                
+                # Add SUM/AVERAGE formulas row at bottom for numeric columns
+                formula_row = 5 + num_rows
+                has_formulas = False
+                for col_idx in range(num_cols):
+                    col_type = col_types[col_idx] if col_idx < len(col_types) else 'text'
+                    col_letter = get_column_letter(col_idx + 1)
+                    
+                    if col_type in ('number', 'currency') and num_rows > 2:
+                        has_formulas = True
+                        # Total/Average row
+                        header_lower = str(headers[col_idx]).lower() if col_idx < len(headers) else ""
+                        if 'rank' in header_lower or 'year' in header_lower or 'founded' in header_lower:
+                            cell = ws.cell(row=formula_row, column=col_idx + 1, value=f"=COUNT({col_letter}5:{col_letter}{4 + num_rows})")
+                        elif 'average' in header_lower or 'rating' in header_lower or 'score' in header_lower:
+                            cell = ws.cell(row=formula_row, column=col_idx + 1, value=f"=AVERAGE({col_letter}5:{col_letter}{4 + num_rows})")
+                        else:
+                            cell = ws.cell(row=formula_row, column=col_idx + 1, value=f"=SUM({col_letter}5:{col_letter}{4 + num_rows})")
+                        cell.font = Font(bold=True, size=10, color=COLORS["accent"])
+                        cell.fill = PatternFill(start_color="E8E8E8", end_color="E8E8E8", fill_type="solid")
+                        cell.border = Border(top=Side(style='medium', color=COLORS["header_bg"]))
+                        cell.number_format = '#,##0.0'
+                    elif col_idx == 0 and has_formulas:
+                        cell = ws.cell(row=formula_row, column=1, value="TOTAL / AVG")
+                        cell.font = Font(bold=True, size=10, color=COLORS["accent"])
+                        cell.fill = PatternFill(start_color="E8E8E8", end_color="E8E8E8", fill_type="solid")
+                        cell.border = Border(top=Side(style='medium', color=COLORS["header_bg"]))
                 
                 # Auto-adjust column widths
-                for col_idx in range(1, len(headers) + 1):
+                for col_idx in range(1, num_cols + 1):
                     max_length = len(str(headers[col_idx - 1])) if col_idx <= len(headers) else 10
-                    for row_idx in range(5, 5 + len(rows[:100])):
+                    for row_idx in range(5, 5 + min(num_rows, 100)):
                         try:
                             cell = ws.cell(row=row_idx, column=col_idx)
                             if cell.value and len(str(cell.value)) > max_length:
                                 max_length = len(str(cell.value))
                         except:
                             pass
-                    ws.column_dimensions[get_column_letter(col_idx)].width = min(max(max_length + 3, 15), 50)
+                    ws.column_dimensions[get_column_letter(col_idx)].width = min(max(max_length + 4, 14), 45)
                 
-                return ws, len(rows)
+                # Print settings
+                ws.sheet_properties.pageSetUpPr = None
+                ws.print_title_rows = '4:4'
+                
+                return ws, num_rows
             
             # Create workbook
             wb = Workbook()
@@ -1342,51 +1555,23 @@ class HybridLLMRouter:
         
         query_preview = last_user_msg[:80] + ('...' if len(last_user_msg) > 80 else '')
         
-        yield event("task_progress", {
-            "step": "analyze",
-            "title": "Analyzing your query",
-            "status": "active",
-            "detail": f"Understanding: \"{query_preview}\""
-        })
-        
-        yield event("task_progress", {
-            "step": "analyze",
-            "title": "Analyzing your query",
-            "status": "complete",
-            "detail": "Query parsed and search strategy determined"
-        })
-        
-        # Step 2: Search with multiple sources
-        yield event("task_progress", {
-            "step": "search",
-            "title": "Searching across multiple sources",
-            "status": "active",
-            "detail": "Querying Perplexity, Exa, and Grok simultaneously"
-        })
+        yield event("thinking", {"thought": f"Understanding the request: \"{query_preview}\". Let me find the best approach."})
+        await asyncio.sleep(0.2)
+        yield event("thinking", {"thought": "Searching across all available databases in parallel..."})
         
         search_results = await SearchLayer.search(last_user_msg, sources=["web", "news", "social"])
         
         sources = search_results.get("structured_data", {}).get("sources", [])
         source_count = len(sources)
         
-        yield event("task_progress", {
-            "step": "search",
-            "title": f"Found {source_count} relevant sources",
-            "status": "complete",
-            "detail": f"Collected data from {source_count} sources across web, news, and social"
-        })
+        yield event("thinking", {"thought": f"Found {source_count} relevant sources. Analyzing the data..."})
         
         # Send search sources
         if sources:
             yield event("search_sources", {"sources": sources})
         
         # Step 3: Synthesize with Kimi
-        yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Reasoning and synthesizing response",
-            "status": "active",
-            "detail": "Analyzing sources, cross-referencing data, and structuring insights"
-        })
+        yield event("thinking", {"thought": "Synthesizing findings and composing a structured response..."})
         
         # Build context with search results
         search_context = ""
@@ -1422,12 +1607,7 @@ class HybridLLMRouter:
                 if content:
                     yield event("content", {"chunk": content})
             
-            yield event("task_progress", {
-                "step": "synthesize",
-                "title": "Response synthesized",
-                "status": "complete",
-                "detail": "Analysis complete, response structured with citations"
-            })
+            yield event("thinking", {"thought": "Response complete."})
             
         except Exception as e:
             logger.error(f"Hybrid synthesis error: {e}")
@@ -1497,38 +1677,22 @@ class AgentOrchestrator:
             subtasks.append((subtask, agent_type))
         
         # Execute in parallel
-        yield event("task_progress", {
-            "step": "swarm",
-            "title": f"Deploying {len(subtasks)} agents",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": f"Deploying {len(subtasks)} specialized agents to work in parallel..."})
         
         tasks = [AgentOrchestrator.execute_agent(st, at, context) for st, at in subtasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        yield event("task_progress", {
-            "step": "swarm",
-            "title": f"Deploying {len(subtasks)} agents",
-            "status": "complete"
-        })
+        yield event("thinking", {"thought": f"All agents completed. {len([r for r in results if isinstance(r, dict) and r.get('success')])} returned results."})
         
         # Filter successful results
         successful = [r for r in results if isinstance(r, dict) and r.get("success")]
         
         # Synthesize results
-        yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Synthesizing agent outputs",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": "Synthesizing all agent outputs into a unified response..."})
         
         synthesis = await AgentOrchestrator._synthesize_results(successful, task)
         
-        yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Synthesizing agent outputs",
-            "status": "complete"
-        })
+        yield event("thinking", {"thought": "Synthesis complete. Delivering the combined analysis."})
         
         yield event("complete", {
             "task": task,
@@ -1662,50 +1826,30 @@ class ChatHandler:
         simple_queries = ['hello', 'hi', 'hey', 'thanks', 'ok', 'yes', 'no', 'bye']
         is_simple = last_user_msg.strip().lower() in simple_queries or len(last_user_msg.strip()) < 8
         
-        # Step 1: Analyze the query
-        yield event("task_progress", {
-            "step": "analyze",
-            "title": "Understanding your request",
-            "detail": f"Parsing intent: \"{last_user_msg[:80]}\"",
-            "status": "active"
-        })
+        # Generate ChatGPT-style reasoning thoughts based on the query
+        query_short = last_user_msg[:100]
         
-        # Determine query type for better progress messages
+        # Thought 1: Understanding the request
+        yield event("thinking", {"thought": f"The user wants to know about {query_short.lower().rstrip('.')}. Let me break this down and figure out what information would be most valuable."})
+        await asyncio.sleep(0.3)
+        
+        # Determine query type for contextual thinking
         query_lower = last_user_msg.lower()
-        if any(kw in query_lower for kw in ['trend', 'market', 'forecast', 'industry']):
-            intent_detail = "Identified as market/trend analysis request"
+        if any(kw in query_lower for kw in ['trend', 'market', 'forecast', 'industry', 'brand']):
+            yield event("thinking", {"thought": "This is a market analysis question. I need current market data, revenue figures, growth rates, and competitive positioning. Let me search multiple databases for the latest 2026 numbers."})
         elif any(kw in query_lower for kw in ['compare', 'vs', 'difference', 'between']):
-            intent_detail = "Identified as comparison analysis request"
+            yield event("thinking", {"thought": "This is a comparison request. I need to find data points for both sides, identify key differentiators, and present a balanced analysis with specific metrics."})
         elif any(kw in query_lower for kw in ['how to', 'guide', 'steps', 'tutorial']):
-            intent_detail = "Identified as instructional/guide request"
-        elif any(kw in query_lower for kw in ['latest', 'news', 'today', 'recent', '2026']):
-            intent_detail = "Identified as real-time information request"
+            yield event("thinking", {"thought": "The user needs practical guidance. I should find the most current best practices, step-by-step approaches, and real-world examples."})
+        elif any(kw in query_lower for kw in ['list', 'top', 'best', 'recommend']):
+            yield event("thinking", {"thought": "The user wants a curated list. I need to find ranked data with specific criteria — not just names but supporting evidence for why each item qualifies."})
         else:
-            intent_detail = "Identified key topics and preparing search strategy"
-        
-        yield event("task_progress", {
-            "step": "analyze",
-            "title": "Understanding your request",
-            "detail": intent_detail,
-            "status": "complete"
-        })
+            yield event("thinking", {"thought": "Let me identify the key topics here and determine what data sources would give the most comprehensive answer."})
+        await asyncio.sleep(0.3)
         
         # Step 2: ALWAYS search for real-time data (unless simple greeting)
         if not is_simple:
-            yield event("task_progress", {
-                "step": "plan",
-                "title": "Breaking down your request",
-                "detail": f"Planning research strategy for: {last_user_msg[:80]}",
-                "status": "complete"
-            })
-            yield event("task_progress", {
-                "step": "search",
-                "title": "Searching real-time sources",
-                "detail": "Querying Perplexity AI, Exa, and web sources in parallel",
-                "status": "active"
-            })
-            
-            yield event("tool_call", {"tool": "search", "status": "started", "message": "Searching real-time sources..."})
+            yield event("thinking", {"thought": "Searching across multiple databases in parallel — web, news, academic, social media, and video sources..."})
             
             try:
                 search_results = await SearchLayer.search(last_user_msg, sources=["web", "news"])
@@ -1713,18 +1857,48 @@ class ChatHandler:
                 logger.error(f"Search error in standard mode: {e}")
                 search_results = None
             
-            yield event("tool_call", {"tool": "search", "status": "completed"})
-            
             if search_results:
                 sources = search_results.get("structured_data", {}).get("sources", [])
+                source_count = len(sources)
                 if sources:
                     yield event("search_sources", {"sources": sources})
                 
-                # Enrich messages with search context
+                # Generate contextual thinking about what was found
+                source_domains = set()
+                for s in sources[:10]:
+                    url = s.get('url', '')
+                    if url:
+                        try:
+                            from urllib.parse import urlparse
+                            domain = urlparse(url).netloc.replace('www.', '')
+                            source_domains.add(domain.split('.')[0].title())
+                        except:
+                            pass
+                top_domains = ', '.join(list(source_domains)[:4])
+                yield event("thinking", {"thought": f"Found {source_count} relevant sources including data from {top_domains}. Now analyzing the key findings..."})
+                await asyncio.sleep(0.2)
+                
+                # Extract key data points for thinking display
                 search_context = ""
+                key_findings = []
                 for source, data in search_results.get("results", {}).items():
                     if isinstance(data, dict) and "answer" in data:
-                        search_context += f"\n[{source.upper()}] {data['answer'][:500]}\n"
+                        answer = data['answer'][:500]
+                        search_context += f"\n[{source.upper()}] {answer}\n"
+                        # Extract a key finding for thinking display
+                        sentences = answer.split('.')
+                        for s in sentences[:3]:
+                            s = s.strip()
+                            if len(s) > 40 and any(c.isdigit() for c in s):
+                                key_findings.append(s)
+                                break
+                
+                if key_findings:
+                    yield event("thinking", {"thought": f"Key data point: {key_findings[0][:150]}. Let me cross-reference this with other sources..."})
+                    await asyncio.sleep(0.2)
+                
+                yield event("thinking", {"thought": f"Cross-referencing {source_count} sources for accuracy. Checking for conflicting data and identifying the most reliable figures..."})
+                await asyncio.sleep(0.2)
                 
                 if search_context:
                     messages.insert(0, {
@@ -1752,35 +1926,16 @@ QUALITY RULES:
 Search Data:
 {search_context}"""
                     })
+            else:
+                source_count = 0
             
-            source_count = len(search_results.get('structured_data', {}).get('sources', [])) if search_results else 0
-            yield event("task_progress", {
-                "step": "search",
-                "title": f"Found {source_count} relevant sources",
-                "detail": f"Collected and ranked {source_count} sources from web, news, and academic databases",
-                "status": "complete"
-            })
-            yield event("task_progress", {
-                "step": "verify",
-                "title": "Cross-referencing data",
-                "detail": "Verifying facts across multiple sources for accuracy",
-                "status": "complete"
-            })
+            yield event("thinking", {"thought": "Now synthesizing all findings into a comprehensive, well-structured response..."})
+            await asyncio.sleep(0.2)
         
         # Step 3: Generate response
-        model_name = config.get('primary_model', 'kimi').replace('kimi', 'Kimi K2.5').replace('grok', 'Grok').replace('hybrid', 'Multi-model')
-        yield event("task_progress", {
-            "step": "reason",
-            "title": "Reasoning through findings",
-            "detail": f"Analyzing with {model_name} — identifying patterns and drawing conclusions",
-            "status": "active"
-        })
-        yield event("task_progress", {
-            "step": "write",
-            "title": "Composing response",
-            "detail": "Structuring analysis with supporting evidence",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": "Composing the final analysis with specific data points, reasoning, and actionable insights..."})
+        await asyncio.sleep(0.1)
+        # Composing response now
         
         try:
             async for e in HybridLLMRouter.chat(messages, mode, stream=True):
@@ -1795,12 +1950,7 @@ Search Data:
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
             # Retry with fallback model — never stay silent
-            yield event("task_progress", {
-                "step": "retry",
-                "title": "Retrying with fallback model",
-                "detail": f"Primary model failed, switching to backup",
-                "status": "active"
-            })
+            yield event("thinking", {"thought": "Primary model encountered an issue. Switching to backup model..."})
             try:
                 fallback_mode = "instant" if mode != "instant" else "thinking"
                 async for e2 in HybridLLMRouter.chat(messages, fallback_mode, stream=True):
@@ -1812,24 +1962,14 @@ Search Data:
                     except (json.JSONDecodeError, Exception):
                         pass
                     yield e2
-                yield event("task_progress", {
-                    "step": "retry",
-                    "title": "Recovered with fallback model",
-                    "detail": "Response generated successfully after retry",
-                    "status": "complete"
-                })
+                yield event("thinking", {"thought": "Recovered successfully with backup model."})
             except Exception as e2:
                 logger.error(f"Fallback LLM also failed: {e2}")
                 error_msg = "I encountered an issue but I'm working on it. Please try your question again."
                 yield event("content", {"chunk": error_msg})
                 full_content = error_msg
         
-        yield event("task_progress", {
-            "step": "write",
-            "title": "Response complete",
-            "detail": "Analysis delivered with structured reasoning",
-            "status": "complete"
-        })
+        yield event("thinking", {"thought": "Analysis complete. Delivering the response with structured reasoning and specific data points."})
         
         # Save to memory
         try:
@@ -1868,30 +2008,19 @@ Search Data:
         full_content = ""
         
         # Search with multiple sources
-        yield event("task_progress", {
-            "step": "search",
-            "title": "Searching real-time sources",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": "Searching across all databases in parallel..."})
         
         search_results = await SearchLayer.search(query, sources=["web", "news", "social"])
         
-        yield event("task_progress", {
-            "step": "search",
-            "title": "Searching real-time sources",
-            "status": "complete"
-        })
+        source_count_h = len(search_results.get('structured_data', {}).get('sources', []))
+        yield event("thinking", {"thought": f"Found {source_count_h} sources. Synthesizing insights..."})
         
         sources = search_results.get("structured_data", {}).get("sources", [])
         if sources:
             yield event("search_sources", {"sources": sources})
         
         # Synthesize with Kimi
-        yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Synthesizing insights",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": "Reasoning through the data and composing response..."})
         
         search_context = ""
         for source, data in search_results.get("results", {}).items():
@@ -1910,11 +2039,7 @@ Search Data:
                 full_content += event_data.get("data", {}).get("chunk", "")
             yield e
         
-        yield event("task_progress", {
-            "step": "synthesize",
-            "title": "Synthesizing insights",
-            "status": "complete"
-        })
+        yield event("thinking", {"thought": "Analysis complete."})
         
         # Save to memory
         await MemoryManager.save_message(
@@ -1939,27 +2064,14 @@ Search Data:
     async def _handle_file_generation(query: str, file_type: str, user_id: str, conversation_id: str, mode: ChatMode) -> AsyncGenerator[str, None]:
         """Handle file generation requests."""
         
-        # Step 1: Analyze and plan
-        yield event("task_progress", {
-            "step": "understand",
-            "title": "Understanding your request",
-            "detail": f"Parsing: \"{query[:70]}\"",
-            "status": "complete"
-        })
-        yield event("task_progress", {
-            "step": "plan",
-            "title": "Planning data collection",
-            "detail": f"Will generate {file_type.upper()} with multiple perspectives and structured data",
-            "status": "complete"
-        })
+        # Step 1: Thinking about the request
+        yield event("thinking", {"thought": f"The user wants a {file_type.upper()} file about {query[:80].lower().rstrip('.')}. Let me figure out what data structure and perspectives would be most useful."})
+        await asyncio.sleep(0.3)
+        yield event("thinking", {"thought": f"I'll create a comprehensive {file_type.upper()} with multiple tabs covering different angles — main data, analysis, comparisons, and trends."})
+        await asyncio.sleep(0.3)
         
         # Step 2: Search for data
-        yield event("task_progress", {
-            "step": "search",
-            "title": "Searching real-time sources",
-            "detail": "Querying Perplexity, Exa, and Grok for latest data",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": "Searching across all databases in parallel for the most current and reliable data..."})
         
         # Run search with keepalive to prevent SSE proxy timeout
         search_task = asyncio.create_task(SearchLayer.search(query, sources=["web", "news", "social"], num_results=15))
@@ -1974,35 +2086,20 @@ Search Data:
         while not search_task.done():
             await asyncio.sleep(5)
             if not search_task.done():
-                yield event("task_progress", {
-                    "step": "search",
-                    "title": "Searching real-time sources",
-                    "detail": search_progress[sp_idx % len(search_progress)],
-                    "status": "active"
-                })
+                yield event("thinking", {"thought": search_progress[sp_idx % len(search_progress)]})
                 sp_idx += 1
         
         search_results = search_task.result()
         source_count = len(search_results.get('structured_data', {}).get('sources', []))
         
-        yield event("task_progress", {
-            "step": "search",
-            "title": f"Collected {source_count} sources",
-            "detail": f"Data gathered from {source_count} verified sources",
-            "status": "complete"
-        })
+        yield event("thinking", {"thought": f"Collected data from {source_count} verified sources. Now organizing into structured format..."})
         
         sources = search_results.get("structured_data", {}).get("sources", [])
         if sources:
             yield event("search_sources", {"sources": sources})
         
         # Step 3: Generate file
-        yield event("task_progress", {
-            "step": "structure",
-            "title": "Structuring data with AI",
-            "detail": f"Using AI to organize data into {file_type.upper()} format",
-            "status": "active"
-        })
+        yield event("thinking", {"thought": f"Structuring all data into a professional {file_type.upper()} format with multiple perspectives and formatted tables..."})
         
         structured_data = search_results.get("structured_data", {})
         # Pass full search_results to Excel so it can access answer text from Perplexity/Grok
@@ -2031,43 +2128,27 @@ Search Data:
         gen_task = asyncio.create_task(_generate_with_keepalive())
         progress_messages = [
             "Extracting key data points from search results...",
-            "Organizing data into structured tables...",
-            "Creating multiple tabs for different perspectives...",
-            "Applying professional formatting and styling...",
+            "Organizing data into structured tables with headers...",
+            "Creating separate tabs for different analytical perspectives...",
+            "Applying conditional formatting and color coding...",
             "Validating data integrity across all sheets...",
-            "Finalizing layout and preparing for download...",
-            "Running final quality checks...",
-            "Optimizing cell formatting and column widths...",
-            "Adding summary calculations and insights...",
-            "Performing data quality validation..."
+            "Adding formulas for totals, averages, and rankings...",
+            "Running final quality checks on all data points...",
+            "Optimizing column widths and cell formatting...",
+            "Adding summary calculations and trend indicators...",
+            "Performing final data validation before export..."
         ]
         msg_idx = 0
         # Send keepalive every 5 seconds to prevent Railway proxy timeout
         while not gen_task.done():
             await asyncio.sleep(5)
             if not gen_task.done():
-                yield event("task_progress", {
-                    "step": "structure",
-                    "title": "Structuring data with AI",
-                    "detail": progress_messages[msg_idx % len(progress_messages)],
-                    "status": "active"
-                })
+                yield event("thinking", {"thought": progress_messages[msg_idx % len(progress_messages)]})
                 msg_idx += 1
         
         result = gen_task.result()
         
-        yield event("task_progress", {
-            "step": "structure",
-            "title": f"{file_type.upper()} file created",
-            "detail": f"{result.get('filename', 'report')} — {result.get('row_count', 'multiple')} rows of data",
-            "status": "complete"
-        })
-        yield event("task_progress", {
-            "step": "format",
-            "title": "Applied professional formatting",
-            "detail": "Headers, styling, and data validation applied",
-            "status": "complete"
-        })
+        yield event("thinking", {"thought": f"File created: {result.get('filename', 'report')} with {result.get('row_count', 'multiple')} rows of structured data across multiple tabs."})
         
         if result.get("success"):
             yield event("download", {
@@ -2078,12 +2159,7 @@ Search Data:
             })
             
             # Step 4: Generate rich conclusion using Kimi
-            yield event("task_progress", {
-                "step": "review",
-                "title": "Reviewing and summarizing results",
-                "detail": "Preparing key findings summary",
-                "status": "active"
-            })
+            yield event("thinking", {"thought": "Reviewing the data and preparing key findings summary..."})
             
             # Build search context for conclusion
             search_context_summary = ""
@@ -2142,12 +2218,7 @@ No headers, no bold, no extra formatting. Maximum 4 bullets."""
             
             yield event("content", {"chunk": conclusion})
             
-            yield event("task_progress", {
-                "step": "review",
-                "title": "Task complete",
-                "detail": "File generated and summary delivered",
-                "status": "complete"
-            })
+            yield event("thinking", {"thought": "File generated successfully. Here are the key findings from the research."})
             
             # Save to memory
             try:

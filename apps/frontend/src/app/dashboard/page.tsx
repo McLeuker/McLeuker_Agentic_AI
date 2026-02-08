@@ -101,7 +101,9 @@ interface Message {
   toolProgress?: { message: string; tools: string[] }[];
   searchSources?: { title: string; url: string; source: string }[];
   taskSteps?: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[];
+  thinkingSteps?: string[];
   _taskExpanded?: boolean;
+  _thinkingExpanded?: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -1856,6 +1858,7 @@ function DashboardContent() {
     let currentToolProgress: { message: string; tools: string[] }[] = [];
     let currentSearchSources: { title: string; url: string; source: string }[] = [];
     let currentTaskSteps: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[] = [];
+    let currentThinkingSteps: string[] = [];
 
     try {
       // Map frontend mode names to backend mode names
@@ -2054,6 +2057,17 @@ function DashboardContent() {
                     ? { ...m, taskSteps: [...currentTaskSteps] }
                     : m
                 ));
+              } else if (eventType === 'thinking') {
+                // ChatGPT-style thinking thoughts
+                const thought = eventData.thought || '';
+                if (thought) {
+                  currentThinkingSteps.push(thought);
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, thinkingSteps: [...currentThinkingSteps] }
+                      : m
+                  ));
+                }
               } else if (eventType === 'reasoning') {
                 // Handle reasoning_content from thinking mode
                 const reasoningChunk = eventData.chunk || eventData || '';
@@ -2118,6 +2132,7 @@ function DashboardContent() {
                         toolStatus: undefined,
                         toolProgress: currentToolProgress.length > 0 ? currentToolProgress : undefined,
                         taskSteps: currentTaskSteps.length > 0 ? currentTaskSteps : undefined,
+                        thinkingSteps: currentThinkingSteps.length > 0 ? currentThinkingSteps : undefined,
                         isStreaming: false,
                       }
                     : m
@@ -2198,6 +2213,7 @@ function DashboardContent() {
               taskSteps: currentTaskSteps.length > 0 
                 ? [...currentTaskSteps.map(s => ({...s, status: 'complete' as const})), { step: 'error', title: 'Error occurred', status: 'complete' as const, detail: errorMessage }]
                 : undefined,
+              thinkingSteps: currentThinkingSteps.length > 0 ? [...currentThinkingSteps, `Error: ${errorMessage}`] : undefined,
             }
           : m
       ));
@@ -2539,89 +2555,58 @@ function DashboardContent() {
                       {/* Assistant message */}
                       {message.role === 'assistant' && (
                         <div className="space-y-0">
-                          {/* ===== TASK PROGRESS TIMELINE (Collapsible) ===== */}
-                          {(message.taskSteps && message.taskSteps.length > 0) && (() => {
-                            const completedCount = message.taskSteps.filter(s => s.status === 'complete').length;
-                            const totalCount = message.taskSteps.length;
-                            const lastActiveStep = [...message.taskSteps].reverse().find(s => s.status === 'active');
-                            const isExpanded = message.isStreaming || message._taskExpanded !== false;
+                          {/* ===== THINKING STEPS - ChatGPT-style reasoning display ===== */}
+                          {(message.thinkingSteps && message.thinkingSteps.length > 0) && (() => {
+                            const isExpanded = message._thinkingExpanded !== undefined ? message._thinkingExpanded : message.isStreaming;
                             const toggleExpanded = () => {
-                              setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _taskExpanded: !isExpanded } : m));
+                              setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _thinkingExpanded: !isExpanded } : m));
                             };
-                            
-                            const getStepIcon = (stepName: string, status: string) => {
-                              const iconClass = status === 'active' ? 'text-[#8a9a7e]' : status === 'complete' ? 'text-white/40' : 'text-white/15';
-                              if (stepName.includes('understand') || stepName.includes('analyze') || stepName.includes('pars')) return <Brain className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('plan') || stepName.includes('break') || stepName.includes('identif')) return <FileText className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('search') || stepName.includes('collect') || stepName.includes('found') || stepName.includes('query')) return <Globe className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('verify') || stepName.includes('cross') || stepName.includes('validat')) return <CheckCircle2 className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('reason') || stepName.includes('synthe') || stepName.includes('think')) return <Sparkles className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('write') || stepName.includes('compos') || stepName.includes('generat')) return <MessageSquare className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('structure') || stepName.includes('format') || stepName.includes('organiz')) return <FileSpreadsheet className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('review') || stepName.includes('conclude') || stepName.includes('final') || stepName.includes('complet')) return <Star className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('retry') || stepName.includes('fallback')) return <Zap className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              if (stepName.includes('error') || stepName.includes('fail')) return <X className={`h-3.5 w-3.5 ${iconClass}`} />;
-                              return <Circle className={`h-3.5 w-3.5 ${iconClass}`} />;
-                            };
+                            const lastThought = message.thinkingSteps[message.thinkingSteps.length - 1];
                             
                             return (
                               <div className="mb-3">
-                                {/* Clickable Header - Manus/ChatGPT thinking style */}
                                 <button
                                   onClick={toggleExpanded}
                                   className="flex items-center gap-2 w-full text-left group"
                                 >
-                                  {message.isStreaming ? (
-                                    <Loader2 className="h-4 w-4 text-[#8a9a7e] animate-spin flex-shrink-0" />
+                                  {message.isStreaming && !message.content ? (
+                                    <Sparkles className="h-4 w-4 text-[#8a9a7e] animate-pulse flex-shrink-0" />
                                   ) : (
-                                    <CheckCircle2 className="h-4 w-4 text-[#5c6652] flex-shrink-0" />
+                                    <Sparkles className="h-4 w-4 text-[#5c6652] flex-shrink-0" />
                                   )}
-                                  <span className="text-[13px] text-white/50 group-hover:text-white/70 transition-colors">
-                                    {message.isStreaming
-                                      ? (lastActiveStep?.detail || lastActiveStep?.title || 'Thinking...')
-                                      : `Completed ${completedCount} steps`
+                                  <span className="text-[13px] text-white/50 group-hover:text-white/70 transition-colors truncate">
+                                    {message.isStreaming && !message.content
+                                      ? (lastThought || 'Thinking...')
+                                      : `Reasoned through ${message.thinkingSteps.length} steps`
                                     }
                                   </span>
                                   <ChevronDown className={cn(
-                                    "h-3 w-3 text-white/20 transition-transform ml-auto",
+                                    "h-3 w-3 text-white/20 transition-transform ml-auto flex-shrink-0",
                                     isExpanded && "rotate-180"
                                   )} />
                                 </button>
                                 
-                                {/* Expandable Steps - line by line like Manus */}
                                 {isExpanded && (
-                                  <div className="mt-2 ml-2 pl-4 border-l border-white/[0.06]">
-                                    {message.taskSteps.map((step, stepIdx) => (
-                                      <div key={`${step.step}-${stepIdx}`} className="flex items-start gap-2.5 py-1">
-                                        {step.status === 'active' && message.isStreaming ? (
-                                          <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0 mt-[1px]" />
-                                        ) : step.status === 'complete' ? (
-                                          getStepIcon(step.step, step.status)
-                                        ) : (
-                                          <Circle className="h-3.5 w-3.5 text-white/10 flex-shrink-0 mt-[1px]" />
-                                        )}
-                                        <div className="flex-1 min-w-0">
-                                          <p className={cn(
-                                            "text-[12px] leading-snug",
-                                            step.status === 'active' ? "text-white/80" : step.status === 'complete' ? "text-white/40" : "text-white/20"
-                                          )}>
-                                            {step.title}
-                                          </p>
-                                          {step.detail && step.status === 'active' && (
-                                            <p className="text-[10px] text-white/30 mt-0.5 leading-snug">
-                                              {step.detail}
-                                            </p>
-                                          )}
-                                        </div>
-                                        {step.status === 'active' && message.isStreaming && (
-                                          <span className="flex gap-0.5 mt-1">
-                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
-                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
-                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
-                                          </span>
-                                        )}
+                                  <div className="mt-2 ml-2 pl-4 border-l border-white/[0.06] max-h-[300px] overflow-y-auto">
+                                    {message.thinkingSteps.map((thought, idx) => (
+                                      <div key={idx} className="py-0.5">
+                                        <p className={cn(
+                                          "text-[12px] leading-relaxed",
+                                          idx === message.thinkingSteps!.length - 1 && message.isStreaming
+                                            ? "text-white/60"
+                                            : "text-white/35"
+                                        )}>
+                                          {thought}
+                                        </p>
                                       </div>
                                     ))}
+                                    {message.isStreaming && !message.content && (
+                                      <div className="flex items-center gap-1 py-1">
+                                        <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                                        <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                                        <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -2661,7 +2646,7 @@ function DashboardContent() {
                           )}
 
                           {/* ===== STREAMING INDICATOR ===== */}
-                          {message.isStreaming && !message.content && !message.taskSteps?.length && !message.reasoning_layers.length && (
+                          {message.isStreaming && !message.content && !message.thinkingSteps?.length && !message.taskSteps?.length && !message.reasoning_layers.length && (
                             <div className="flex items-center gap-2 text-white/50 py-2">
                               <Loader2 className="h-4 w-4 animate-spin" />
                               <span className="text-sm">Connecting...</span>
