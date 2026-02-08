@@ -146,6 +146,8 @@ class FileType(str, Enum):
     PPTX = "pptx"
     CSV = "csv"
     JSON = "json"
+    MARKDOWN = "markdown"
+    DOCX = "docx"
 
 # Mode configurations
 MODE_CONFIGS = {
@@ -322,7 +324,30 @@ class SearchLayer:
                 if "data_points" in result:
                     combined["structured_data"]["data_points"].extend(result["data_points"])
                 if "sources" in result:
-                    combined["structured_data"]["sources"].extend(result["sources"])
+                    # Filter out API-level sources that have no real URL
+                    real_sources = [
+                        s for s in result["sources"]
+                        if s.get("url") and s["url"].strip() and s["url"].startswith("http")
+                    ]
+                    combined["structured_data"]["sources"].extend(real_sources)
+        
+        # Also add Perplexity citations as real sources if available
+        for source_name, result in combined["results"].items():
+            if source_name == "perplexity" and isinstance(result, dict):
+                for citation_url in result.get("citations", []):
+                    if citation_url and citation_url.startswith("http"):
+                        # Extract domain as title
+                        try:
+                            from urllib.parse import urlparse
+                            domain = urlparse(citation_url).netloc.replace('www.', '')
+                            title = domain.split('.')[0].title()
+                        except:
+                            title = "Source"
+                        combined["structured_data"]["sources"].append({
+                            "title": title,
+                            "url": citation_url,
+                            "source": "perplexity"
+                        })
         
         return combined
     
@@ -476,14 +501,38 @@ class FileEngine:
     # File registry for downloads
     files: Dict[str, Dict] = {}
     
+    @staticmethod
+    def _generate_filename(prompt: str, extension: str) -> str:
+        """Generate a descriptive filename from the user's query."""
+        import re
+        # Remove common filler words and file-type references
+        stopwords = {'generate', 'create', 'make', 'build', 'an', 'a', 'the', 'me', 'please',
+                     'excel', 'spreadsheet', 'sheet', 'pdf', 'word', 'document', 'report',
+                     'powerpoint', 'presentation', 'pptx', 'file', 'containing', 'about',
+                     'with', 'information', 'data', 'of', 'for', 'on', 'in', 'to', 'and',
+                     'that', 'this', 'from', 'can', 'you', 'i', 'want', 'need', 'give'}
+        words = re.sub(r'[^a-zA-Z0-9\s]', '', prompt.lower()).split()
+        meaningful = [w for w in words if w not in stopwords and len(w) > 1][:6]
+        if not meaningful:
+            meaningful = ['report']
+        slug = '_'.join(meaningful)
+        return f"{slug}.{extension}"
+    
+    @staticmethod
+    def _sanitize_sheet_title(title: str) -> str:
+        """Sanitize a string for use as an Excel sheet title."""
+        import re
+        # Remove characters invalid in Excel sheet names: \ / ? * [ ] :
+        sanitized = re.sub(r'[\\/?*\[\]:]', '', title)
+        return sanitized[:31]  # Excel sheet name max 31 chars
+    
     @classmethod
     async def generate_excel(cls, prompt: str, structured_data: Dict, user_id: str = None) -> Dict:
         """Generate Excel with Kimi-structured data from search results."""
         try:
             file_id = str(uuid.uuid4())[:8]
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"report_{timestamp}_{file_id}.xlsx"
-            filepath = OUTPUT_DIR / filename
+            filename = cls._generate_filename(prompt, "xlsx")
+            filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
             # Build search context for Kimi
             search_context = ""
@@ -589,7 +638,7 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
                 rows = excel_data.get("rows", [])
                 sheet_title = excel_data.get("title", prompt[:30])
                 
-                ws = wb.create_sheet(sheet_title[:31])  # Sheet name max 31 chars
+                ws = wb.create_sheet(cls._sanitize_sheet_title(sheet_title))  # Sheet name max 31 chars
                 
                 # Title row
                 num_cols = len(headers)
@@ -712,9 +761,8 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
         """Generate Word document."""
         try:
             file_id = str(uuid.uuid4())[:8]
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"document_{timestamp}_{file_id}.docx"
-            filepath = OUTPUT_DIR / filename
+            filename = cls._generate_filename(prompt, "docx")
+            filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
             doc = Document()
             
@@ -753,9 +801,8 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
         """Generate PDF document."""
         try:
             file_id = str(uuid.uuid4())[:8]
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"document_{timestamp}_{file_id}.pdf"
-            filepath = OUTPUT_DIR / filename
+            filename = cls._generate_filename(prompt, "pdf")
+            filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
             doc = SimpleDocTemplate(str(filepath), pagesize=letter)
             styles = getSampleStyleSheet()
@@ -799,9 +846,8 @@ Include 15-30 rows. Return ONLY the JSON, no markdown."""},
         """Generate PowerPoint presentation."""
         try:
             file_id = str(uuid.uuid4())[:8]
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"presentation_{timestamp}_{file_id}.pptx"
-            filepath = OUTPUT_DIR / filename
+            filename = cls._generate_filename(prompt, "pptx")
+            filepath = OUTPUT_DIR / f"{file_id}_{filename}"
             
             prs = Presentation()
             
@@ -1093,37 +1139,59 @@ class HybridLLMRouter:
     async def _chat_hybrid(messages: List[Dict], config: Dict, stream: bool, intent: Dict) -> AsyncGenerator[str, None]:
         """Chat with hybrid approach - Grok for search, Kimi for synthesis."""
         
-        # Step 1: Search with Grok for real-time data
-        yield event("task_progress", {
-            "step": "search",
-            "title": "Searching real-time sources",
-            "status": "active"
-        })
-        
+        # Step 1: Analyze the query
         last_user_msg = ""
         for m in reversed(messages):
             if m.get("role") == "user":
                 last_user_msg = m.get("content", "")
                 break
         
+        query_preview = last_user_msg[:80] + ('...' if len(last_user_msg) > 80 else '')
+        
+        yield event("task_progress", {
+            "step": "analyze",
+            "title": "Analyzing your query",
+            "status": "active",
+            "detail": f"Understanding: \"{query_preview}\""
+        })
+        
+        yield event("task_progress", {
+            "step": "analyze",
+            "title": "Analyzing your query",
+            "status": "complete",
+            "detail": "Query parsed and search strategy determined"
+        })
+        
+        # Step 2: Search with multiple sources
+        yield event("task_progress", {
+            "step": "search",
+            "title": "Searching across multiple sources",
+            "status": "active",
+            "detail": "Querying Perplexity, Exa, and Grok simultaneously"
+        })
+        
         search_results = await SearchLayer.search(last_user_msg, sources=["web", "news", "social"])
+        
+        sources = search_results.get("structured_data", {}).get("sources", [])
+        source_count = len(sources)
         
         yield event("task_progress", {
             "step": "search",
-            "title": "Searching real-time sources",
-            "status": "complete"
+            "title": f"Found {source_count} relevant sources",
+            "status": "complete",
+            "detail": f"Collected data from {source_count} sources across web, news, and social"
         })
         
         # Send search sources
-        sources = search_results.get("structured_data", {}).get("sources", [])
         if sources:
             yield event("search_sources", {"sources": sources})
         
-        # Step 2: Synthesize with Kimi
+        # Step 3: Synthesize with Kimi
         yield event("task_progress", {
             "step": "synthesize",
-            "title": "Synthesizing response",
-            "status": "active"
+            "title": "Reasoning and synthesizing response",
+            "status": "active",
+            "detail": "Analyzing sources, cross-referencing data, and structuring insights"
         })
         
         # Build context with search results
@@ -1162,8 +1230,9 @@ class HybridLLMRouter:
             
             yield event("task_progress", {
                 "step": "synthesize",
-                "title": "Synthesizing response",
-                "status": "complete"
+                "title": "Response synthesized",
+                "status": "complete",
+                "detail": "Analysis complete, response structured with citations"
             })
             
         except Exception as e:
@@ -1402,15 +1471,28 @@ class ChatHandler:
         # Step 1: Analyze the query
         yield event("task_progress", {
             "step": "analyze",
-            "title": f"Analyzing: {last_user_msg[:60]}...",
-            "detail": "Understanding intent and identifying key topics",
+            "title": "Understanding your request",
+            "detail": f"Parsing intent: \"{last_user_msg[:80]}\"",
             "status": "active"
         })
         
+        # Determine query type for better progress messages
+        query_lower = last_user_msg.lower()
+        if any(kw in query_lower for kw in ['trend', 'market', 'forecast', 'industry']):
+            intent_detail = "Identified as market/trend analysis request"
+        elif any(kw in query_lower for kw in ['compare', 'vs', 'difference', 'between']):
+            intent_detail = "Identified as comparison analysis request"
+        elif any(kw in query_lower for kw in ['how to', 'guide', 'steps', 'tutorial']):
+            intent_detail = "Identified as instructional/guide request"
+        elif any(kw in query_lower for kw in ['latest', 'news', 'today', 'recent', '2026']):
+            intent_detail = "Identified as real-time information request"
+        else:
+            intent_detail = "Identified key topics and preparing search strategy"
+        
         yield event("task_progress", {
             "step": "analyze",
-            "title": f"Analyzing: {last_user_msg[:60]}...",
-            "detail": "Understanding intent and identifying key topics",
+            "title": "Understanding your request",
+            "detail": intent_detail,
             "status": "complete"
         })
         
@@ -1418,8 +1500,8 @@ class ChatHandler:
         if not is_simple:
             yield event("task_progress", {
                 "step": "search",
-                "title": "Searching real-time sources",
-                "detail": "Querying Perplexity, Google, and Exa for latest data",
+                "title": "Searching across multiple sources",
+                "detail": "Querying Perplexity AI, Exa neural search, and web sources in parallel",
                 "status": "active"
             })
             
@@ -1447,21 +1529,45 @@ class ChatHandler:
                 if search_context:
                     messages.insert(0, {
                         "role": "system",
-                        "content": f"Use this real-time search data to provide accurate, current information:\n{search_context}"
+                        "content": f"""You are McLeuker AI, a professional research analyst. Your responses must demonstrate clear reasoning and analytical depth.
+
+RESPONSE STRUCTURE (follow this exact order):
+
+1. **Executive Summary** (2-3 sentences): State the key finding or answer immediately
+2. **Analysis**: Break down the topic into logical sections using ## headers
+   - For each section, first explain WHY this matters, then present the data
+   - Include specific numbers, dates, percentages, and names from the search data
+   - Use **bold** for key figures and important terms
+   - Use tables when comparing multiple items (| Column | Column |)
+3. **Key Insights**: What patterns or conclusions emerge from the data?
+4. **Conclusion**: Actionable takeaway or forward-looking perspective
+
+CRITICAL RULES:
+- NEVER use generic filler like "there are many factors" or "it depends" - be specific
+- Every claim must be backed by data from the search results
+- Show your reasoning: explain cause-and-effect relationships
+- If data is conflicting, acknowledge it and explain which source is more reliable
+- Use markdown formatting: headers, bold, tables, numbered lists
+- Write in a professional but accessible tone
+
+Search Data:
+{search_context}"""
                     })
             
+            source_count = len(search_results.get('structured_data', {}).get('sources', [])) if search_results else 0
             yield event("task_progress", {
                 "step": "search",
-                "title": "Searching real-time sources",
-                "detail": f"Found {len(search_results.get('structured_data', {}).get('sources', [])) if search_results else 0} sources",
+                "title": f"Found {source_count} relevant sources",
+                "detail": f"Collected and ranked {source_count} sources from web, news, and academic databases",
                 "status": "complete"
             })
         
         # Step 3: Generate response
+        model_name = config.get('primary_model', 'kimi').replace('kimi', 'Kimi K2.5').replace('grok', 'Grok').replace('hybrid', 'Multi-model')
         yield event("task_progress", {
-            "step": "generate",
-            "title": "Generating response",
-            "detail": f"Using {config.get('primary_model', 'kimi')} model in {mode.value} mode",
+            "step": "synthesize",
+            "title": "Synthesizing and reasoning",
+            "detail": f"Analyzing sources with {model_name} • Structuring response",
             "status": "active"
         })
         
@@ -1482,9 +1588,9 @@ class ChatHandler:
             full_content = error_msg
         
         yield event("task_progress", {
-            "step": "generate",
-            "title": "Generating response",
-            "detail": "Response complete",
+            "step": "synthesize",
+            "title": "Response synthesized",
+            "detail": "Analysis complete with structured reasoning and citations",
             "status": "complete"
         })
         
@@ -1854,9 +1960,21 @@ Download the file above to explore the full dataset."""
             for dp in data_points[:10]
         ])
         
+        # Also include answer text from search results
+        answer_text = ""
+        for source_name in ["perplexity", "grok", "exa"]:
+            if source_name in structured_data.get("results", {}):
+                answer = structured_data["results"][source_name].get("answer", "")
+                if answer:
+                    answer_text += f"\n{answer[:500]}\n"
+        
         messages = [
-            {"role": "system", "content": "You are a professional content writer. Create well-structured content."},
-            {"role": "user", "content": f"Create content for: {query}\n\nData:\n{data_summary}\n\nWrite comprehensive content:"}
+            {"role": "system", "content": """You are a professional content writer. Create well-structured, comprehensive content with:
+- Clear markdown headers and sections
+- Specific data points and facts
+- Professional tone and analysis
+- Logical flow from introduction to conclusion"""},
+            {"role": "user", "content": f"Create comprehensive content for: {query}\n\nData points:\n{data_summary}\n\nResearch findings:\n{answer_text[:1000]}\n\nWrite a detailed, well-structured document:"}
         ]
         
         try:
@@ -1873,55 +1991,64 @@ Download the file above to explore the full dataset."""
     
     @staticmethod
     def _generate_follow_ups(query: str, response: str) -> List[str]:
-        """Generate contextual follow-up questions based on the query."""
-        query_lower = query.lower() if query else ""
-        follow_ups = []
+        """Generate contextual follow-up questions using LLM based on query AND response."""
+        try:
+            client = kimi_client or grok_client
+            if not client:
+                return []
+            
+            model = "kimi-k2.5" if kimi_client else "grok-3-mini"
+            temp = 1 if kimi_client else 0.5
+            
+            # Truncate response for context
+            response_summary = response[:600] if response else ""
+            
+            result = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": """Generate exactly 5 follow-up questions. These must be:
+1. Directly relevant to the user's original query AND the AI's response
+2. Represent logical next steps the user would want to take
+3. Progress from understanding → deeper analysis → actionable output
+4. Include at least one that suggests generating a file (Excel/PDF/report)
+5. Be specific to the topic, NOT generic
+
+Return ONLY a JSON array of 5 strings. No explanation.
+Example: ["How do the top 3 compare in revenue growth?", "Generate an Excel with detailed financials", ...]"""},
+                    {"role": "user", "content": f"User asked: {query}\n\nAI responded (summary): {response_summary}\n\nGenerate 5 contextual follow-up questions:"}
+                ],
+                temperature=temp,
+                max_tokens=400
+            )
+            
+            raw = result.choices[0].message.content.strip()
+            # Parse JSON array
+            for strategy in [
+                lambda t: json.loads(t),
+                lambda t: json.loads(t[t.index('['):t.rindex(']')+1]),
+            ]:
+                try:
+                    parsed = strategy(raw)
+                    if isinstance(parsed, list) and len(parsed) >= 3:
+                        return [str(q).strip() for q in parsed[:5]]
+                except:
+                    continue
+            
+            # If JSON parsing fails, try line-by-line extraction
+            lines = [l.strip().lstrip('0123456789.-) ') for l in raw.split('\n') if l.strip() and len(l.strip()) > 10]
+            if lines:
+                return lines[:5]
+            
+        except Exception as e:
+            logger.error(f"Follow-up generation error: {e}")
         
-        # Generate context-aware follow-ups
-        if any(kw in query_lower for kw in ['excel', 'spreadsheet', 'file', 'document']):
-            follow_ups = [
-                f"Can you create a more detailed version with additional data columns?",
-                f"What are the key trends visible in this data?",
-                f"Can you generate a PDF summary of these findings?",
-                f"How does this data compare to last year's figures?",
-                f"Can you add charts and visualizations to this report?"
-            ]
-        elif any(kw in query_lower for kw in ['compare', 'vs', 'versus', 'difference']):
-            follow_ups = [
-                f"What are the pros and cons of each option?",
-                f"Which option would you recommend and why?",
-                f"Can you create a comparison spreadsheet?",
-                f"What factors should I prioritize in this decision?",
-                f"Are there other alternatives I should consider?"
-            ]
-        elif any(kw in query_lower for kw in ['how to', 'guide', 'tutorial', 'steps']):
-            follow_ups = [
-                f"Can you provide a more detailed step-by-step guide?",
-                f"What are common mistakes to avoid?",
-                f"Can you create a checklist document for this?",
-                f"What tools or resources do I need?",
-                f"How long does this typically take?"
-            ]
-        elif any(kw in query_lower for kw in ['trend', 'market', 'industry', 'forecast']):
-            follow_ups = [
-                f"What are the emerging trends to watch?",
-                f"Can you create a market analysis spreadsheet?",
-                f"Who are the key players in this space?",
-                f"What are the risks and opportunities?",
-                f"How has this market evolved over the past year?"
-            ]
-        else:
-            # Extract key topic from query for personalized follow-ups
-            topic = query[:50] if query else "this topic"
-            follow_ups = [
-                f"Can you go deeper into the key aspects of {topic}?",
-                f"What are the latest developments related to this?",
-                f"Can you create an Excel report with this data?",
-                f"How does this impact the broader industry?",
-                f"What are the most important takeaways?"
-            ]
-        
-        return follow_ups[:5]
+        # Minimal fallback - at least reference the topic
+        topic = query[:60] if query else "this topic"
+        return [
+            f"Can you go deeper into {topic}?",
+            f"Generate an Excel report with this data",
+            f"What are the key takeaways?"
+        ]
 
 
 # ============================================================================
@@ -2023,29 +2150,61 @@ async def generate_file_endpoint(request: FileGenRequest):
             file_type_val = "excel"  # default
         if file_type_val == "csv":
             file_type_val = "excel"
+        if file_type_val == "docx":
+            file_type_val = "word"
+        
+        # Handle markdown export (client-side content, no search needed)
+        if file_type_val == "markdown":
+            file_id = str(uuid.uuid4())[:8]
+            filename = FileEngine._generate_filename(prompt, "md")
+            filepath = OUTPUT_DIR / f"{file_id}_{filename}"
+            content_text = request.content if isinstance(request.content, str) else prompt
+            filepath.write_text(content_text, encoding="utf-8")
+            FileEngine.files[file_id] = {
+                "filename": filename,
+                "filepath": str(filepath),
+                "file_type": "markdown",
+                "user_id": request.user_id,
+                "created_at": datetime.now().isoformat()
+            }
+            return {
+                "success": True,
+                "file_id": file_id,
+                "filename": filename,
+                "download_url": f"/api/v1/download/{file_id}"
+            }
         
         # Generate file
         file_type = file_type_val
         
+        # If content is provided directly (export from chat), use it instead of searching
+        direct_content = None
+        if request.content and isinstance(request.content, str) and len(request.content) > 100:
+            direct_content = request.content
+        
+        # Only search if we don't have direct content
+        if not direct_content:
+            search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15)
+            structured_data = search_results.get("structured_data", {})
+        
         # Pass full search_results to Excel so it can access answer text
         full_data_for_excel = {
             **structured_data,
-            "results": search_results.get("results", {})
+            "results": search_results.get("results", {}) if not direct_content else {}
         }
+        
+        content_for_doc = direct_content or await ChatHandler._generate_content(prompt, structured_data)
         
         if file_type == "excel":
             result = await FileEngine.generate_excel(prompt, full_data_for_excel, request.user_id)
         elif file_type == "word":
-            content = await ChatHandler._generate_content(prompt, structured_data)
-            result = await FileEngine.generate_word(prompt, content, request.user_id)
+            result = await FileEngine.generate_word(prompt, content_for_doc, request.user_id)
         elif file_type == "pdf":
-            content = await ChatHandler._generate_content(prompt, structured_data)
-            result = await FileEngine.generate_pdf(prompt, content, request.user_id)
+            result = await FileEngine.generate_pdf(prompt, content_for_doc, request.user_id)
         elif file_type == "pptx":
-            content = await ChatHandler._generate_content(prompt, structured_data)
-            result = await FileEngine.generate_pptx(prompt, content, request.user_id)
+            result = await FileEngine.generate_pptx(prompt, content_for_doc, request.user_id)
         else:
-            raise HTTPException(status_code=400, detail="Unknown file type")
+            raise HTTPException(status_code=400, detail=f"Unknown file type: {file_type}")
         
         if result.get("success"):
             return {
@@ -2078,7 +2237,8 @@ async def download_file(file_id: str):
             "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "word": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "pdf": "application/pdf",
-            "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "markdown": "text/markdown"
         }
         
         return FileResponse(

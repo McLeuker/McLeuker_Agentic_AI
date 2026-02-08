@@ -215,6 +215,69 @@ function ReasoningLayerItem({
 }
 
 // =============================================================================
+// Sources Section Component - Expandable with clickable "+N more"
+// =============================================================================
+
+function SourcesSection({ 
+  sources, 
+  ensureValidUrl 
+}: { 
+  sources: Source[]; 
+  ensureValidUrl: (url: string) => string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_COUNT = 8;
+  const displayedSources = showAll ? sources : sources.slice(0, INITIAL_COUNT);
+  const hiddenCount = sources.length - INITIAL_COUNT;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-white/[0.04]">
+      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Sources ({sources.length})</p>
+      <div className="flex flex-wrap gap-1.5">
+        {displayedSources.map((source, i) => {
+          const validUrl = ensureValidUrl(source.url);
+          const isClickable = validUrl !== '#';
+          let favicon = '';
+          try {
+            favicon = isClickable ? `https://www.google.com/s2/favicons?domain=${new URL(validUrl).hostname}&sz=16` : '';
+          } catch { /* ignore */ }
+          return isClickable ? (
+            <a
+              key={i}
+              href={validUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.12] rounded-lg text-[11px] text-white/50 hover:text-white/80 transition-all"
+            >
+              {favicon && <img src={favicon} alt="" className="w-3 h-3 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+              <span className="truncate max-w-[140px]">{source.title || 'Source'}</span>
+            </a>
+          ) : null; // Skip sources without valid URLs
+        })}
+        {!showAll && hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAll(true)}
+            className="flex items-center gap-1 px-2.5 py-1 bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] hover:border-[#5c6652]/40 rounded-lg text-[11px] text-[#8a9a7e] hover:text-[#aabaa0] transition-all cursor-pointer"
+          >
+            <span>+{hiddenCount} more</span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        )}
+        {showAll && hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAll(false)}
+            className="flex items-center gap-1 px-2.5 py-1 bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] hover:border-[#5c6652]/40 rounded-lg text-[11px] text-[#8a9a7e] hover:text-[#aabaa0] transition-all cursor-pointer"
+          >
+            <span>Show less</span>
+            <ChevronUp className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // Message Content Component - Updated with McLeuker green
 // =============================================================================
 
@@ -249,12 +312,23 @@ function MessageContent({
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
       
       // Step 1: Generate the document and get the download URL
+      // Map frontend format names to backend FileType enum values
+      const formatMap: Record<string, string> = {
+        'pdf': 'pdf',
+        'docx': 'word',
+        'xlsx': 'excel',
+        'pptx': 'pptx',
+        'markdown': 'markdown',
+      };
+      const backendFileType = formatMap[format] || format;
+      
       const generateResponse = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: content,
-          file_type: format === 'docx' ? 'word' : format,
+          file_type: backendFileType,
+          prompt: searchQuery || 'McLeuker AI Report',
           title: 'McLeuker AI Report'
         })
       });
@@ -570,39 +644,7 @@ function MessageContent({
 
       {/* Sources */}
       {sources.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-white/[0.04]">
-          <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Sources ({sources.length})</p>
-          <div className="flex flex-wrap gap-1.5">
-            {sources.slice(0, 8).map((source, i) => {
-              const validUrl = ensureValidUrl(source.url);
-              const isClickable = validUrl !== '#';
-              const favicon = validUrl !== '#' ? `https://www.google.com/s2/favicons?domain=${new URL(validUrl).hostname}&sz=16` : '';
-              return isClickable ? (
-                <a
-                  key={i}
-                  href={validUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.12] rounded-lg text-[11px] text-white/50 hover:text-white/80 transition-all"
-                >
-                  {favicon && <img src={favicon} alt="" className="w-3 h-3 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
-                  <span className="truncate max-w-[120px]">{source.title || 'Source'}</span>
-                </a>
-              ) : (
-                <span
-                  key={i}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.02] border border-white/[0.04] rounded-lg text-[11px] text-white/30"
-                >
-                  <Globe className="h-3 w-3" />
-                  <span className="truncate max-w-[120px]">{source.title || 'Source'}</span>
-                </span>
-              );
-            })}
-            {sources.length > 8 && (
-              <span className="px-2 py-1 text-[11px] text-white/30">+{sources.length - 8} more</span>
-            )}
-          </div>
-        </div>
+        <SourcesSection sources={sources} ensureValidUrl={ensureValidUrl} />
       )}
 
       {/* Follow-up Questions */}
@@ -1896,7 +1938,7 @@ function DashboardContent() {
                 ));
               } else if (eventType === 'search_sources') {
                 // Handle search sources from backend real-time search
-                const sources = Array.isArray(eventData) ? eventData : [];
+                const sources = Array.isArray(eventData.sources) ? eventData.sources : (Array.isArray(eventData) ? eventData : []);
                 currentSearchSources = [...currentSearchSources, ...sources];
                 // Also add to currentSources for the existing source display
                 for (const src of sources) {
@@ -1983,13 +2025,18 @@ function DashboardContent() {
                   (d: DownloadFile) => !currentDownloads.some(cd => cd.file_id === d.file_id)
                 )];
 
+                // Filter sources to only include those with valid URLs
+                const finalSources = (eventData.sources || currentSources).filter(
+                  (s: Source) => s.url && s.url.startsWith('http')
+                );
+
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
                     ? {
                         ...m,
                         content: finalContent,
                         reasoning_layers: currentLayers,
-                        sources: eventData.sources || currentSources,
+                        sources: finalSources,
                         follow_up_questions: followUpQuestions,
                         downloads: allDownloads.length > 0 ? allDownloads : undefined,
                         searchSources: currentSearchSources.length > 0 ? currentSearchSources : undefined,
@@ -2063,12 +2110,19 @@ function DashboardContent() {
       
       console.error('Error:', error);
       
+      // Restore the user's input so they can retry
+      setInput(messageText);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setMessages(prev => prev.map(m =>
         m.id === assistantId
           ? {
               ...m,
-              content: 'I apologize, but there was an error processing your request. Please try again.',
+              content: `Something went wrong: ${errorMessage}. Your message has been restored — you can try again.`,
               isStreaming: false,
+              taskSteps: currentTaskSteps.length > 0 
+                ? [...currentTaskSteps.map(s => ({...s, status: 'complete' as const})), { step: 'error', title: 'Error occurred', status: 'complete' as const, detail: errorMessage }]
+                : undefined,
             }
           : m
       ));
@@ -2412,62 +2466,102 @@ function DashboardContent() {
                         <div className="space-y-0">
                           {/* ===== MANUS AI-STYLE TASK PROGRESS TIMELINE ===== */}
                           {(message.taskSteps && message.taskSteps.length > 0) && (
-                            <div className="mb-5 rounded-xl bg-white/[0.02] border border-white/[0.05] p-4">
-                              <div className="flex items-center gap-2 mb-3">
-                                <div className="w-5 h-5 rounded-md bg-[#2E3524]/50 flex items-center justify-center">
-                                  <Loader2 className={cn("h-3 w-3 text-[#8a9a7e]", message.isStreaming && "animate-spin")} />
-                                </div>
-                                <span className="text-[11px] text-white/40 uppercase tracking-wider font-medium">Task Progress</span>
-                              </div>
-                              <div className="relative pl-5">
-                                {/* Vertical connector line */}
-                                <div className="absolute left-[7px] top-1 bottom-1 w-[1.5px] bg-gradient-to-b from-[#5c6652]/40 via-[#5c6652]/20 to-transparent" />
-                                
-                                {message.taskSteps.map((step, stepIdx) => (
-                                  <div key={step.step} className={cn(
-                                    "relative flex items-start gap-3 pb-3 last:pb-0 transition-all duration-300",
-                                    step.status === 'active' && "pb-4"
-                                  )}>
-                                    {/* Step indicator */}
-                                    <div className="absolute -left-5 mt-[3px] z-10">
-                                      {step.status === 'complete' ? (
-                                        <div className="w-[16px] h-[16px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#2E3524]/20">
-                                          <Check className="h-2.5 w-2.5 text-[#8a9a7e]" />
-                                        </div>
-                                      ) : step.status === 'active' ? (
-                                        <div className="w-[16px] h-[16px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#5c6652]/30 animate-pulse">
-                                          <div className="w-1.5 h-1.5 rounded-full bg-[#8a9a7e]" />
-                                        </div>
-                                      ) : (
-                                        <div className="w-[16px] h-[16px] rounded-full bg-white/[0.04] border border-white/[0.08]" />
-                                      )}
-                                    </div>
-                                    {/* Step content */}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <p className={cn(
-                                          "text-[12px] leading-tight",
-                                          step.status === 'active' ? "text-white/90 font-medium" : step.status === 'complete' ? "text-white/50" : "text-white/25"
-                                        )}>
-                                          {step.title}
-                                        </p>
-                                        {step.status === 'active' && message.isStreaming && (
-                                          <span className="flex gap-0.5">
-                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
-                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
-                                            <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
-                                          </span>
-                                        )}
-                                      </div>
-                                      {step.detail && (step.status === 'active' || step.status === 'complete') && (
-                                        <p className={cn(
-                                          "text-[10px] mt-0.5 leading-relaxed",
-                                          step.status === 'active' ? "text-white/35" : "text-white/20"
-                                        )}>{step.detail}</p>
-                                      )}
-                                    </div>
+                            <div className="mb-5 rounded-xl bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/[0.06] overflow-hidden">
+                              {/* Header */}
+                              <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/[0.04] bg-white/[0.02]">
+                                <div className="relative">
+                                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center">
+                                    {message.isStreaming ? (
+                                      <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin" />
+                                    ) : (
+                                      <CheckCircle2 className="h-3.5 w-3.5 text-[#8a9a7e]" />
+                                    )}
                                   </div>
-                                ))}
+                                  {message.isStreaming && (
+                                    <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#5c6652] animate-pulse" />
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <span className="text-[11px] text-white/60 font-medium">
+                                    {message.isStreaming ? 'Working on your request...' : 'Task completed'}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-white/20">
+                                  {message.taskSteps.filter(s => s.status === 'complete').length}/{message.taskSteps.length} steps
+                                </span>
+                              </div>
+                              
+                              {/* Steps */}
+                              <div className="px-4 py-3">
+                                <div className="relative pl-6">
+                                  {/* Vertical connector line */}
+                                  <div className="absolute left-[8px] top-2 bottom-2 w-[1.5px] bg-gradient-to-b from-[#5c6652]/40 via-[#5c6652]/20 to-transparent" />
+                                  
+                                  {message.taskSteps.map((step, stepIdx) => {
+                                    // Map step types to icons
+                                    const getStepIcon = (stepName: string) => {
+                                      if (stepName.includes('analyze') || stepName.includes('understand')) return <Brain className="h-3 w-3" />;
+                                      if (stepName.includes('search')) return <Globe className="h-3 w-3" />;
+                                      if (stepName.includes('synthe') || stepName.includes('generat') || stepName.includes('reason')) return <Sparkles className="h-3 w-3" />;
+                                      if (stepName.includes('file') || stepName.includes('build')) return <FileText className="h-3 w-3" />;
+                                      if (stepName.includes('conclude') || stepName.includes('summar')) return <MessageSquare className="h-3 w-3" />;
+                                      return <Circle className="h-3 w-3" />;
+                                    };
+                                    
+                                    return (
+                                      <div key={`${step.step}-${stepIdx}`} className={cn(
+                                        "relative flex items-start gap-3 pb-4 last:pb-0 transition-all duration-300",
+                                      )}>
+                                        {/* Step indicator */}
+                                        <div className="absolute -left-6 mt-[2px] z-10">
+                                          {step.status === 'complete' ? (
+                                            <div className="w-[17px] h-[17px] rounded-full bg-[#2E3524] flex items-center justify-center ring-2 ring-[#2E3524]/20 shadow-sm shadow-[#2E3524]/30">
+                                              <Check className="h-2.5 w-2.5 text-[#8a9a7e]" />
+                                            </div>
+                                          ) : step.status === 'active' ? (
+                                            <div className="w-[17px] h-[17px] rounded-full bg-gradient-to-br from-[#2E3524] to-[#3a4530] flex items-center justify-center ring-2 ring-[#5c6652]/30">
+                                              <Loader2 className="h-2.5 w-2.5 text-[#8a9a7e] animate-spin" />
+                                            </div>
+                                          ) : (
+                                            <div className="w-[17px] h-[17px] rounded-full bg-white/[0.04] border border-white/[0.08]" />
+                                          )}
+                                        </div>
+                                        {/* Step content */}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className={cn(
+                                              "flex-shrink-0",
+                                              step.status === 'active' ? "text-[#8a9a7e]" : step.status === 'complete' ? "text-white/30" : "text-white/15"
+                                            )}>
+                                              {getStepIcon(step.step)}
+                                            </span>
+                                            <p className={cn(
+                                              "text-[12px] leading-tight",
+                                              step.status === 'active' ? "text-white/90 font-medium" : step.status === 'complete' ? "text-white/50" : "text-white/25"
+                                            )}>
+                                              {step.title}
+                                            </p>
+                                            {step.status === 'active' && message.isStreaming && (
+                                              <span className="flex gap-0.5 ml-1">
+                                                <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                                                <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                                                <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
+                                              </span>
+                                            )}
+                                          </div>
+                                          {step.detail && (
+                                            <p className={cn(
+                                              "text-[10px] mt-1 leading-relaxed pl-5",
+                                              step.status === 'active' ? "text-white/40" : "text-white/20"
+                                            )}>
+                                              {step.detail}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           )}
