@@ -40,7 +40,10 @@ import {
   File,
   FileDown,
   FileSpreadsheet,
-  Presentation
+  Presentation,
+  Bot,
+  Code2,
+  Palette
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
@@ -1627,7 +1630,7 @@ function DashboardContent() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
+  const [searchMode, setSearchMode] = useState<'quick' | 'deep' | 'agent' | 'creative'>('quick');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creditBalance, setCreditBalance] = useState(50);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
@@ -1862,8 +1865,8 @@ function DashboardContent() {
 
     try {
       // Map frontend mode names to backend mode names
-      const modeMap: Record<string, string> = { 'quick': 'instant', 'deep': 'thinking' };
-      const backendMode = modeMap[searchMode] || 'thinking';
+      const modeMap: Record<string, string> = { 'quick': 'instant', 'deep': 'research', 'agent': 'agent', 'creative': 'code' };
+      const backendMode = modeMap[searchMode] || 'research';
       
       // Build messages array with optional sector context
       const chatMessages: Array<{role: string; content: string | Array<Record<string, unknown>>}> = [];
@@ -1926,7 +1929,60 @@ function DashboardContent() {
               const eventType = data.type;
               const eventData = data.data || {};
 
-              if (eventType === 'layer_start') {
+              if (eventType === 'start') {
+                // Connection established - capture conversation ID
+                // Nothing to display yet
+              } else if (eventType === 'status') {
+                // Progress status from backend - show as task step
+                const statusMsg = eventData.message || 'Processing...';
+                const stepNum = eventData.step || currentTaskSteps.length + 1;
+                const totalSteps = eventData.total_steps || 5;
+                const stepData = {
+                  step: `step-${stepNum}`,
+                  title: statusMsg,
+                  status: 'active' as const,
+                  detail: `Step ${stepNum} of ${totalSteps}`,
+                };
+                // Mark previous active steps as complete
+                currentTaskSteps = currentTaskSteps.map(s => 
+                  s.status === 'active' ? { ...s, status: 'complete' as const } : s
+                );
+                currentTaskSteps.push(stepData);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, taskSteps: [...currentTaskSteps], toolStatus: statusMsg }
+                    : m
+                ));
+              } else if (eventType === 'conclusion') {
+                // Manus-style conclusion
+                const conclusionContent = eventData.content || '';
+                if (conclusionContent) {
+                  currentContent += '\n\n---\n\n' + conclusionContent;
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, content: currentContent }
+                      : m
+                  ));
+                }
+              } else if (eventType === 'file_error') {
+                // File generation error
+                const errorMsg = eventData.error || 'File generation failed';
+                currentContent += `\n\n> **File Error:** ${errorMsg}`;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, content: currentContent }
+                    : m
+                ));
+              } else if (eventType === 'error') {
+                // General error
+                const errorMsg = eventData.message || 'An error occurred';
+                currentContent += `\n\n**Error:** ${errorMsg}`;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, content: currentContent }
+                    : m
+                ));
+              } else if (eventType === 'layer_start') {
                 const newLayer: ReasoningLayer = {
                   id: eventData.layer_id,
                   layer_num: eventData.layer_num,
@@ -2102,7 +2158,7 @@ function DashboardContent() {
                 ));
               } else if (eventType === 'complete') {
                 const finalContent = eventData.content || currentContent;
-                const creditsUsed = eventData.credits_used || (searchMode === 'quick' ? 2 : 5);
+                const creditsUsed = eventData.credits_used || ({ 'quick': 2, 'deep': 5, 'agent': 5, 'creative': 3 }[searchMode] || 3);
                 const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
@@ -2451,13 +2507,13 @@ function DashboardContent() {
                     </button>
                   </div>
                   
-                  {/* Instant/Thinking Mode Toggle - Under search bar */}
+                  {/* Search Mode Toggle - 4 modes */}
                   <div className="flex justify-center mt-3">
                     <div className="flex items-center gap-0.5 p-1 bg-white/[0.03] rounded-xl border border-white/[0.06]">
                       <button
                         onClick={() => setSearchMode('quick')}
                         className={cn(
-                          "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all",
+                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
                           searchMode === 'quick'
                             ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
                             : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
@@ -2465,14 +2521,14 @@ function DashboardContent() {
                       >
                         <Zap className="h-3.5 w-3.5" />
                         <div className="text-left">
-                          <span className="block">Instant</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Search + fast answer</span>
+                          <span className="block">Quick</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Fast answer</span>
                         </div>
                       </button>
                       <button
                         onClick={() => setSearchMode('deep')}
                         className={cn(
-                          "flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all",
+                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
                           searchMode === 'deep'
                             ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
                             : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
@@ -2480,8 +2536,38 @@ function DashboardContent() {
                       >
                         <Brain className="h-3.5 w-3.5" />
                         <div className="text-left">
-                          <span className="block">Thinking</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Deep reasoning + search</span>
+                          <span className="block">Research</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Deep analysis</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setSearchMode('agent')}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
+                          searchMode === 'agent'
+                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
+                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
+                        )}
+                      >
+                        <Bot className="h-3.5 w-3.5" />
+                        <div className="text-left">
+                          <span className="block">Agent</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Multi-step</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setSearchMode('creative')}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
+                          searchMode === 'creative'
+                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
+                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
+                        )}
+                      >
+                        <Code2 className="h-3.5 w-3.5" />
+                        <div className="text-left">
+                          <span className="block">Creative</span>
+                          <span className="block text-[9px] opacity-60 font-normal">Code & writing</span>
                         </div>
                       </button>
                     </div>
@@ -2653,6 +2739,32 @@ function DashboardContent() {
                             </div>
                           )}
                           
+                          {/* ===== TASK PROGRESS STEPS (from status events) ===== */}
+                          {message.taskSteps && message.taskSteps.length > 0 && (
+                            <div className="mb-3 space-y-1">
+                              {message.taskSteps.map((step, idx) => (
+                                <div key={idx} className="flex items-center gap-2 py-1">
+                                  {step.status === 'complete' ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-[#5c6652] flex-shrink-0" />
+                                  ) : step.status === 'active' ? (
+                                    <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0" />
+                                  ) : (
+                                    <Circle className="h-3.5 w-3.5 text-white/20 flex-shrink-0" />
+                                  )}
+                                  <span className={cn(
+                                    "text-xs",
+                                    step.status === 'active' ? "text-white/70" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                  )}>
+                                    {step.title}
+                                  </span>
+                                  {step.detail && (
+                                    <span className="text-[10px] text-white/20 ml-auto">{step.detail}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
                           {/* Streaming content indicator when task steps are showing but content is being generated */}
                           {message.isStreaming && message.content && (
                             <div className="flex items-center gap-1.5 mb-2">
@@ -2736,32 +2848,64 @@ function DashboardContent() {
                 onRemove={handleRemoveFile} 
               />
               
-              {/* Instant/Thinking Mode Toggle - Centered */}
+              {/* Search Mode Toggle - 4 modes */}
               <div className="flex justify-center mb-3">
                 <div className="flex items-center gap-0.5 p-0.5 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                   <button
                     onClick={() => setSearchMode('quick')}
+                    disabled={isStreaming}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                       searchMode === 'quick'
                         ? "bg-[#2E3524] text-white shadow-sm"
-                        : "text-white/40 hover:text-white/60"
+                        : "text-white/40 hover:text-white/60",
+                      isStreaming && "opacity-50 cursor-not-allowed"
                     )}
                   >
                     <Zap className="h-3 w-3" />
-                    Instant
+                    Quick
                   </button>
                   <button
                     onClick={() => setSearchMode('deep')}
+                    disabled={isStreaming}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                       searchMode === 'deep'
                         ? "bg-[#2E3524] text-white shadow-sm"
-                        : "text-white/40 hover:text-white/60"
+                        : "text-white/40 hover:text-white/60",
+                      isStreaming && "opacity-50 cursor-not-allowed"
                     )}
                   >
                     <Brain className="h-3 w-3" />
-                    Thinking
+                    Research
+                  </button>
+                  <button
+                    onClick={() => setSearchMode('agent')}
+                    disabled={isStreaming}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                      searchMode === 'agent'
+                        ? "bg-[#2E3524] text-white shadow-sm"
+                        : "text-white/40 hover:text-white/60",
+                      isStreaming && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <Bot className="h-3 w-3" />
+                    Agent
+                  </button>
+                  <button
+                    onClick={() => setSearchMode('creative')}
+                    disabled={isStreaming}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                      searchMode === 'creative'
+                        ? "bg-[#2E3524] text-white shadow-sm"
+                        : "text-white/40 hover:text-white/60",
+                      isStreaming && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    <Code2 className="h-3 w-3" />
+                    Creative
                   </button>
                 </div>
               </div>
