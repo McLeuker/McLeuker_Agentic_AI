@@ -85,20 +85,20 @@ export function DomainStarterPanel({
           </div>
 
           {/* Search Bubble */}
-          <form onSubmit={handleSubmit} className="w-full max-w-2xl mb-4">
-            <div className="relative">
-              <Input
+          <form onSubmit={handleSubmit} className="w-full max-w-3xl mb-4">
+            <div className="relative flex items-end gap-2 p-2.5 rounded-2xl bg-white/[0.05] border border-white/[0.10] hover:border-white/[0.16] focus-within:border-white/[0.18] transition-all">
+              <textarea
                 value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
+                onChange={(e) => {
+                  setSearchValue(e.target.value);
+                  const el = e.target;
+                  el.style.height = 'auto';
+                  el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask anything across all domains..."
-                className={cn(
-                  "w-full h-14 px-6 rounded-full",
-                  "bg-white/10 border-white/20",
-                  "text-white placeholder:text-white/40",
-                  "focus:bg-white/15 focus:border-white/30",
-                  "transition-all duration-200"
-                )}
+                rows={1}
+                className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-[15px] min-h-[44px] max-h-[200px] py-2 px-2 leading-relaxed"
               />
             </div>
           </form>

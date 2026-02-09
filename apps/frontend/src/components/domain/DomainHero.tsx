@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Sector } from "@/contexts/SectorContext";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+// Using native textarea instead of Textarea component for clean styling
 import { ArrowUp, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { InlineModelPicker, type SearchMode } from "@/components/chat/InlineModelPicker";
@@ -119,16 +119,7 @@ export function DomainHero({
     }
   };
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        120
-      )}px`;
-    }
-  }, [query]);
+  // Auto-resize is handled inline in onChange handler
 
   return (
     <section className="relative w-full overflow-hidden">
@@ -171,41 +162,42 @@ export function DomainHero({
 
         {/* Search Bar — with inline model picker */}
         {onSubmit && (
-          <div className="max-w-2xl mx-auto">
-            <div className="flex items-end gap-2 p-2.5 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.15] transition-all mb-8">
-              <Textarea
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-end gap-2 p-2.5 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all mb-8">
+              <textarea
                 ref={textareaRef}
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  const el = e.target;
+                  el.style.height = 'auto';
+                  el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder}
-                className={cn(
-                  "min-h-[44px] max-h-[120px] resize-none border-0 p-0 px-1",
-                  "bg-transparent",
-                  "text-white/[0.88] placeholder:text-white/30",
-                  "focus-visible:ring-0 focus-visible:ring-offset-0",
-                  "text-[15px]"
-                )}
                 rows={1}
+                className="flex-1 bg-transparent text-white/[0.88] placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-[15px] min-h-[44px] max-h-[200px] py-2 px-1 leading-relaxed border-0"
               />
-              <InlineModelPicker
-                value={searchMode}
-                onChange={setSearchMode}
-              />
-              <Button
-                onClick={handleSubmit}
-                disabled={!query.trim()}
-                size="icon"
-                className={cn(
-                  "h-10 w-10 rounded-xl flex-shrink-0",
-                  query.trim()
-                    ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                    : "bg-white/[0.06] text-white/30",
-                  "disabled:opacity-30"
-                )}
-              >
-                <ArrowUp className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2 flex-shrink-0 self-center">
+                <InlineModelPicker
+                  value={searchMode}
+                  onChange={setSearchMode}
+                />
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!query.trim()}
+                  size="icon"
+                  className={cn(
+                    "h-10 w-10 rounded-xl flex-shrink-0",
+                    query.trim()
+                      ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                      : "bg-white/[0.06] text-white/30",
+                    "disabled:opacity-30"
+                  )}
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             <p className="text-white/20 text-[11px] text-center -mt-4 mb-4">McLeukerAI can be wrong. Please verify important details.</p>

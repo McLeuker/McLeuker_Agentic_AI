@@ -2579,51 +2579,57 @@ function DashboardContent() {
                 </div>
                 
                 {/* Search Bar - Pinned to bottom */}
-                <div className="w-full max-w-xl mx-auto pb-8">
-                  <div className="relative group">
-                    <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/10 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
-                    <div className="relative flex items-center gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.20] transition-all">
+                <div className="w-full max-w-3xl mx-auto pb-8">
+                  <div className="relative">
+                    <div className="relative flex items-end gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all">
                       <FileUploadButton
                         onFileSelect={handleFileSelect}
                         onOpenImageGenerator={() => setShowImageGenerator(true)}
                         attachedFiles={attachedFiles}
                         onRemoveFile={handleRemoveFile}
                       />
-                      <input
-                        type="text"
+                      <textarea
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={(e) => {
+                          setInput(e.target.value);
+                          const el = e.target;
+                          el.style.height = 'auto';
+                          el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                        }}
                         onKeyDown={handleKeyDown}
                         placeholder="Ask me anything..."
-                        className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none text-sm px-1"
+                        rows={1}
+                        className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-sm px-1 min-h-[40px] max-h-[200px] py-2.5 leading-relaxed"
                       />
-                      <InlineModelPicker
-                        value={searchMode}
-                        onChange={setSearchMode}
-                        disabled={isStreaming}
-                      />
-                      {isStreaming ? (
-                        <button
-                          onClick={handleStopSearch}
-                          className="h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
-                          title="Stop search"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleSendMessage()}
-                          disabled={!input.trim()}
-                          className={cn(
-                            "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                            input.trim()
-                              ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                              : "bg-white/[0.05] text-white/30"
-                          )}
-                        >
-                          <Send className="h-4 w-4" />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-2 flex-shrink-0 self-center">
+                        <InlineModelPicker
+                          value={searchMode}
+                          onChange={setSearchMode}
+                          disabled={isStreaming}
+                        />
+                        {isStreaming ? (
+                          <button
+                            onClick={handleStopSearch}
+                            className="h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                            title="Stop search"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleSendMessage()}
+                            disabled={!input.trim()}
+                            className={cn(
+                              "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                              input.trim()
+                                ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                                : "bg-white/[0.05] text-white/30"
+                            )}
+                          >
+                            <Send className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>

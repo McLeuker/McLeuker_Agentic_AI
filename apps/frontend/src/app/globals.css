@@ -356,13 +356,12 @@ a:focus-visible {
   box-shadow: 0 0 0 2px rgba(46, 53, 36, 0.6), 0 0 8px rgba(46, 53, 36, 0.3);
 }
 
-/* Input focus */
+/* Input focus — clean, no colored box */
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: none;
-  border-color: rgba(46, 53, 36, 0.5) !important;
-  box-shadow: 0 0 0 3px rgba(46, 53, 36, 0.15), 0 0 12px rgba(46, 53, 36, 0.1);
+  box-shadow: none;
 }
 
 /* Tab focus */
