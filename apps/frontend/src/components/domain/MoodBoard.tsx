@@ -188,7 +188,7 @@ export function MoodBoard({ sector }: MoodBoardProps) {
             Curated Mood Board
           </h2>
           <p className="text-[15px] text-white/50 max-w-md leading-relaxed mt-1">
-            AI-curated visual references capturing the aesthetic pulse of this domain
+            Curated visual inspiration that captures the look, feel, and momentum
           </p>
         </div>
 
