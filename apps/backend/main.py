@@ -2492,6 +2492,9 @@ CRITICAL RULES:
 15. NEVER say "Since I cannot actually create a real Excel file" or "I need to provide the data in a format that can be easily copied". You CAN generate real files. Just do it.
 16. For ALL file generation (Excel, PPTX, Word, PDF): use ONLY real, verified data from search results. NEVER use placeholder names like "Supplier A", "Company B", "Brand X". If you cannot find real names, search harder. Every entity must be a real, named company/person/place.
 17. Files should be generated AFTER the main response content, never in the middle of the response.
+18. INTENT ANALYSIS - CRITICAL: When a user mentions a file format (pdf, excel, ppt, presentation, spreadsheet, slides, word, csv), they WANT that file generated. 'pdf insights for X' means GENERATE a PDF about X. 'presentation about Y' means GENERATE a PPTX about Y. 'excel data on Z' means GENERATE an Excel about Z. The format keyword IS the intent. Do NOT just write text about the topic - GENERATE THE FILE.
+19. REASONING FIRST: Before responding, internally reason about: (a) What is the user's actual intent? (b) Do they want a file generated? (c) What topic are they referring to from conversation history? (d) What format do they want? Then provide the response that matches their intent.
+20. When the user's message contains BOTH a file format AND a topic (e.g., 'pdf insights for Paris fashion week'), your response should be focused on that topic AND a file of that format should be generated. Do NOT treat the format word as just a keyword - treat it as a file generation request.
 {conversation_summary}
 {f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}"""
         
@@ -2664,43 +2667,120 @@ CRITICAL RULES:
     
     @staticmethod
     def _detect_file_needs(query: str) -> List[str]:
-        """Detect which file types the user needs based on their query."""
-        query_lower = query.lower()
+        """Detect which file types the user needs based on their query.
+        
+        PHILOSOPHY: When a user mentions a file format (pdf, excel, ppt, etc.),
+        they almost ALWAYS want that file generated. The format keyword IS the intent.
+        
+        Examples that SHOULD trigger file generation:
+        - 'pdf insights for Paris fashion week' -> pdf
+        - 'excel data on Italian brands' -> excel  
+        - 'presentation about sustainability' -> pptx
+        - 'ppt summarizing trends' -> pptx
+        - 'give me a spreadsheet of suppliers' -> excel
+        - 'slide deck for board meeting' -> pptx
+        - 'report on market analysis' -> pdf
+        - 'csv of top 50 brands' -> csv
+        
+        Examples that should NOT trigger file generation:
+        - 'what is this pdf about' -> no (asking about existing file)
+        - 'read this document' -> no (asking to read)
+        - 'summarize the uploaded excel' -> no (asking about uploaded file)
+        """
+        query_lower = query.lower().strip()
         file_types = []
         
-        # SKIP file generation for informational/question queries
-        # If the user is asking ABOUT a file, not asking to CREATE a file
-        info_patterns = [
-            r'^(what|tell me|describe|explain|summarize|analyse|analyze|read|open|show|look at|check)',
-            r'(what.?s this|what is this|about this doc|about this file|what does this)',
-            r'(can you read|can you open|can you check|can you look|can you analyze)',
+        # ONLY skip for queries about UPLOADED/EXISTING files
+        # These are very specific patterns where user references a file they already have
+        skip_patterns = [
+            r'^(what|tell me about|describe|read|open|show me|look at|check)\s+(this|the|my|that|uploaded)\s+(file|doc|document|pdf|excel|spreadsheet)',
+            r'(what.?s (this|the) (doc|file|pdf|excel|document))',
+            r'(about this (doc|file|pdf|excel|document|attachment))',
+            r'(can you (read|open|check|look at|analyze) (this|the|my) (file|doc|document|pdf|excel))',
+            r'(summarize (this|the|my) (uploaded|attached|existing))',
+            r'(what does this (file|doc|document) (say|contain|mean))',
         ]
-        for pattern in info_patterns:
+        for pattern in skip_patterns:
             if re.search(pattern, query_lower):
-                return []  # No files needed for informational queries
+                return []  # Asking about an existing file, not requesting generation
         
-        # Explicit file type requests
-        if any(w in query_lower for w in ['excel', 'spreadsheet', 'xlsx', '.xlsx']):
-            file_types.append("excel")
-        if any(w in query_lower for w in ['word', 'document', 'docx', '.docx']):
-            file_types.append("word")
-        if any(w in query_lower for w in ['pdf', '.pdf']):
+        # ===== FILE FORMAT DETECTION =====
+        # When user mentions a format, they want that file. Period.
+        
+        # PDF detection - broad matching
+        pdf_triggers = ['pdf', '.pdf', 'pdf report', 'pdf insights', 'pdf summary', 'pdf analysis',
+                       'pdf file', 'pdf document', 'as pdf', 'in pdf', 'to pdf', 'into pdf']
+        if any(t in query_lower for t in pdf_triggers):
             file_types.append("pdf")
-        if any(w in query_lower for w in ['powerpoint', 'pptx', 'presentation', 'slides', 'ppt', '.pptx']):
+        
+        # Excel/Spreadsheet detection - broad matching
+        excel_triggers = ['excel', 'spreadsheet', 'xlsx', '.xlsx', 'excel sheet', 'excel file',
+                         'excel data', 'excel report', 'as excel', 'in excel', 'to excel',
+                         'into excel', 'data sheet', 'datasheet', 'xls']
+        if any(t in query_lower for t in excel_triggers):
+            file_types.append("excel")
+        
+        # PowerPoint/Presentation detection - broad matching
+        pptx_triggers = ['powerpoint', 'pptx', 'presentation', 'slides', 'ppt', '.pptx',
+                        'slide deck', 'slidedeck', 'pitch deck', 'pitchdeck', 'deck',
+                        'as ppt', 'in ppt', 'to ppt', 'into ppt', 'keynote']
+        if any(t in query_lower for t in pptx_triggers):
             file_types.append("pptx")
-        if any(w in query_lower for w in ['csv', '.csv']):
+        
+        # Word/Document detection - broad matching
+        word_triggers = ['word doc', 'word document', 'word file', 'docx', '.docx',
+                        'as word', 'in word', 'to word', 'into word', 'word format']
+        # 'document' alone is too generic, only trigger with action words
+        if any(t in query_lower for t in word_triggers):
+            file_types.append("word")
+        elif 'document' in query_lower and any(w in query_lower for w in ['generate', 'create', 'make', 'build', 'export', 'give me', 'prepare', 'draft']):
+            file_types.append("word")
+        
+        # CSV detection
+        csv_triggers = ['csv', '.csv', 'csv file', 'csv data', 'as csv', 'in csv', 'to csv', 'comma separated']
+        if any(t in query_lower for t in csv_triggers):
             file_types.append("csv")
         
         # Multi-file detection
-        if any(w in query_lower for w in ['all formats', 'all files', 'multiple formats', 'every format']):
+        if any(w in query_lower for w in ['all formats', 'all files', 'multiple formats', 'every format', 'all file types']):
             file_types = ["excel", "word", "pdf", "pptx"]
         
-        # Implicit: "generate", "create", "make" + "report/analysis/file"
-        if not file_types and any(w in query_lower for w in ['generate', 'create', 'make', 'build', 'export']):
-            if any(w in query_lower for w in ['report', 'analysis', 'file', 'data']):
-                file_types.append("excel")
+        # ===== IMPLICIT FILE GENERATION =====
+        # Action words + content words = file generation
+        if not file_types:
+            action_words = ['generate', 'create', 'make', 'build', 'export', 'produce',
+                          'give me', 'prepare', 'draft', 'compile', 'put together', 'assemble']
+            content_words = ['report', 'analysis', 'file', 'data', 'summary', 'overview',
+                           'breakdown', 'comparison', 'benchmark', 'table', 'chart', 'list']
+            has_action = any(w in query_lower for w in action_words)
+            has_content = any(w in query_lower for w in content_words)
+            if has_action and has_content:
+                # Default to PDF for reports/analysis, Excel for data/tables/lists
+                if any(w in query_lower for w in ['data', 'table', 'list', 'comparison', 'benchmark', 'chart']):
+                    file_types.append("excel")
+                else:
+                    file_types.append("pdf")
         
-        return file_types
+        # ===== FORMAT-AS-ADJECTIVE PATTERNS =====
+        # e.g., 'pdf insights', 'excel breakdown', 'ppt summary'
+        # The format word modifies a content noun -> user wants that format
+        if not file_types:
+            format_adjective_patterns = [
+                (r'\bpdf\s+\w+', 'pdf'),
+                (r'\bexcel\s+\w+', 'excel'),
+                (r'\bppt\s+\w+', 'pptx'),
+                (r'\bpptx\s+\w+', 'pptx'),
+                (r'\bspreadsheet\s+\w+', 'excel'),
+                (r'\bpresentation\s+\w+', 'pptx'),
+                (r'\bslides?\s+(about|on|for|of|summariz)', 'pptx'),
+            ]
+            for pattern, ftype in format_adjective_patterns:
+                if re.search(pattern, query_lower):
+                    file_types.append(ftype)
+                    break
+        
+        # Deduplicate
+        return list(dict.fromkeys(file_types))
     
     @staticmethod
     async def _quality_check(file_type: str, original_query: str, file_result: Dict) -> bool:
@@ -4179,9 +4259,12 @@ class BackgroundSearchManager:
             current_date = get_current_date_str()
             current_year = get_current_year()
             
-            system_msg = f"""You are McLeuker AI. Today is {current_date}.
+            system_msg = f"""You are a professional research and analysis assistant. Today is {current_date}.
 ALL data must reflect {current_year}. Be specific with numbers and sources.
 Structure with headers (##), bullet points, and tables.
+NEVER introduce yourself. Go STRAIGHT to answering the question.
+When user mentions a file format (pdf, excel, ppt, etc.), they WANT that file generated.
+Use ONLY real, verified data. NEVER use placeholder names.
 {f'Search data:{chr(10)}{search_context[:4000]}' if search_context else ''}"""
             
             client = kimi_client or grok_client
