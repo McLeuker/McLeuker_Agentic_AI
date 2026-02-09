@@ -179,15 +179,15 @@ export function MoodBoard({ sector }: MoodBoardProps) {
         {/* Section header */}
         <div className="mb-10 md:mb-14">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-[1px] bg-gradient-to-r from-white/40 to-transparent" />
-            <span className="text-[11px] uppercase tracking-[0.2em] text-white/40 font-light">
+            <div className="h-px w-8 bg-white/20" />
+            <span className="text-[11px] uppercase tracking-[0.2em] text-white/40 font-medium">
               Visual Intelligence
             </span>
           </div>
-          <h2 className="text-2xl md:text-3xl font-extralight text-white/90 tracking-tight">
+          <h2 className="font-serif text-3xl md:text-4xl text-white/[0.95] tracking-tight">
             Curated Mood Board
           </h2>
-          <p className="mt-2 text-sm text-white/35 font-light max-w-lg">
+          <p className="text-[15px] text-white/50 max-w-md leading-relaxed mt-1">
             AI-curated visual references capturing the aesthetic pulse of this domain
           </p>
         </div>
