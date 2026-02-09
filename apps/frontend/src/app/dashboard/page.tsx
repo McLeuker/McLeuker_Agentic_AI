@@ -48,6 +48,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
 import { supabase } from "@/integrations/supabase/client";
+import { InlineModelPicker } from "@/components/chat/InlineModelPicker";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { formatDistanceToNow } from "date-fns";
@@ -2476,15 +2477,19 @@ function DashboardContent() {
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
               /* STATE A: Empty State - "Where is my mind?" with search bar and suggestions */
-              <div className="flex flex-col items-center justify-center min-h-[60vh]">
+              <div className="relative flex flex-col items-center justify-center min-h-[60vh]">
+                {/* Ambient glow */}
+                <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.06] blur-[100px] pointer-events-none" />
+                
                 {/* Title - Elegant, centered */}
-                <h1 className="text-2xl md:text-3xl lg:text-4xl font-editorial text-white/80 mb-6 text-center tracking-tight">
+                <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.88] mb-8 text-center tracking-tight leading-[1.1]">
                   Where is my mind?
                 </h1>
                 
                 {/* Search Bar - Directly under title */}
-                <div className="w-full max-w-xl mb-6">
-                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-[#2E3524]/30 transition-all">
+                <div className="relative w-full max-w-xl mb-6 group">
+                  <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/10 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
+                  <div className="relative flex items-center gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all">
                     <FileUploadButton
                       onFileSelect={handleFileSelect}
                       onOpenImageGenerator={() => setShowImageGenerator(true)}
@@ -2498,6 +2503,11 @@ function DashboardContent() {
                       onKeyDown={handleKeyDown}
                       placeholder="Ask me anything..."
                       className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none text-sm"
+                    />
+                    <InlineModelPicker
+                      value={searchMode}
+                      onChange={setSearchMode}
+                      disabled={isStreaming}
                     />
                     <button
                       onClick={() => handleSendMessage()}
@@ -2515,72 +2525,6 @@ function DashboardContent() {
                         <Send className="h-4 w-4" />
                       )}
                     </button>
-                  </div>
-                  
-                  {/* Search Mode Toggle - 4 modes */}
-                  <div className="flex justify-center mt-3">
-                    <div className="flex items-center gap-0.5 p-1 bg-white/[0.03] rounded-xl border border-white/[0.06]">
-                      <button
-                        onClick={() => setSearchMode('quick')}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
-                          searchMode === 'quick'
-                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
-                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
-                        )}
-                      >
-                        <Zap className="h-3.5 w-3.5" />
-                        <div className="text-left">
-                          <span className="block">Quick</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Fast answer</span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setSearchMode('deep')}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
-                          searchMode === 'deep'
-                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
-                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
-                        )}
-                      >
-                        <Brain className="h-3.5 w-3.5" />
-                        <div className="text-left">
-                          <span className="block">Research</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Deep analysis</span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setSearchMode('agent')}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
-                          searchMode === 'agent'
-                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
-                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
-                        )}
-                      >
-                        <Bot className="h-3.5 w-3.5" />
-                        <div className="text-left">
-                          <span className="block">Agent</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Multi-step</span>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setSearchMode('creative')}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all",
-                          searchMode === 'creative'
-                            ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20"
-                            : "text-white/40 hover:text-white/60 hover:bg-white/[0.03]"
-                        )}
-                      >
-                        <Code2 className="h-3.5 w-3.5" />
-                        <div className="text-left">
-                          <span className="block">Creative</span>
-                          <span className="block text-[9px] opacity-60 font-normal">Code & writing</span>
-                        </div>
-                      </button>
-                    </div>
                   </div>
                   <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
                 </div>
@@ -2858,70 +2802,8 @@ function DashboardContent() {
                 onRemove={handleRemoveFile} 
               />
               
-              {/* Search Mode Toggle - 4 modes */}
-              <div className="flex justify-center mb-3">
-                <div className="flex items-center gap-0.5 p-0.5 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                  <button
-                    onClick={() => setSearchMode('quick')}
-                    disabled={isStreaming}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                      searchMode === 'quick'
-                        ? "bg-[#2E3524] text-white shadow-sm"
-                        : "text-white/40 hover:text-white/60",
-                      isStreaming && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    <Zap className="h-3 w-3" />
-                    Quick
-                  </button>
-                  <button
-                    onClick={() => setSearchMode('deep')}
-                    disabled={isStreaming}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                      searchMode === 'deep'
-                        ? "bg-[#2E3524] text-white shadow-sm"
-                        : "text-white/40 hover:text-white/60",
-                      isStreaming && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    <Brain className="h-3 w-3" />
-                    Research
-                  </button>
-                  <button
-                    onClick={() => setSearchMode('agent')}
-                    disabled={isStreaming}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                      searchMode === 'agent'
-                        ? "bg-[#2E3524] text-white shadow-sm"
-                        : "text-white/40 hover:text-white/60",
-                      isStreaming && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    <Bot className="h-3 w-3" />
-                    Agent
-                  </button>
-                  <button
-                    onClick={() => setSearchMode('creative')}
-                    disabled={isStreaming}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
-                      searchMode === 'creative'
-                        ? "bg-[#2E3524] text-white shadow-sm"
-                        : "text-white/40 hover:text-white/60",
-                      isStreaming && "opacity-50 cursor-not-allowed"
-                    )}
-                  >
-                    <Code2 className="h-3 w-3" />
-                    Creative
-                  </button>
-                </div>
-              </div>
-              
-              {/* Input Container */}
-              <div className="flex items-end gap-2 p-2 rounded-2xl border transition-all bg-[#141414] border-white/[0.08]">
+              {/* Input Container — with inline model picker */}
+              <div className="flex items-end gap-2 p-2 rounded-2xl border transition-all bg-[#141414] border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18]">
                 {/* Plus Button */}
                 <FileUploadButton
                   onFileSelect={handleFileSelect}
@@ -2944,6 +2826,16 @@ function DashboardContent() {
                     "max-h-[200px]"
                   )}
                 />
+                
+                {/* Inline Model Picker — Grok-style */}
+                <div className="flex-shrink-0 self-center">
+                  <InlineModelPicker
+                    value={searchMode}
+                    onChange={setSearchMode}
+                    disabled={isStreaming}
+                    compact
+                  />
+                </div>
                 
                 {/* Send Button */}
                 <button

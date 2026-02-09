@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { TopNavigation } from "@/components/layout/TopNavigation";
 import { Footer } from "@/components/layout/Footer";
 import { blogPosts } from "@/data/blog-posts";
+import { InlineModelPicker, type SearchMode } from "@/components/chat/InlineModelPicker";
 import { 
   ArrowRight, 
   Sparkles, 
@@ -177,6 +178,7 @@ function useHorizontalScroll() {
 export default function LandingPage() {
   const [prompt, setPrompt] = useState("");
   const [activeOutput, setActiveOutput] = useState(0);
+  const [searchMode, setSearchMode] = useState<SearchMode>("deep");
   const router = useRouter();
   const domainScroll = useHorizontalScroll();
   const useCaseScroll = useHorizontalScroll();
@@ -186,6 +188,7 @@ export default function LandingPage() {
     if (prompt.trim()) {
       sessionStorage.setItem("domainPrompt", prompt);
       sessionStorage.setItem("autoExecute", "true");
+      sessionStorage.setItem("searchMode", searchMode);
       router.push("/dashboard");
     }
   };
@@ -193,6 +196,7 @@ export default function LandingPage() {
   const handlePromptClick = (promptText: string) => {
     sessionStorage.setItem("domainPrompt", promptText);
     sessionStorage.setItem("autoExecute", "true");
+    sessionStorage.setItem("searchMode", searchMode);
     router.push("/dashboard");
   };
 
@@ -212,55 +216,73 @@ export default function LandingPage() {
       <div className="h-16 lg:h-[72px]" />
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 1 — Hero (OpenAI-style clean, centered) */}
+      {/* SECTION 1 — Hero (elevated, cinematic) */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="relative bg-[#070707] min-h-[calc(100vh-72px)] flex items-center justify-center">
+      <section className="relative bg-[#070707] min-h-[calc(100vh-72px)] flex items-center justify-center overflow-hidden">
+        {/* Ambient light effects */}
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(255,255,255,0.015)_0%,_transparent_70%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,_rgba(46,53,36,0.15)_0%,_transparent_60%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(255,255,255,0.02)_0%,_transparent_70%)]" />
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] rounded-full bg-white/[0.008] blur-[120px]" />
         </div>
 
+        {/* Subtle grid pattern */}
+        <div className="absolute inset-0 opacity-[0.015] pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+
         <div className="relative z-10 w-full max-w-3xl mx-auto px-6 text-center">
-          <h1 className="font-editorial text-5xl md:text-6xl lg:text-7xl text-white/[0.95] tracking-tight leading-[1.05] mb-5">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] mb-8">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#5a7a3a] animate-pulse" />
+            <span className="text-[11px] text-white/40 tracking-wide">Fashion Intelligence Platform</span>
+          </div>
+
+          <h1 className="font-editorial text-5xl md:text-6xl lg:text-[5.5rem] text-white/[0.97] tracking-tight leading-[1.02] mb-6">
             What do you want<br />to research?
           </h1>
           <p className="text-white/40 text-lg md:text-xl mb-10 max-w-xl mx-auto leading-relaxed">
-            AI-powered fashion intelligence. From one prompt to structured reports, benchmarks, and clear next steps.
+            From one prompt to structured reports, benchmarks, and clear next steps.
           </p>
 
-          <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-6">
-            <input
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Analyze SS26 trends, find suppliers, compare markets..."
-              className={cn(
-                "w-full h-14 pl-5 pr-14 rounded-2xl",
-                "bg-white/[0.04] border border-white/[0.08]",
-                "text-white text-base placeholder:text-white/25",
-                "focus:border-white/[0.18] focus:ring-1 focus:ring-white/[0.06] focus:outline-none",
-                "transition-all"
-              )}
-            />
-            <button
-              type="submit"
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 hover:bg-white/[0.10] transition-all"
-            >
-              <ArrowRight className="w-4 h-4" />
-            </button>
+          <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-6 group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/10 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
+            <div className="relative flex items-center gap-2 p-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all backdrop-blur-sm">
+              <InlineModelPicker
+                value={searchMode}
+                onChange={setSearchMode}
+              />
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Analyze SS26 trends, find suppliers, compare markets..."
+                className="flex-1 bg-transparent text-white text-base placeholder:text-white/25 focus:outline-none h-10 px-1"
+              />
+              <button
+                type="submit"
+                className={cn(
+                  "w-10 h-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                  prompt.trim()
+                    ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                    : "bg-white/[0.06] text-white/30"
+                )}
+              >
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </form>
 
           <p className="text-white/20 text-xs text-center mb-4">McLeukerAI can be wrong. Please verify important details.</p>
 
-          <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2.5">
             {suggestionPrompts.map((s, i) => {
               const SIcon = s.icon;
               return (
                 <button
                   key={i}
                   onClick={() => handlePromptClick(s.prompt)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06] text-white/40 text-sm hover:bg-white/[0.06] hover:text-white/60 hover:border-white/[0.10] transition-all"
+                  className="group/pill inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.03] border border-white/[0.06] text-white/40 text-sm hover:bg-white/[0.06] hover:text-white/60 hover:border-white/[0.12] transition-all duration-300"
                 >
-                  <SIcon className="w-3.5 h-3.5" />
+                  <SIcon className="w-3.5 h-3.5 group-hover/pill:text-[#7a9a5a] transition-colors" />
                   {s.title}
                 </button>
               );

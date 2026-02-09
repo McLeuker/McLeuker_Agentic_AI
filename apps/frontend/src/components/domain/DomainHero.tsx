@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowUp, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { InlineModelPicker, type SearchMode } from "@/components/chat/InlineModelPicker";
 
 interface SectorConfig {
   id: Sector;
@@ -96,6 +97,7 @@ export function DomainHero({
 }: DomainHeroProps) {
   const theme = domainThemes[sector] || defaultTheme;
   const [query, setQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>("deep");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {
@@ -167,10 +169,14 @@ export function DomainHero({
           {theme.subtitle}
         </p>
 
-        {/* Search Bar — clean, minimal */}
+        {/* Search Bar — with inline model picker */}
         {onSubmit && (
           <div className="max-w-2xl mx-auto">
-            <div className="relative flex items-end gap-3 mb-8">
+            <div className="flex items-end gap-2 p-2.5 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.15] transition-all mb-8">
+              <InlineModelPicker
+                value={searchMode}
+                onChange={setSearchMode}
+              />
               <Textarea
                 ref={textareaRef}
                 value={query}
@@ -178,12 +184,11 @@ export function DomainHero({
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder}
                 className={cn(
-                  "min-h-[56px] max-h-[120px] resize-none pr-14",
-                  "bg-white/[0.04] backdrop-blur-sm",
-                  "border border-white/[0.08]",
+                  "min-h-[44px] max-h-[120px] resize-none border-0 p-0 px-1",
+                  "bg-transparent",
                   "text-white/[0.88] placeholder:text-white/30",
-                  "focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-white/[0.15]",
-                  "text-[15px] rounded-[20px]"
+                  "focus-visible:ring-0 focus-visible:ring-offset-0",
+                  "text-[15px]"
                 )}
                 rows={1}
               />
@@ -192,9 +197,11 @@ export function DomainHero({
                 disabled={!query.trim()}
                 size="icon"
                 className={cn(
-                  "absolute right-3 bottom-3 h-10 w-10 rounded-lg",
-                  "bg-white/90 text-black hover:bg-white",
-                  "disabled:opacity-30 disabled:bg-white/50"
+                  "h-10 w-10 rounded-xl flex-shrink-0",
+                  query.trim()
+                    ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                    : "bg-white/[0.06] text-white/30",
+                  "disabled:opacity-30"
                 )}
               >
                 <ArrowUp className="h-4 w-4" />
