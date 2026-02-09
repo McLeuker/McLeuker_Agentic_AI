@@ -1644,10 +1644,12 @@ function DashboardContent() {
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
+  const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentConversationIdRef = useRef<string | null>(null);
+  const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Track current conversation ID for abort handling
   useEffect(() => {
@@ -1658,6 +1660,67 @@ function DashboardContent() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  // ===== BACKGROUND TASK PERSISTENCE =====
+  // On mount, check if there's an active background task from a previous session
+  useEffect(() => {
+    try {
+      const activeTaskId = localStorage.getItem('mcleuker_active_bg_task');
+      if (activeTaskId) {
+        setBackgroundTaskId(activeTaskId);
+        // Start polling for this task
+        const pollBgTask = async () => {
+          try {
+            const res = await fetch(`${API_URL}/api/v1/search/background/${activeTaskId}`);
+            if (!res.ok) {
+              localStorage.removeItem('mcleuker_active_bg_task');
+              setBackgroundTaskId(null);
+              return;
+            }
+            const data = await res.json();
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+              localStorage.removeItem('mcleuker_active_bg_task');
+              setBackgroundTaskId(null);
+              if (bgPollRef.current) {
+                clearInterval(bgPollRef.current);
+                bgPollRef.current = null;
+              }
+              // If completed, show the results as a message
+              if (data.status === 'completed' && data.content) {
+                const bgMessage: Message = {
+                  id: `bg-${activeTaskId}`,
+                  role: 'assistant',
+                  content: data.content,
+                  reasoning_layers: [],
+                  sources: (data.sources || []).filter((s: Source) => s.url?.startsWith('http')),
+                  follow_up_questions: data.follow_ups || [],
+                  timestamp: new Date(data.updated_at || Date.now()),
+                  isStreaming: false,
+                  downloads: data.downloads || undefined,
+                };
+                setMessages(prev => {
+                  // Don't add if already present
+                  if (prev.some(m => m.id === bgMessage.id)) return prev;
+                  return [...prev, bgMessage];
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Background task poll error:', e);
+          }
+        };
+        // Poll immediately then every 3 seconds
+        pollBgTask();
+        bgPollRef.current = setInterval(pollBgTask, 3000);
+      }
+    } catch (e) {}
+    return () => {
+      if (bgPollRef.current) {
+        clearInterval(bgPollRef.current);
+        bgPollRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-restore last conversation on page load (skip if auto-execute pending or reset requested)
   useEffect(() => {
@@ -2292,6 +2355,33 @@ function DashboardContent() {
     }
   };
 
+  // ===== STOP SEARCH =====
+  const handleStopSearch = useCallback(() => {
+    // Abort the streaming connection
+    if (globalAbortController) {
+      globalAbortController.abort();
+      globalAbortController = null;
+    }
+    setIsStreaming(false);
+    
+    // Cancel any background tasks
+    try {
+      const activeTaskId = localStorage.getItem('mcleuker_active_bg_task');
+      if (activeTaskId) {
+        fetch(`${API_URL}/api/v1/search/background/${activeTaskId}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => {});
+        localStorage.removeItem('mcleuker_active_bg_task');
+      }
+    } catch (e) {}
+    
+    // Mark the last assistant message as done
+    setMessages(prev => prev.map(m =>
+      m.isStreaming ? { ...m, isStreaming: false, content: m.content || 'Search stopped by user.' } : m
+    ));
+  }, []);
+
   const handleNewChat = () => {
     // Abort any ongoing stream
     if (globalAbortController) {
@@ -2512,22 +2602,28 @@ function DashboardContent() {
                         onChange={setSearchMode}
                         disabled={isStreaming}
                       />
-                      <button
-                        onClick={() => handleSendMessage()}
-                        disabled={!input.trim() || isStreaming}
-                        className={cn(
-                          "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                          input.trim() && !isStreaming
-                            ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                            : "bg-white/[0.05] text-white/30"
-                        )}
-                      >
-                        {isStreaming ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
+                      {isStreaming ? (
+                        <button
+                          onClick={handleStopSearch}
+                          className="h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                          title="Stop search"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleSendMessage()}
+                          disabled={!input.trim()}
+                          className={cn(
+                            "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                            input.trim()
+                              ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                              : "bg-white/[0.05] text-white/30"
+                          )}
+                        >
                           <Send className="h-4 w-4" />
-                        )}
-                      </button>
+                        </button>
+                      )}
                     </div>
                   </div>
                   <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
@@ -2821,23 +2917,29 @@ function DashboardContent() {
                   />
                 </div>
                 
-                {/* Send Button */}
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={!input.trim() || isStreaming}
-                  className={cn(
-                    "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                    input.trim() && !isStreaming
-                      ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                      : "bg-white/[0.05] text-white/30"
-                  )}
-                >
-                  {isStreaming ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
+                {/* Send / Stop Button */}
+                {isStreaming ? (
+                  <button
+                    onClick={handleStopSearch}
+                    className="h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                    title="Stop search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={!input.trim()}
+                    className={cn(
+                      "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                      input.trim()
+                        ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                        : "bg-white/[0.05] text-white/30"
+                    )}
+                  >
                     <Send className="h-4 w-4" />
-                  )}
-                </button>
+                  </button>
+                )
               </div>
               
               {/* Helper Text */}

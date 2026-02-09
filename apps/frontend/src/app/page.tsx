@@ -230,18 +230,9 @@ export default function LandingPage() {
         <div className="absolute inset-0 opacity-[0.015] pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
 
         <div className="relative z-10 w-full max-w-3xl mx-auto px-6 text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] mb-6">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#5a7a3a] animate-pulse" />
-            <span className="text-[11px] text-white/40 tracking-wide">Fashion Intelligence Platform</span>
-          </div>
-
-          <h1 className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-4">
-            What do you want to research?
+          <h1 className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-8">
+            Where is my mind?
           </h1>
-          <p className="text-white/40 text-base md:text-lg mb-8 max-w-lg mx-auto leading-relaxed">
-            From one prompt to structured reports, benchmarks, and clear next steps.
-          </p>
 
           <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-5 group">
             <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/12 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
@@ -271,9 +262,7 @@ export default function LandingPage() {
             </div>
           </form>
 
-          <p className="text-white/20 text-[11px] text-center mb-4">McLeukerAI can be wrong. Please verify important details.</p>
-
-          <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
             {suggestionPrompts.map((s, i) => {
               const SIcon = s.icon;
               return (
@@ -296,7 +285,57 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 2 — The Future of Fashion Intelligence (MONOCHROMATIC) */}
+      {/* SECTION 2 — Domain Carousel (B&W images, monochromatic) */}
+      {/* ═══════════════════════════════════════════════════════ */}
+      <section className="py-12 lg:py-16 bg-[#0A0A0A]">
+        <div className="container mx-auto px-6 lg:px-12">
+          <div className="max-w-[1200px] mx-auto">
+            <div className="flex items-end justify-between mb-8">
+              <div>
+                <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Specialized Intelligence</p>
+                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
+                  10 Domains. One Platform.
+                </h2>
+              </div>
+              <div className="hidden sm:flex items-center gap-2">
+                <button onClick={() => domainScroll.scroll("left")} disabled={!domainScroll.canScrollLeft} className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 hover:border-white/15 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button onClick={() => domainScroll.scroll("right")} disabled={!domainScroll.canScrollRight} className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 hover:border-white/15 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div ref={domainScroll.ref} className="flex gap-4 overflow-x-auto scrollbar-hide px-6 lg:px-12 pb-4 snap-x snap-mandatory" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <div className="flex-shrink-0 w-[calc((100vw-1200px)/2-24px)] hidden xl:block" />
+          {domains.map((domain, i) => (
+            <Link key={i} href={`/domain/${domain.slug}`} className="group flex-shrink-0 w-[260px] sm:w-[300px] snap-start">
+              <div className="relative h-[360px] sm:h-[400px] rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] group-hover:border-white/[0.08] transition-all duration-300">
+                <div className="absolute inset-0">
+                  <Image src={domain.image} alt={domain.name} fill className="object-cover grayscale brightness-[0.4] group-hover:brightness-[0.5] group-hover:scale-105 transition-all duration-700" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+                </div>
+                <div className="absolute inset-0 flex flex-col justify-end p-6">
+                  <p className="text-[10px] text-white/25 uppercase tracking-[0.15em] mb-2">Domain</p>
+                  <h3 className="text-xl font-medium text-white/[0.92] mb-2">{domain.name}</h3>
+                  <p className="text-sm text-white/40 leading-relaxed mb-4">{domain.description}</p>
+                  <div className="flex items-center gap-2 text-white/30 text-sm opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300">
+                    <span>Explore</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ))}
+          <div className="flex-shrink-0 w-6 lg:w-12 xl:w-[calc((100vw-1200px)/2-24px)]" />
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════ */}
+      {/* SECTION 3 — The Future of Fashion Intelligence (MONOCHROMATIC) */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="relative py-28 lg:py-36 overflow-hidden" style={{ background: 'linear-gradient(180deg, #070707 0%, #0a0a0a 30%, #0d0d0d 50%, #0a0a0a 70%, #070707 100%)' }}>
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -310,10 +349,6 @@ export default function LandingPage() {
             <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center mb-20">
               {/* Left: Heading */}
               <div>
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-white/[0.04] border border-white/[0.08] mb-6">
-                  <div className="w-1.5 h-1.5 rounded-full bg-white/40 animate-pulse" />
-                  <span className="text-[11px] text-white/50 font-medium tracking-wider uppercase">Fashion Intelligence Platform</span>
-                </div>
                 <h2 className="font-editorial text-4xl md:text-5xl lg:text-[52px] text-white/[0.95] tracking-tight leading-[1.08] mb-5">
                   The Future of<br />Fashion Intelligence
                 </h2>
@@ -423,7 +458,7 @@ export default function LandingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 3 — Intelligence, not just answers (MONOCHROMATIC) */}
+      {/* SECTION 4 — Intelligence, not just answers (MONOCHROMATIC) */}
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="relative py-24 lg:py-32 bg-[#070707] overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
@@ -534,55 +569,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ═══════════════════════════════════════════════════════ */}
-      {/* SECTION 4 — Domain Carousel (B&W images, monochromatic) */}
-      {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-12 lg:py-16 bg-[#0A0A0A]">
-        <div className="container mx-auto px-6 lg:px-12">
-          <div className="max-w-[1200px] mx-auto">
-            <div className="flex items-end justify-between mb-8">
-              <div>
-                <p className="text-xs text-white/30 uppercase tracking-[0.2em] mb-3">Specialized Intelligence</p>
-                <h2 className="font-editorial text-4xl md:text-5xl text-white/[0.92]">
-                  10 Domains. One Platform.
-                </h2>
-              </div>
-              <div className="hidden sm:flex items-center gap-2">
-                <button onClick={() => domainScroll.scroll("left")} disabled={!domainScroll.canScrollLeft} className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 hover:border-white/15 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
-                <button onClick={() => domainScroll.scroll("right")} disabled={!domainScroll.canScrollRight} className="w-10 h-10 rounded-full bg-[#0C0C0C] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white/70 hover:border-white/15 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
-                  <ChevronRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div ref={domainScroll.ref} className="flex gap-4 overflow-x-auto scrollbar-hide px-6 lg:px-12 pb-4 snap-x snap-mandatory" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          <div className="flex-shrink-0 w-[calc((100vw-1200px)/2-24px)] hidden xl:block" />
-          {domains.map((domain, i) => (
-            <Link key={i} href={`/domain/${domain.slug}`} className="group flex-shrink-0 w-[260px] sm:w-[300px] snap-start">
-              <div className="relative h-[360px] sm:h-[400px] rounded-2xl overflow-hidden bg-[#0C0C0C] border border-white/[0.04] group-hover:border-white/[0.08] transition-all duration-300">
-                <div className="absolute inset-0">
-                  <Image src={domain.image} alt={domain.name} fill className="object-cover grayscale brightness-[0.4] group-hover:brightness-[0.5] group-hover:scale-105 transition-all duration-700" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
-                </div>
-                <div className="absolute inset-0 flex flex-col justify-end p-6">
-                  <p className="text-[10px] text-white/25 uppercase tracking-[0.15em] mb-2">Domain</p>
-                  <h3 className="text-xl font-medium text-white/[0.92] mb-2">{domain.name}</h3>
-                  <p className="text-sm text-white/40 leading-relaxed mb-4">{domain.description}</p>
-                  <div className="flex items-center gap-2 text-white/30 text-sm opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-300">
-                    <span>Explore</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </div>
-                </div>
-              </div>
-            </Link>
-          ))}
-          <div className="flex-shrink-0 w-6 lg:w-12 xl:w-[calc((100vw-1200px)/2-24px)]" />
-        </div>
-      </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
       {/* SECTION 5 — How It Works (monochromatic) */}

@@ -3869,6 +3869,10 @@ class BackgroundSearchManager:
             query = task["query"]
             user_id = task["user_id"]
             
+            # Check if cancelled before starting
+            if cls._tasks.get(task_id, {}).get("status") == "cancelled":
+                return
+            
             # Step 1: Search
             await cls._update_progress(task_id, 10, "Searching across multiple sources...")
             search_results = await SearchLayer.search(query, sources=["web", "news", "social"], num_results=15)
@@ -3876,6 +3880,10 @@ class BackgroundSearchManager:
             
             sources = clean_sources_for_output(structured_data.get("sources", []))
             await cls._update_progress(task_id, 30, f"Found {len(sources)} sources. Generating response...", sources=sources)
+            
+            # Check if cancelled
+            if cls._tasks.get(task_id, {}).get("status") == "cancelled":
+                return
             
             # Step 2: Generate LLM response
             search_context = ""
@@ -3919,6 +3927,10 @@ Structure with headers (##), bullet points, and tables.
                 await TokenTracker.track(user_id, model, response.usage.prompt_tokens, response.usage.completion_tokens, "background_search")
             
             await cls._update_progress(task_id, 60, "Response generated. Processing files...", content=full_response)
+            
+            # Check if cancelled
+            if cls._tasks.get(task_id, {}).get("status") == "cancelled":
+                return
             
             # Step 3: Generate files if requested
             downloads = []
@@ -4019,6 +4031,39 @@ Structure with headers (##), bullet points, and tables.
             except Exception as e:
                 logger.error(f"Background task DB update error: {e}")
     
+    @classmethod
+    async def cancel_search(cls, task_id: str) -> bool:
+        """Cancel a running background search task."""
+        if task_id in cls._tasks:
+            task = cls._tasks[task_id]
+            if task["status"] == "running":
+                task["status"] = "cancelled"
+                task["progress_message"] = "Cancelled by user"
+                task["updated_at"] = datetime.now().isoformat()
+                # Persist to DB
+                if supabase:
+                    try:
+                        supabase.table("background_tasks").update({
+                            "status": "cancelled",
+                            "progress_message": "Cancelled by user",
+                            "updated_at": datetime.now().isoformat()
+                        }).eq("task_id", task_id).execute()
+                    except Exception as e:
+                        logger.error(f"Background task cancel DB error: {e}")
+                return True
+        # Also try DB for tasks from previous sessions
+        if supabase:
+            try:
+                supabase.table("background_tasks").update({
+                    "status": "cancelled",
+                    "progress_message": "Cancelled by user",
+                    "updated_at": datetime.now().isoformat()
+                }).eq("task_id", task_id).eq("status", "running").execute()
+                return True
+            except Exception as e:
+                logger.error(f"Background task cancel DB error: {e}")
+        return False
+
     @classmethod
     async def get_task_status(cls, task_id: str) -> Optional[Dict]:
         """Get task status - checks memory first, then DB."""
@@ -4153,6 +4198,22 @@ async def list_background_searches(
     uid = user_id or (user.get("user_id") if user else "anonymous")
     tasks = await BackgroundSearchManager.get_user_tasks(uid)
     return {"success": True, "tasks": tasks}
+
+
+@app.post("/api/v1/search/background/{task_id}/cancel")
+async def cancel_background_search(
+    task_id: str,
+    user: Dict = Depends(AuthManager.get_current_user)
+):
+    """Cancel a running background search task.
+    
+    Sets the task status to 'cancelled' so the background worker
+    will stop at the next checkpoint. Returns immediately.
+    """
+    success = await BackgroundSearchManager.cancel_search(task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found or already completed")
+    return {"success": True, "task_id": task_id, "status": "cancelled"}
 
 
 # ============================================================================
