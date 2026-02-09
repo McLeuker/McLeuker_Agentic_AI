@@ -9,6 +9,7 @@ import { DomainModules } from "@/components/domain/DomainModules";
 import { WeeklyInsights } from "@/components/domain/WeeklyInsights";
 import { WorkspaceNavigation } from "@/components/workspace/WorkspaceNavigation";
 import { Footer } from "@/components/layout/Footer";
+import { MoodBoard } from "@/components/domain/MoodBoard";
 
 // Map URL slugs to sector IDs
 const slugToSector: Record<string, Sector> = {
@@ -100,6 +101,9 @@ export default function DomainLandingPage() {
           sector={currentSector}
           onInsightClick={handlePromptClick}
         />
+
+        {/* Curated Mood Board - AI-generated visual references */}
+        <MoodBoard sector={currentSector} />
 
         {/* Research Modules - Deep dive research tracks */}
         <DomainModules
