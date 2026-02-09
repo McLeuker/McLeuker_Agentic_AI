@@ -1160,7 +1160,16 @@ Rules:
 - Each row must have the same number of columns as headers
 - DO NOT use generic headers like "Item", "Value", "Date"
 - Main tab: 20-30 rows. Other tabs: 8-15 rows each
-- Return ONLY the JSON object, no markdown, no explanation"""
+- Return ONLY the JSON object, no markdown, no explanation
+
+DATA INTEGRITY RULES (CRITICAL):
+- NEVER mix data types in the same column. If a column is "Headquarters", ALL values must be city/country names. If a column is "Founded Year", ALL values must be years.
+- NEVER put a year in a city column or a city in a year column.
+- NEVER leave cells empty or null. If data is unknown, use "N/A" for text or 0 for numbers.
+- Double-check each row: verify that each cell value matches the column header type.
+- For each column, define the data type (text, number, year, percentage, currency) and ensure ALL rows follow it.
+- Validate: "Headquarters" = city name, "Founded" = year (4-digit number), "Revenue" = number, "CEO" = person name, etc.
+- If you are unsure about a data point, use your best estimate with (est.) rather than leaving it blank or putting wrong data type."""
             
             def _parse_excel_json(raw_json: str, source_name: str) -> dict:
                 for strategy in [
@@ -1394,7 +1403,47 @@ Rules:
                     s_headers = sheet_info.get("headers", [])
                     s_rows = sheet_info.get("rows", [])
                     if s_headers and s_rows:
-                        _, count = _create_styled_sheet(wb, s_title, s_headers, s_rows, prompt)
+                        # POST-GENERATION DATA VALIDATION
+                        # Ensure each row has the same number of columns as headers
+                        num_headers = len(s_headers)
+                        validated_rows = []
+                        for row in s_rows:
+                            if len(row) < num_headers:
+                                row = list(row) + ["N/A"] * (num_headers - len(row))
+                            elif len(row) > num_headers:
+                                row = row[:num_headers]
+                            validated_rows.append(row)
+                        
+                        # Detect and fix mixed data types per column
+                        for col_idx in range(num_headers):
+                            header_lower = str(s_headers[col_idx]).lower()
+                            # Detect column expected type from header
+                            is_year_col = any(k in header_lower for k in ['founded', 'year', 'established', 'inception'])
+                            is_city_col = any(k in header_lower for k in ['headquarters', 'hq', 'city', 'location', 'country', 'based in'])
+                            is_name_col = any(k in header_lower for k in ['name', 'brand', 'company', 'ceo', 'founder', 'designer'])
+                            is_number_col = any(k in header_lower for k in ['revenue', 'sales', 'price', 'market', 'growth', 'employees', 'stores', 'count', 'number', 'rank', 'score', 'rating'])
+                            
+                            for row_idx, row in enumerate(validated_rows):
+                                val = row[col_idx]
+                                val_str = str(val).strip() if val is not None else ""
+                                
+                                # Fix: year value in a city column
+                                if is_city_col and val_str.isdigit() and 1800 <= int(val_str) <= 2100:
+                                    validated_rows[row_idx][col_idx] = "N/A"
+                                
+                                # Fix: city name in a year column
+                                if is_year_col and val_str and not val_str.replace('.', '').replace('-', '').isdigit():
+                                    if not val_str.lower().startswith('n/a'):
+                                        validated_rows[row_idx][col_idx] = "N/A"
+                                
+                                # Fix: empty/None values
+                                if val is None or val_str == "" or val_str.lower() == "none":
+                                    if is_number_col or is_year_col:
+                                        validated_rows[row_idx][col_idx] = "N/A"
+                                    else:
+                                        validated_rows[row_idx][col_idx] = "N/A"
+                        
+                        _, count = _create_styled_sheet(wb, s_title, s_headers, validated_rows, prompt)
                         row_count += count
                 
                 # Add Sources tab with REAL source names
@@ -1680,23 +1729,30 @@ Rules:
             current_date = get_current_date_str()
             
             # Use LLM to generate structured slide content
-            pptx_prompt = f"""Create a professional presentation outline. Today is {current_date}. Return ONLY valid JSON.
+            pptx_prompt = f"""Create a COMPREHENSIVE, DATA-RICH professional presentation. Today is {current_date}. Return ONLY valid JSON.
 
 Format: {{"slides": [{{"title": "...", "subtitle": "...", "type": "title|content|two_column|data_table|key_metrics|conclusion", "bullets": ["..."], "table": {{"headers": [...], "rows": [[...]]}}, "metrics": [{{"label": "...", "value": "...", "change": "..."}}]}}]}}
 
 Rules:
-- Create 8-12 slides covering the topic comprehensively
-- Slide 1: Title slide with topic and subtitle
-- Slides 2-3: Overview/context with key data points
-- Slides 4-6: Detailed analysis with tables and metrics
-- Slides 7-9: Trends, comparisons, insights
-- Slide 10-11: Key takeaways and recommendations
-- Slide 12: Sources and methodology
-- Each bullet point should be concise (max 15 words)
-- Include specific numbers, percentages, and data from {current_year}
-- Use "data_table" type for slides with tabular data
-- Use "key_metrics" type for slides with 3-4 key statistics
-- Maximum 5 bullets per slide
+- Create 12-15 slides covering the topic in DEPTH (not shallow overviews)
+- Slide 1: Title slide with topic and professional subtitle
+- Slides 2-3: Executive summary with key findings and specific numbers
+- Slides 4-7: Deep analysis sections with tables, metrics, and detailed data
+- Slides 8-10: Trends, market comparisons, competitive landscape with data tables
+- Slides 11-12: Strategic insights, implications, and actionable recommendations
+- Slides 13-14: Detailed data tables with 5-8 rows of real data each
+- Slide 15: Sources and methodology
+
+QUALITY REQUIREMENTS (CRITICAL):
+- Each bullet point should contain SPECIFIC data: numbers, percentages, dollar amounts, dates
+- Do NOT use vague statements like "significant growth" - use "23.5% YoY growth to $4.2B"
+- Use "data_table" type for at least 3 slides with real tabular data (5-8 rows each)
+- Use "key_metrics" type for at least 2 slides with 3-4 key statistics each
+- Each bullet should be informative (20-40 words), not just a label
+- Include comparative data: vs. competitors, vs. previous year, vs. industry average
+- Tables must have 4-6 columns with specific headers and real data in each cell
+- The presentation should be as information-dense as an Excel report
+- Maximum 6 bullets per slide, but each bullet must be substantive
 - Return ONLY the JSON, no markdown"""
             
             slides_data = None
@@ -2253,7 +2309,9 @@ class ChatHandler:
         current_year = get_current_year()
         
         # Build conversation summary from previous messages for context
+        # CRITICAL: Include enough context so the LLM understands what "that topic" refers to
         conversation_summary = ""
+        conversation_topic = ""  # Track the main topic for file generation
         prev_messages = request.messages[:-1] if len(request.messages) > 1 else []
         if prev_messages:
             recent_exchanges = []
@@ -2261,9 +2319,15 @@ class ChatHandler:
                 content = msg.content if isinstance(msg.content, str) else str(msg.content)
                 if content and len(content) > 5:
                     role_label = "User" if msg.role == "user" else "Assistant"
-                    recent_exchanges.append(f"{role_label}: {content[:500]}")
+                    # Include more content from assistant messages for better context
+                    max_len = 1500 if msg.role == "assistant" else 500
+                    recent_exchanges.append(f"{role_label}: {content[:max_len]}")
+                    # Extract the conversation topic from user messages
+                    if msg.role == "user" and len(content) > 15:
+                        conversation_topic = content[:300]
             if recent_exchanges:
-                conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context and follow-ups):\n" + "\n".join(recent_exchanges)
+                conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context, follow-ups, and what 'that topic', 'this', 'it' refers to):\n" + "\n".join(recent_exchanges)
+                conversation_summary += f"\n\nIDENTIFIED CONVERSATION TOPIC: {conversation_topic}"
         
         system_msg = f"""You are McLeuker AI, a professional research and analysis assistant. Today is {current_date}. The current year is {current_year}.
 
@@ -2274,12 +2338,13 @@ CRITICAL RULES:
 4. Provide actionable insights and analysis, not just facts.
 5. If search data is available, integrate it naturally into your response.
 6. Use markdown formatting for readability.
-7. End with a brief insight or recommendation section.
-8. ALWAYS complete your full response. NEVER stop mid-sentence or mid-paragraph. If your response is long, finish it properly with a conclusion.
-9. You HAVE the ability to generate files: Excel (.xlsx), Word (.docx), PDF (.pdf), PowerPoint (.pptx), and CSV. When a user asks you to "generate", "create", or "make" a file, DO IT. Do NOT say you cannot generate files.
-10. When the user asks you to repeat, rewrite, continue, or finish something, refer to the CONVERSATION HISTORY below to understand what they are referring to. Do NOT search the web for follow-up requests.
-11. STAY ON TOPIC. If the user asked about fashion, and then says "can you rewrite that" or "generate a PDF about this", the topic is STILL fashion. Do not switch topics.
-12. If you are unsure about current {current_year} data, clearly state that and provide the most recent data you have with the year noted.
+7. ALWAYS complete your full response. NEVER stop mid-sentence or mid-paragraph.
+8. You HAVE the ability to generate files: Excel (.xlsx), Word (.docx), PDF (.pdf), PowerPoint (.pptx), and CSV. When a user asks you to "generate", "create", or "make" a file, DO IT. Do NOT say you cannot generate files.
+9. CONVERSATION MEMORY - CRITICAL: When the user says "that topic", "this", "it", "the same", "about that", they are ALWAYS referring to the topic from the CONVERSATION HISTORY below. NEVER switch to a different topic. ALWAYS check the conversation history first to understand what the user is referring to.
+10. STAY ON TOPIC. If the previous conversation was about Italian fashion, and the user says "generate a ppt about that topic", the topic is STILL Italian fashion. NEVER switch to a generic or different topic.
+11. If you are unsure about current {current_year} data, clearly state that and provide the most recent data you have with the year noted.
+12. DO NOT force a fixed structure on every response. Adapt your response structure to what makes sense for the query. NOT every response needs "Research Summary", "Key Insights", "Methodology", "Deliverables", "Recommendations". Use reasoning first, then provide the most natural and helpful structure.
+13. When the user uploads a file and asks about it, just answer the question directly. Do NOT generate unnecessary files (Excel, Word, PPTX) unless the user explicitly asks for them.
 {conversation_summary}
 {f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}"""
         
@@ -2310,12 +2375,21 @@ CRITICAL RULES:
         if file_types_needed:
             yield event("status", {"message": f"Generating {', '.join(file_types_needed)} file(s)..."})
             
+            # CRITICAL: Resolve the actual topic for file generation
+            # If user said "about that topic", use the conversation_topic instead
+            file_topic = user_message
+            topic_reference_patterns = [r'about that', r'about this', r'that topic', r'this topic', r'same topic', r'about it', r'the same']
+            is_topic_reference = any(re.search(p, user_message.lower()) for p in topic_reference_patterns)
+            if is_topic_reference and conversation_topic:
+                file_topic = conversation_topic
+                logger.info(f"Resolved topic reference: '{user_message}' -> '{file_topic}'")
+            
             for file_type in file_types_needed:
                 try:
                     # Generate content for documents using LLM
                     content_for_file = full_response
                     if file_type != "excel" and len(full_response) < 500:
-                        content_for_file = await ChatHandler._generate_content(user_message, structured_data)
+                        content_for_file = await ChatHandler._generate_content(file_topic, structured_data)
                     
                     full_data_for_excel = {
                         **structured_data,
@@ -2323,13 +2397,13 @@ CRITICAL RULES:
                     }
                     
                     if file_type == "excel":
-                        result = await FileEngine.generate_excel(user_message, full_data_for_excel, request.user_id)
+                        result = await FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id)
                     elif file_type == "word":
-                        result = await FileEngine.generate_word(user_message, content_for_file, request.user_id)
+                        result = await FileEngine.generate_word(file_topic, content_for_file, request.user_id)
                     elif file_type == "pdf":
-                        result = await FileEngine.generate_pdf(user_message, content_for_file, request.user_id)
+                        result = await FileEngine.generate_pdf(file_topic, content_for_file, request.user_id)
                     elif file_type == "pptx":
-                        result = await FileEngine.generate_pptx(user_message, content_for_file, request.user_id)
+                        result = await FileEngine.generate_pptx(file_topic, content_for_file, request.user_id)
                     else:
                         continue
                     
@@ -2400,6 +2474,11 @@ CRITICAL RULES:
             r'(i asked you|i was asking|my question was|i meant|i said)',
             r'(more detail|more info|tell me more|go deeper|elaborate)',
             r'^(and|but|so|also|what about|how about)',
+            # Catch references to previous topic: "about that", "about this", "about that topic", "same topic"
+            r'(about that|about this|that topic|this topic|same topic|the same|about it)\b',
+            # Catch file generation referencing previous content
+            r'(generate|create|make|build).*(about|for|from|of).*(that|this|it|the same|same)',
+            r'(generate|create|make|build) (me |)(a |an |the |)(ppt|pptx|pdf|word|excel|doc|presentation|report|spreadsheet|document|file)',
         ]
         for pattern in followup_patterns:
             if re.search(pattern, query_lower):
@@ -2410,7 +2489,13 @@ CRITICAL RULES:
             return False
         
         # File generation requests that reference previous content - NO SEARCH
-        if re.search(r'(generate|create|make|build|export).*(pdf|word|excel|pptx|document|file|report).*(about this|about that|from this|from that|of this|of that)', query_lower):
+        if re.search(r'(generate|create|make|build|export).*(pdf|word|excel|pptx|ppt|document|file|report|presentation|spreadsheet).*(about|from|of|for)?.*(this|that|it|the same|same)?', query_lower):
+            # If it's a file generation request with a short query, it's likely referencing previous context
+            if len(query_lower) < 80:
+                return False
+        
+        # Short queries with pronouns referencing previous context - NO SEARCH
+        if len(query_lower) < 60 and re.search(r'\b(that|this|it|the same)\b', query_lower):
             return False
         
         # Everything else: SEARCH
@@ -2421,6 +2506,17 @@ CRITICAL RULES:
         """Detect which file types the user needs based on their query."""
         query_lower = query.lower()
         file_types = []
+        
+        # SKIP file generation for informational/question queries
+        # If the user is asking ABOUT a file, not asking to CREATE a file
+        info_patterns = [
+            r'^(what|tell me|describe|explain|summarize|analyse|analyze|read|open|show|look at|check)',
+            r'(what.?s this|what is this|about this doc|about this file|what does this)',
+            r'(can you read|can you open|can you check|can you look|can you analyze)',
+        ]
+        for pattern in info_patterns:
+            if re.search(pattern, query_lower):
+                return []  # No files needed for informational queries
         
         # Explicit file type requests
         if any(w in query_lower for w in ['excel', 'spreadsheet', 'xlsx', '.xlsx']):
@@ -2484,9 +2580,16 @@ Answer ONLY "PASS" or "FAIL" followed by a brief reason."""
     
     @staticmethod
     async def _generate_conclusion(query: str, response: str, file_types: List[str], structured_data: Dict) -> str:
-        """Generate Manus-style structured conclusion with reasoning and insights."""
+        """Generate a dynamic, context-aware conclusion. NOT a forced template."""
         client = grok_client or kimi_client
         if not client:
+            return ""
+        
+        # Skip conclusion for simple queries, greetings, or short responses
+        query_lower = query.lower().strip()
+        if len(response) < 200:
+            return ""
+        if any(query_lower.startswith(w) for w in ['hi', 'hello', 'hey', 'thanks', 'ok', 'what is this', 'tell me what']):
             return ""
         
         try:
@@ -2497,7 +2600,7 @@ Answer ONLY "PASS" or "FAIL" followed by a brief reason."""
             num_sources = len(structured_data.get("sources", []))
             num_data_points = len(structured_data.get("data_points", []))
             
-            conclusion_prompt = f"""You are a senior research analyst. Today is {current_date}. Generate a structured conclusion for this research task.
+            conclusion_prompt = f"""You are a senior research analyst. Today is {current_date}. Generate a brief, insightful conclusion for this research task.
 
 User asked: {query[:300]}
 
@@ -2507,30 +2610,23 @@ Files generated: {', '.join(file_types) if file_types else 'None'}
 Sources consulted: {num_sources}
 Data points collected: {num_data_points}
 
-Create a conclusion with these sections (use markdown):
-
-## Research Summary
-Brief 2-3 sentence summary of what was researched and found.
-
-## Key Insights
-3-4 bullet points with the most important findings. Be specific with data.
-
-## Methodology
-How the research was conducted (sources searched, data analyzed).
-
-## Deliverables
-What files/outputs were generated and what they contain.
-
-## Recommendations
-2-3 actionable next steps based on the findings.
-
-Keep it concise but insightful. Focus on REASONING about what the data means, not just listing facts."""
+IMPORTANT RULES:
+- DO NOT use a fixed template. DO NOT always include "Research Summary", "Key Insights", "Methodology", "Deliverables", "Recommendations".
+- Instead, write a NATURAL conclusion that fits the specific query and response.
+- Start with reasoning: WHY are the findings important? What do they MEAN?
+- Be concise (3-6 sentences max for simple queries, up to 2 short paragraphs for complex research).
+- Only mention methodology if the research was complex (multiple sources, deep analysis).
+- Only mention deliverables if files were actually generated.
+- Only give recommendations if they are genuinely actionable and specific.
+- If the query was simple (e.g., "what is X?"), just provide a brief takeaway, not a full research conclusion.
+- NEVER pad the conclusion with generic filler text.
+- Focus on INSIGHT and REASONING, not structure."""
             
             result = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": conclusion_prompt}],
                 temperature=temp,
-                max_tokens=1500
+                max_tokens=800
             )
             
             return result.choices[0].message.content
@@ -2562,14 +2658,21 @@ Keep it concise but insightful. Focus on REASONING about what the data means, no
         current_year = get_current_year()
         
         messages = [
-            {"role": "system", "content": f"""You are a professional content writer. Today is {current_date}. Create well-structured, comprehensive content with:
-- Clear markdown headers (##) and sections
-- Specific {current_year} data points and facts
-- Professional tone and deep analysis
-- Tables where data comparisons are useful
-- Logical flow from introduction to conclusion
-- At least 1500 words of substantive content"""},
-            {"role": "user", "content": f"Create comprehensive content for: {query}\n\nData points:\n{data_summary}\n\nResearch findings:\n{answer_text[:2000]}\n\nWrite a detailed, well-structured document:"}
+            {"role": "system", "content": f"""You are a senior research analyst and professional content writer. Today is {current_date}. Create COMPREHENSIVE, DATA-RICH content.
+
+QUALITY REQUIREMENTS:
+- Clear markdown headers (##) and well-organized sections
+- Specific {current_year} data points: exact numbers, percentages, dollar amounts, dates
+- Professional tone with DEEP analysis and reasoning, not surface-level summaries
+- Include markdown tables (|col1|col2|) with real comparative data wherever possible
+- At least 2000 words of substantive, information-dense content
+- Every claim should be backed by a specific data point or source
+- Include competitive comparisons, market positioning, and trend analysis
+- Do NOT use vague language like "significant growth" - use "23.5% YoY growth to $4.2B"
+- Structure should feel natural for the topic, NOT a forced template
+- DO NOT end with generic "Research Summary / Key Insights / Methodology / Deliverables / Recommendations" sections
+- Instead, end with specific, actionable insights relevant to the topic"""},
+            {"role": "user", "content": f"Create comprehensive, data-rich content for: {query}\n\nData points:\n{data_summary}\n\nResearch findings:\n{answer_text[:3000]}\n\nWrite a detailed, professional document with specific data throughout:"}
         ]
         
         try:
