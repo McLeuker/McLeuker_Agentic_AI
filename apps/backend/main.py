@@ -145,6 +145,11 @@ JWT_SECRET = os.getenv("JWT_SECRET", os.getenv("SUPABASE_JWT_SECRET", "mcleuker-
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 72
 
+# Stripe Config
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
+
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security_bearer = HTTPBearer(auto_error=False)
@@ -179,6 +184,20 @@ if SUPABASE_URL and SUPABASE_KEY:
         logger.info("Supabase client initialized")
     except Exception as e:
         logger.error(f"Failed to initialize Supabase: {e}")
+
+# Initialize billing services
+try:
+    from credit_service import CreditService
+    from stripe_service import StripeService
+    credit_service = CreditService(supabase) if supabase else None
+    stripe_service = StripeService(STRIPE_SECRET_KEY, supabase) if STRIPE_SECRET_KEY and supabase else None
+    if stripe_service and STRIPE_WEBHOOK_SECRET:
+        stripe_service.set_webhook_secret(STRIPE_WEBHOOK_SECRET)
+    logger.info(f"Billing services initialized: credit={credit_service is not None}, stripe={stripe_service is not None}")
+except Exception as e:
+    logger.warning(f"Billing services not available: {e}")
+    credit_service = None
+    stripe_service = None
 
 # Initialize LLM clients
 kimi_client = openai.OpenAI(
@@ -2391,6 +2410,25 @@ class ChatHandler:
             yield event("error", {"message": "No user message found"})
             return
         
+        # Credit billing - check balance and start task
+        billing_task_id = None
+        user_id = getattr(request, 'user_id', None)
+        if credit_service and user_id:
+            try:
+                has_credits = await credit_service.has_sufficient_credits(user_id, min_required=5)
+                if not has_credits:
+                    yield event("error", {"message": "Insufficient credits. Please purchase more credits or claim your daily free credits."})
+                    return
+                billing_task_id = await credit_service.start_task(
+                    user_id=user_id,
+                    task_type="chat",
+                    module_type="search",
+                    conversation_id=conversation_id,
+                    input_data={"query": user_message[:200]}
+                )
+            except Exception as e:
+                logger.warning(f"Billing check failed (non-blocking): {e}")
+        
         yield event("start", {"conversation_id": conversation_id, "mode": request.mode.value})
         
         # Save user message
@@ -2408,6 +2446,21 @@ class ChatHandler:
             
             search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
+            
+            # Bill for search APIs used
+            if billing_task_id and credit_service:
+                try:
+                    num_apis = len(search_results.get("raw_results", {}))
+                    await credit_service.bill_consumption(
+                        task_id=billing_task_id,
+                        api_service="search",
+                        api_operation="multi_search",
+                        units=max(num_apis, 1),
+                        reasoning_step=1,
+                        reasoning_context="Web search across multiple engines"
+                    )
+                except Exception as e:
+                    logger.warning(f"Search billing failed (non-blocking): {e}")
             
             num_sources = len(structured_data.get("sources", []))
             num_data_points = len(structured_data.get("data_points", []))
@@ -2597,6 +2650,17 @@ CRITICAL RULES:
         # Generate follow-up questions
         follow_ups = ChatHandler._generate_follow_ups(user_message, full_response)
         yield event("follow_up", {"questions": follow_ups})
+        
+        # Complete billing task
+        if billing_task_id and credit_service:
+            try:
+                await credit_service.complete_task(
+                    task_id=billing_task_id,
+                    status="completed",
+                    output_data={"response_length": len(full_response), "files_generated": len(all_downloads)}
+                )
+            except Exception as e:
+                logger.warning(f"Billing completion failed (non-blocking): {e}")
         
         yield event("complete", {
             "content": full_response[:500],
@@ -5254,6 +5318,197 @@ async def domain_modules_endpoint(request: WeeklyInsightsRequest):
 @app.get("/api/v1/domain-modules/{domain}")
 async def domain_modules_get(domain: str, refresh: bool = False):
     return await domain_modules_endpoint(WeeklyInsightsRequest(domain=domain, force_refresh=refresh))
+
+
+# ============================================================================
+# BILLING & SUBSCRIPTION ROUTES
+# ============================================================================
+
+class CreditPurchaseRequest(BaseModel):
+    package_slug: Optional[str] = None
+    custom_credits: Optional[int] = None
+
+class SubscriptionCreateRequest(BaseModel):
+    plan_slug: str
+    billing_interval: str = "month"  # 'month' or 'year'
+    payment_method_id: Optional[str] = None
+
+
+@app.get("/api/v1/billing/credits")
+async def get_credits(user: Dict = Depends(AuthManager.require_auth)):
+    """Get user's credit summary"""
+    if not credit_service:
+        return {"success": True, "data": {"balance": 999999, "plan": "free", "daily_credits_available": True}}
+    summary = await credit_service.get_credit_summary(user["user_id"])
+    return {"success": True, "data": summary or {"balance": 0, "plan": "free"}}
+
+
+@app.post("/api/v1/billing/credits/claim-daily")
+async def claim_daily_credits(user: Dict = Depends(AuthManager.require_auth)):
+    """Claim daily free credits"""
+    if not credit_service:
+        return {"success": True, "credits_granted": 50, "new_balance": 999999}
+    result = await credit_service.claim_daily_credits(user["user_id"])
+    return {"success": result.get("success", False), "credits_granted": result.get("credits_granted", 0), "new_balance": result.get("new_balance", 0), "streak": result.get("streak", 0)}
+
+
+@app.post("/api/v1/billing/credits/claim-monthly-bonus")
+async def claim_monthly_bonus(user: Dict = Depends(AuthManager.require_auth)):
+    """Claim monthly bonus credits (Paid tiers)"""
+    if not credit_service:
+        return {"success": False, "error": "Billing not configured"}
+    result = await credit_service.claim_monthly_bonus(user["user_id"])
+    return {"success": result.get("success", False), "credits_granted": result.get("credits_granted", 0), "new_balance": result.get("new_balance", 0)}
+
+
+@app.get("/api/v1/billing/credits/packages")
+async def get_credit_packages():
+    """Get available credit packages"""
+    if not credit_service:
+        return {"success": True, "packages": []}
+    packages = await credit_service.get_credit_packages()
+    return {"success": True, "packages": packages}
+
+
+@app.post("/api/v1/billing/credits/purchase/quote")
+async def get_credit_purchase_quote(req: CreditPurchaseRequest, user: Dict = Depends(AuthManager.require_auth)):
+    """Get price quote for credit purchase"""
+    if not credit_service:
+        return {"success": False, "error": "Billing not configured"}
+    credits = req.custom_credits or 1000
+    if req.package_slug:
+        packages = await credit_service.get_credit_packages()
+        package = next((p for p in packages if p["slug"] == req.package_slug), None)
+        if package:
+            credits = package["credits"]
+    quote = await credit_service.get_credit_price(user["user_id"], credits)
+    return {"success": True, "credits": credits, "quote": quote}
+
+
+@app.post("/api/v1/billing/credits/purchase")
+async def create_credit_purchase(req: CreditPurchaseRequest, user: Dict = Depends(AuthManager.require_auth)):
+    """Create Stripe PaymentIntent for credit purchase"""
+    if not stripe_service:
+        return {"success": False, "error": "Stripe not configured"}
+    result = await stripe_service.create_credit_purchase_intent(
+        user_id=user["user_id"],
+        email=user.get("email", ""),
+        package_slug=req.package_slug,
+        custom_credits=req.custom_credits
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"success": True, **result}
+
+
+@app.get("/api/v1/billing/usage")
+async def get_usage_history(days: int = 30, user: Dict = Depends(AuthManager.require_auth)):
+    """Get usage history with cost breakdown"""
+    if not credit_service:
+        return {"success": True, "history": []}
+    history = await credit_service.get_usage_history(user["user_id"], days)
+    return {"success": True, "days": days, "total_operations": len(history), "history": history}
+
+
+@app.get("/api/v1/subscriptions/plans")
+async def get_subscription_plans():
+    """Get all available subscription plans"""
+    if not supabase:
+        return {"success": True, "plans": []}
+    try:
+        response = supabase.table("pricing_plans").select("*").eq("is_public", True).eq("is_active", True).order("display_order").execute()
+        return {"success": True, "plans": response.data or []}
+    except Exception as e:
+        return {"success": True, "plans": []}
+
+
+@app.get("/api/v1/subscriptions/current")
+async def get_current_subscription(user: Dict = Depends(AuthManager.require_auth)):
+    """Get user's current subscription"""
+    if not supabase:
+        return {"success": True, "subscription": {"plan": "free", "status": "active"}}
+    try:
+        response = supabase.table("user_subscriptions").select("*, pricing_plans(*)").eq("user_id", user["user_id"]).single().execute()
+        return {"success": True, "subscription": response.data or {"plan": "free", "status": "active"}}
+    except Exception:
+        return {"success": True, "subscription": {"plan": "free", "status": "active"}}
+
+
+@app.post("/api/v1/subscriptions/create")
+async def create_subscription(req: SubscriptionCreateRequest, user: Dict = Depends(AuthManager.require_auth)):
+    """Create a new subscription"""
+    if not stripe_service:
+        return {"success": False, "error": "Stripe not configured"}
+    result = await stripe_service.create_subscription(
+        user_id=user["user_id"],
+        email=user.get("email", ""),
+        plan_slug=req.plan_slug,
+        billing_interval=req.billing_interval,
+        payment_method_id=req.payment_method_id
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"success": True, **result}
+
+
+@app.post("/api/v1/subscriptions/cancel")
+async def cancel_subscription(at_period_end: bool = True, user: Dict = Depends(AuthManager.require_auth)):
+    """Cancel subscription"""
+    if not stripe_service:
+        return {"success": False, "error": "Stripe not configured"}
+    result = await stripe_service.cancel_subscription(user["user_id"], at_period_end)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"success": True, **result}
+
+
+@app.get("/api/v1/subscriptions/portal")
+async def get_customer_portal(user: Dict = Depends(AuthManager.require_auth)):
+    """Get Stripe Customer Portal URL"""
+    if not stripe_service:
+        return {"success": False, "error": "Stripe not configured"}
+    result = await stripe_service.create_customer_portal_session(user["user_id"])
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"success": True, "url": result["url"]}
+
+
+@app.get("/api/v1/subscriptions/invoices")
+async def get_invoices(user: Dict = Depends(AuthManager.require_auth)):
+    """Get subscription invoices"""
+    if not stripe_service:
+        return {"success": True, "invoices": []}
+    invoices = await stripe_service.get_invoices(user["user_id"])
+    return {"success": True, "invoices": invoices}
+
+
+@app.post("/api/v1/webhooks/stripe")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhooks"""
+    if not stripe_service:
+        return {"received": True}
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+    result = await stripe_service.handle_webhook(payload, sig_header)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/api/v1/billing/config")
+async def get_billing_config():
+    """Get public billing configuration for frontend"""
+    return {
+        "success": True,
+        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "billing_enabled": bool(STRIPE_SECRET_KEY),
+        "free_daily_credits": 50,
+        "credit_costs": {
+            "search": {"brave": 1, "serper": 1, "perplexity": 3, "exa": 2},
+            "llm": {"kimi": 2, "grok": 3},
+            "file_generation": {"excel": 5, "pdf": 5, "pptx": 8, "docx": 5, "csv": 2}
+        }
+    }
 
 
 # ============================================================================

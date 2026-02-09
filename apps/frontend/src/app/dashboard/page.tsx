@@ -1692,16 +1692,15 @@ function DashboardContent() {
     createConversation,
     saveMessage,
     updateConversationTitle,
-    loadConversations,
-  } = useConversations();
+      const { user, session } = useAuth();
 
-  // State
-  const [input, setInput] = useState('');
+  // Core state
   const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [searchMode, setSearchMode] = useState<'quick' | 'deep' | 'agent' | 'creative'>('quick');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [creditBalance, setCreditBalance] = useState(50);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
@@ -1721,6 +1720,23 @@ function DashboardContent() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  // Fetch credit balance from billing API
+  useEffect(() => {
+    const fetchCredits = async () => {
+      if (!session?.access_token) return;
+      try {
+        const res = await fetch(`${API_URL}/api/v1/billing/credits`, {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        });
+        const data = await res.json();
+        if (data.success) setCreditBalance(data.data?.balance ?? 0);
+      } catch (e) { console.error('Failed to fetch credits:', e); }
+    };
+    fetchCredits();
+    const interval = setInterval(fetchCredits, 60000); // refresh every 60s
+    return () => clearInterval(interval);
+  }, [session]);
 
   // ===== BACKGROUND TASK PERSISTENCE =====
   // On mount, check if there's an active background task from a previous session
@@ -2600,7 +2616,16 @@ function DashboardContent() {
         </div>
         
         {/* Right: Credits & Profile */}
-        <div className="w-48 flex justify-end">
+        <div className="w-48 flex items-center justify-end gap-3">
+          <Link
+            href="/billing"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-colors"
+          >
+            <Coins className="w-3.5 h-3.5 text-white/50" />
+            <span className="text-sm text-white/70 font-medium">
+              {creditBalance !== null ? creditBalance.toLocaleString() : '...'}
+            </span>
+          </Link>
           <ProfileDropdown />
         </div>
       </header>

@@ -3,26 +3,32 @@
 import Link from "next/link";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 import { TopNavigation } from "@/components/layout/TopNavigation";
 import { Footer } from "@/components/layout/Footer";
 import {
   ArrowRight, Check, X as XIcon, Zap, Building2, Sparkles,
-  FileText, BarChart3, Users, Shield, Headphones, Globe
+  FileText, BarChart3, Users, Shield, Headphones, Globe, Coins
 } from "lucide-react";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
 
 const plans = [
   {
-    id: "starter",
-    name: "Starter",
+    id: "free",
+    slug: "free",
+    name: "Free",
     desc: "Explore the platform",
     monthlyPrice: 0,
     yearlyPrice: 0,
     priceLabel: "Free",
+    credits: 50,
     icon: Zap,
     features: [
-      "5 research queries / month",
-      "Basic trend reports",
-      "1 domain access",
+      "50 credits / month",
+      "5 daily free credits",
+      "Basic research queries",
+      "All 10 domains",
       "Standard response time",
       "Email support",
     ],
@@ -31,83 +37,143 @@ const plans = [
     highlighted: false,
   },
   {
-    id: "professional",
-    name: "Professional",
-    desc: "For fashion professionals",
-    monthlyPrice: 99,
-    yearlyPrice: 79,
+    id: "starter",
+    slug: "starter",
+    name: "Starter",
+    desc: "For individual researchers",
+    monthlyPrice: 29,
+    yearlyPrice: 290,
+    credits: 500,
     icon: Sparkles,
     features: [
-      "100 research queries / month",
+      "500 credits / month",
+      "10 daily free credits",
       "Advanced trend forecasting",
       "All 10 domains",
-      "Supplier intelligence",
-      "Market analysis reports",
       "Export to PDF, Excel, PPTX",
       "Priority support",
     ],
-    cta: "Start Free Trial",
-    href: "/signup",
+    cta: "Subscribe",
+    highlighted: false,
+  },
+  {
+    id: "professional",
+    slug: "pro",
+    name: "Professional",
+    desc: "For fashion professionals",
+    monthlyPrice: 79,
+    yearlyPrice: 790,
+    credits: 2000,
+    icon: Building2,
+    features: [
+      "2,000 credits / month",
+      "20 daily free credits",
+      "Deep research & analysis",
+      "Supplier intelligence",
+      "Market analysis reports",
+      "All export formats",
+      "Priority support",
+    ],
+    cta: "Subscribe",
     highlighted: true,
     badge: "Most Popular",
   },
   {
     id: "enterprise",
+    slug: "enterprise",
     name: "Enterprise",
     desc: "For teams & organizations",
-    monthlyPrice: null,
-    yearlyPrice: null,
-    priceLabel: "Custom",
+    monthlyPrice: 199,
+    yearlyPrice: 1990,
+    credits: 10000,
     icon: Building2,
     features: [
-      "Unlimited research queries",
+      "10,000 credits / month",
+      "50 daily free credits",
+      "Unlimited research depth",
       "Custom AI model training",
       "Dedicated account manager",
       "API access & integrations",
-      "SSO & advanced security",
-      "Custom report templates",
       "SLA guarantee",
     ],
-    cta: "Contact Sales",
-    href: "/contact",
+    cta: "Subscribe",
     highlighted: false,
   },
 ];
 
 const comparisonFeatures = [
-  { category: "Research", features: [
-    { name: "Monthly queries", starter: "5", pro: "100", enterprise: "Unlimited" },
-    { name: "Domain access", starter: "1", pro: "All 10", enterprise: "All 10 + Custom" },
-    { name: "Response time", starter: "Standard", pro: "Priority", enterprise: "Instant" },
-    { name: "Source depth", starter: "Basic", pro: "Advanced", enterprise: "Deep + Custom" },
+  { category: "Credits & Research", features: [
+    { name: "Monthly credits", free: "50", starter: "500", pro: "2,000", enterprise: "10,000" },
+    { name: "Daily free credits", free: "5", starter: "10", pro: "20", enterprise: "50" },
+    { name: "Domain access", free: "All 10", starter: "All 10", pro: "All 10", enterprise: "All 10 + Custom" },
+    { name: "Response time", free: "Standard", starter: "Priority", pro: "Priority", enterprise: "Instant" },
+    { name: "Source depth", free: "Basic", starter: "Advanced", pro: "Deep", enterprise: "Deep + Custom" },
   ]},
   { category: "Exports", features: [
-    { name: "PDF reports", starter: true, pro: true, enterprise: true },
-    { name: "Excel exports", starter: false, pro: true, enterprise: true },
-    { name: "PowerPoint decks", starter: false, pro: true, enterprise: true },
-    { name: "Word documents", starter: false, pro: true, enterprise: true },
-    { name: "Custom templates", starter: false, pro: false, enterprise: true },
+    { name: "PDF reports", free: true, starter: true, pro: true, enterprise: true },
+    { name: "Excel exports", free: true, starter: true, pro: true, enterprise: true },
+    { name: "PowerPoint decks", free: true, starter: true, pro: true, enterprise: true },
+    { name: "Word documents", free: true, starter: true, pro: true, enterprise: true },
+    { name: "Custom templates", free: false, starter: false, pro: false, enterprise: true },
   ]},
   { category: "Support", features: [
-    { name: "Email support", starter: true, pro: true, enterprise: true },
-    { name: "Priority support", starter: false, pro: true, enterprise: true },
-    { name: "Dedicated manager", starter: false, pro: false, enterprise: true },
-    { name: "SLA guarantee", starter: false, pro: false, enterprise: true },
+    { name: "Email support", free: true, starter: true, pro: true, enterprise: true },
+    { name: "Priority support", free: false, starter: true, pro: true, enterprise: true },
+    { name: "Dedicated manager", free: false, starter: false, pro: false, enterprise: true },
+    { name: "SLA guarantee", free: false, starter: false, pro: false, enterprise: true },
   ]},
 ];
 
 const faqs = [
-  { q: "How does the free trial work?", a: "Start with our Professional plan free for 14 days. No credit card required. Cancel anytime." },
+  { q: "What are credits?", a: "Credits are the currency used for AI research on McLeuker. Each search, file generation, or analysis consumes credits based on the complexity of the task." },
+  { q: "How do daily free credits work?", a: "Every day you can claim free credits — 5 for Free, 10 for Starter, 20 for Pro, 50 for Enterprise. Consecutive daily claims build a streak that earns bonus credits." },
+  { q: "Can I buy extra credits?", a: "Yes, you can purchase credit packs anytime from your billing page. Larger packs include bonus credits and never expire." },
   { q: "Can I change plans later?", a: "Yes, you can upgrade or downgrade your plan at any time. Changes take effect immediately with prorated billing." },
-  { q: "What payment methods do you accept?", a: "We accept all major credit cards, PayPal, and wire transfers for Enterprise plans." },
-  { q: "Is there a discount for annual billing?", a: "Yes, annual plans receive a 20% discount compared to monthly billing — saving you over $230/year on Professional." },
-  { q: "What happens when I reach my query limit?", a: "You'll receive a notification at 80% usage. You can upgrade mid-cycle or purchase additional queries as needed." },
+  { q: "What payment methods do you accept?", a: "We accept all major credit cards via Stripe. Enterprise plans also support wire transfers." },
+  { q: "What happens when I run out of credits?", a: "You can claim daily free credits, purchase credit packs, or upgrade your plan. Your research history and files are always preserved." },
   { q: "Do you offer refunds?", a: "We offer a 30-day money-back guarantee on all paid plans. No questions asked." },
 ];
 
 export default function PricingPage() {
   const [annual, setAnnual] = useState(true);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+  const [subscribing, setSubscribing] = useState<string | null>(null);
+  const { user, session } = useAuth();
+
+  const handleSubscribe = async (planSlug: string) => {
+    if (planSlug === 'free') {
+      window.location.href = '/signup';
+      return;
+    }
+    if (!session?.access_token) {
+      window.location.href = '/login';
+      return;
+    }
+    setSubscribing(planSlug);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/subscriptions/checkout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          plan_slug: planSlug,
+          billing_period: annual ? 'yearly' : 'monthly',
+          success_url: `${window.location.origin}/billing?success=true`,
+          cancel_url: `${window.location.origin}/pricing`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    } catch (error) {
+      console.error('Checkout error:', error);
+    } finally {
+      setSubscribing(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#070707]">
@@ -169,7 +235,7 @@ export default function PricingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="pb-20 lg:pb-28">
         <div className="container mx-auto px-6 lg:px-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto">
             {plans.map((plan) => {
               const PlanIcon = plan.icon;
               const price = plan.priceLabel || (annual ? `$${plan.yearlyPrice}` : `$${plan.monthlyPrice}`);
@@ -204,10 +270,18 @@ export default function PricingPage() {
                   </div>
 
                   {/* Price */}
-                  <div className="flex items-baseline gap-1.5 mb-5 pb-5 border-b border-white/[0.05]">
-                    <span className="text-3xl lg:text-4xl font-editorial text-white/95">{price}</span>
-                    {plan.monthlyPrice !== null && plan.monthlyPrice > 0 && (
-                      <span className="text-sm text-white/30">/ month</span>
+                  <div className="mb-5 pb-5 border-b border-white/[0.05]">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-3xl lg:text-4xl font-editorial text-white/95">{price}</span>
+                      {plan.monthlyPrice !== null && plan.monthlyPrice > 0 && (
+                        <span className="text-sm text-white/30">/ {annual ? 'year' : 'month'}</span>
+                      )}
+                    </div>
+                    {plan.credits && (
+                      <div className="flex items-center gap-1.5 mt-2">
+                        <Coins className="w-3 h-3 text-white/30" />
+                        <span className="text-xs text-white/40">{plan.credits.toLocaleString()} credits / month</span>
+                      </div>
                     )}
                   </div>
 
@@ -224,18 +298,20 @@ export default function PricingPage() {
                   </ul>
 
                   {/* CTA */}
-                  <Link
-                    href={plan.href}
+                  <button
+                    onClick={() => handleSubscribe(plan.slug)}
+                    disabled={subscribing === plan.slug}
                     className={cn(
                       "w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all",
                       plan.highlighted
                         ? "bg-white text-[#0A0A0A] hover:bg-white/90"
-                        : "border border-white/[0.10] text-white/70 hover:bg-white/[0.05] hover:text-white"
+                        : "border border-white/[0.10] text-white/70 hover:bg-white/[0.05] hover:text-white",
+                      subscribing === plan.slug && "opacity-50 cursor-wait"
                     )}
                   >
-                    {plan.cta}
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
+                    {subscribing === plan.slug ? 'Processing...' : plan.cta}
+                    {subscribing !== plan.slug && <ArrowRight className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               );
             })}
@@ -248,7 +324,7 @@ export default function PricingPage() {
       {/* ═══════════════════════════════════════════════════════ */}
       <section className="py-20 lg:py-28 bg-[#0a0a0a]">
         <div className="container mx-auto px-6 lg:px-12">
-          <div className="max-w-5xl mx-auto">
+          <div className="max-w-6xl mx-auto">
             <div className="text-center mb-12">
               <h2 className="font-editorial text-3xl md:text-4xl text-white/[0.95] tracking-tight mb-3">
                 Compare Plans
@@ -258,9 +334,12 @@ export default function PricingPage() {
 
             <div className="rounded-2xl border border-white/[0.06] overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-4 bg-[#0d0d0d] border-b border-white/[0.06]">
+              <div className="grid grid-cols-5 bg-[#0d0d0d] border-b border-white/[0.06]">
                 <div className="p-4 lg:p-5">
                   <span className="text-xs text-white/25 uppercase tracking-wider">Feature</span>
+                </div>
+                <div className="p-4 lg:p-5 text-center">
+                  <span className="text-sm text-white/50">Free</span>
                 </div>
                 <div className="p-4 lg:p-5 text-center">
                   <span className="text-sm text-white/50">Starter</span>
@@ -280,14 +359,14 @@ export default function PricingPage() {
                     <span className="text-[11px] text-white/30 uppercase tracking-[0.15em] font-medium">{group.category}</span>
                   </div>
                   {group.features.map((feature, fi) => (
-                    <div key={fi} className="grid grid-cols-4 border-b border-white/[0.03] hover:bg-white/[0.01] transition-colors">
+                    <div key={fi} className="grid grid-cols-5 border-b border-white/[0.03] hover:bg-white/[0.01] transition-colors">
                       <div className="p-4 lg:p-5 flex items-center">
                         <span className="text-sm text-white/50">{feature.name}</span>
                       </div>
-                      {['starter', 'pro', 'enterprise'].map((tier, ti) => {
-                        const val = tier === 'starter' ? feature.starter : tier === 'pro' ? feature.pro : feature.enterprise;
+                      {['free', 'starter', 'pro', 'enterprise'].map((tier, ti) => {
+                        const val = (feature as any)[tier];
                         return (
-                          <div key={ti} className={cn("p-4 lg:p-5 flex items-center justify-center", ti === 1 && "border-x border-white/[0.04] bg-white/[0.01]")}>
+                          <div key={ti} className={cn("p-4 lg:p-5 flex items-center justify-center", ti === 2 && "border-x border-white/[0.04] bg-white/[0.01]")}>
                             {typeof val === 'boolean' ? (
                               val ? (
                                 <div className="w-5 h-5 rounded-full bg-white/[0.06] flex items-center justify-center">
