@@ -1791,11 +1791,13 @@ DO NOT pad with fake entries. Quality > Quantity."""
             # Use LLM to generate structured slide content
             pptx_prompt = f"""Create a BOARD-READY, STRATEGY-GRADE professional presentation. Today is {current_date}. Return ONLY valid JSON.
 
+CRITICAL TOPIC RULE: The presentation MUST be about the EXACT topic specified in the user prompt below. Do NOT switch to a different topic. If the prompt says "Paris Fashion Week", the ENTIRE presentation must be about Paris Fashion Week. If it says "Italian fashion brands revenue", every slide must be about Italian fashion brands revenue.
+
 Format: {{"slides": [{{"title": "...", "subtitle": "...", "type": "title|content|two_column|data_table|key_metrics|conclusion", "bullets": ["..."], "table": {{"headers": [...], "rows": [[...]]}}, "metrics": [{{"label": "...", "value": "...", "change": "..."}}]}}]}}
 
 PRESENTATION STRUCTURE (15-20 slides):
-- Slide 1: Title slide with compelling topic title and professional subtitle
-- Slide 2: Table of Contents / Agenda overview
+- Slide 1: Title slide with compelling topic title and professional subtitle (NO bullet points in subtitle)
+- Slide 2: Table of Contents / Agenda - list 8-10 sections as individual bullets, NOT as one long sentence
 - Slides 3-4: Executive Summary with 3-4 key metrics and the most critical findings
 - Slides 5-7: Market Overview - current state, size, growth trajectory with data tables
 - Slides 8-10: Deep Analysis - competitive landscape, key players, market positioning with comparison tables
@@ -1805,6 +1807,11 @@ PRESENTATION STRUCTURE (15-20 slides):
 - Slide 17-18: Financial Projections / ROI Analysis with data tables
 - Slide 19: Key Recommendations - prioritized, actionable next steps
 - Slide 20: Sources and methodology
+
+SUBTITLE RULES:
+- Subtitles are SHORT descriptive phrases (5-15 words max)
+- NEVER put bullet points or long paragraphs in the subtitle field
+- Subtitle examples: "Market Analysis as of February 2026", "Key Performance Indicators", "Competitive Landscape Overview"
 
 QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
 - EVERY bullet must contain SPECIFIC data: "Revenue grew 23.5% YoY to $4.2B in Q3 {current_year}"
@@ -1823,35 +1830,67 @@ QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
             
             slides_data = None
             
-            # Try Grok first
-            if grok_client:
-                try:
-                    loop = asyncio.get_event_loop()
-                    response = await loop.run_in_executor(None, functools.partial(
-                        grok_client.chat.completions.create,
-                        model="grok-3-mini",
-                        messages=[
-                            {"role": "system", "content": pptx_prompt},
-                            {"role": "user", "content": f"Create presentation for: {prompt}\n\nContent to use:\n{content[:3000]}"}
-                        ],
-                        temperature=0.3,
-                        max_tokens=16384
-                    ))
-                    raw = response.choices[0].message.content.strip()
-                    for strategy in [
-                        lambda t: json.loads(t),
-                        lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
-                        lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
-                    ]:
-                        try:
-                            result = strategy(raw)
-                            if result and isinstance(result, dict) and "slides" in result:
-                                slides_data = result
-                                break
-                        except:
-                            continue
-                except Exception as e:
-                    logger.error(f"Grok PPTX generation error: {e}")
+            # Try Grok first with quality verification loop
+            max_attempts = 2
+            for attempt in range(max_attempts):
+                if grok_client:
+                    try:
+                        loop = asyncio.get_event_loop()
+                        # Include more content and explicitly state the topic
+                        user_content = f"""TOPIC (THIS IS THE ONLY TOPIC FOR THIS PRESENTATION): {prompt}
+
+Content and data to use in the presentation (use ALL of this data):
+{content[:5000]}"""
+                        response = await loop.run_in_executor(None, functools.partial(
+                            grok_client.chat.completions.create,
+                            model="grok-3-mini",
+                            messages=[
+                                {"role": "system", "content": pptx_prompt},
+                                {"role": "user", "content": user_content}
+                            ],
+                            temperature=0.3,
+                            max_tokens=16384
+                        ))
+                        raw = response.choices[0].message.content.strip()
+                        for strategy in [
+                            lambda t: json.loads(t),
+                            lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
+                            lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
+                        ]:
+                            try:
+                                result = strategy(raw)
+                                if result and isinstance(result, dict) and "slides" in result:
+                                    slides_data = result
+                                    break
+                            except:
+                                continue
+                        
+                        # QUALITY CHECK: Verify the topic matches and content is rich enough
+                        if slides_data:
+                            slides = slides_data.get("slides", [])
+                            # Check 1: Enough slides (at least 10)
+                            if len(slides) < 10 and attempt < max_attempts - 1:
+                                logger.warning(f"PPTX quality check: only {len(slides)} slides, retrying...")
+                                slides_data = None
+                                continue
+                            # Check 2: Title slide topic matches the prompt
+                            title_slide = slides[0] if slides else {}
+                            title_text = (title_slide.get("title", "") + " " + title_slide.get("subtitle", "")).lower()
+                            prompt_words = [w.lower() for w in prompt.split() if len(w) > 3]
+                            topic_match = any(w in title_text for w in prompt_words[:5])
+                            if not topic_match and attempt < max_attempts - 1:
+                                logger.warning(f"PPTX quality check: topic mismatch. Title: '{title_text}', Expected: '{prompt[:50]}'. Retrying...")
+                                slides_data = None
+                                continue
+                            # Check 3: Slides have enough content (not mostly empty)
+                            empty_slides = sum(1 for s in slides if len(s.get("bullets", [])) == 0 and not s.get("table") and not s.get("metrics") and s.get("type") != "title")
+                            if empty_slides > len(slides) * 0.3 and attempt < max_attempts - 1:
+                                logger.warning(f"PPTX quality check: {empty_slides}/{len(slides)} empty slides, retrying...")
+                                slides_data = None
+                                continue
+                            break  # Quality checks passed
+                    except Exception as e:
+                        logger.error(f"Grok PPTX generation error (attempt {attempt+1}): {e}")
             
             # Fallback: parse markdown content into slides
             if not slides_data:
@@ -1914,13 +1953,20 @@ QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
                 p.alignment = alignment
                 return txBox
             
-            for slide_info in slides_data.get("slides", [])[:15]:
+            for slide_info in slides_data.get("slides", [])[:20]:
                 slide_type = slide_info.get("type", "content")
                 title = slide_info.get("title", "")
                 subtitle = slide_info.get("subtitle", "")
                 bullets = slide_info.get("bullets", [])
                 table_data = slide_info.get("table", None)
                 metrics = slide_info.get("metrics", [])
+                
+                # CLEAN SUBTITLE: Remove bullet points, limit length, ensure it's a short phrase
+                if subtitle:
+                    subtitle = subtitle.replace('•', '').replace('- ', '').strip()
+                    subtitle = subtitle.split('\n')[0]  # Only first line
+                    if len(subtitle) > 80:
+                        subtitle = subtitle[:77] + '...'
                 
                 # Use blank layout for full control
                 slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
@@ -1941,28 +1987,35 @@ QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
                     add_text_box(slide, 3, 6.2, 7.333, 0.5, f"McLeuker AI \u2022 {datetime.now().strftime('%B %Y')}", font_size=12, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
                 
                 elif slide_type == "key_metrics" and metrics:
-                    # Key metrics slide - large numbers
-                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=28, bold=True, color=TEXT_WHITE)
+                    # Key metrics slide - large numbers with proper spacing to avoid overlap
+                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=24, bold=True, color=TEXT_WHITE)
                     # Accent line under title
-                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.2), PptxInches(2), PptxPt(3))
+                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.1), PptxInches(2), PptxPt(3))
                     shape.fill.solid()
                     shape.fill.fore_color.rgb = ACCENT
                     shape.line.fill.background()
                     
-                    # Layout metrics in a grid
+                    # Layout metrics in a grid with proper spacing
                     num_metrics = min(len(metrics), 4)
-                    metric_width = 10.5 / num_metrics
+                    metric_width = 10.5 / max(num_metrics, 1)
                     for idx, metric in enumerate(metrics[:4]):
                         x = 1.2 + idx * metric_width
-                        # Metric value
-                        add_text_box(slide, x, 2.2, metric_width - 0.5, 1.2, str(metric.get("value", "")), font_size=36, bold=True, color=ACCENT, alignment=PP_ALIGN.CENTER)
-                        # Metric label
-                        add_text_box(slide, x, 3.5, metric_width - 0.5, 0.6, str(metric.get("label", "")), font_size=14, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
-                        # Change indicator
+                        # Metric value - reduced font to avoid overlap
+                        value_text = str(metric.get("value", ""))
+                        value_font = 28 if len(value_text) > 8 else 32
+                        add_text_box(slide, x, 1.8, metric_width - 0.5, 0.8, value_text, font_size=value_font, bold=True, color=ACCENT, alignment=PP_ALIGN.CENTER)
+                        # Metric label - with enough spacing below value
+                        label_text = str(metric.get("label", ""))
+                        add_text_box(slide, x, 2.8, metric_width - 0.5, 0.8, label_text, font_size=12, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
+                        # Change indicator - with enough spacing below label
                         change = metric.get("change", "")
                         if change:
                             change_color = PptxRGB(0x28, 0xA7, 0x45) if '+' in str(change) else PptxRGB(0xDC, 0x35, 0x45)
-                            add_text_box(slide, x, 4.1, metric_width - 0.5, 0.4, str(change), font_size=12, color=change_color, alignment=PP_ALIGN.CENTER)
+                            add_text_box(slide, x, 3.7, metric_width - 0.5, 0.4, str(change), font_size=11, color=change_color, alignment=PP_ALIGN.CENTER)
+                    
+                    # Add subtitle below metrics if present
+                    if subtitle:
+                        add_text_box(slide, 0.8, 4.5, 11.733, 0.5, subtitle, font_size=12, color=TEXT_LIGHT, alignment=PP_ALIGN.CENTER)
                 
                 elif slide_type == "data_table" and table_data:
                     # Table slide
@@ -2023,20 +2076,28 @@ QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
                 
                 else:
                     # Standard content slide
-                    add_text_box(slide, 0.8, 0.4, 11.733, 0.8, title, font_size=28, bold=True, color=TEXT_WHITE)
+                    add_text_box(slide, 0.8, 0.4, 11.733, 0.7, title, font_size=24, bold=True, color=TEXT_WHITE)
                     # Accent line
-                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.2), PptxInches(2), PptxPt(3))
+                    shape = slide.shapes.add_shape(1, PptxInches(0.8), PptxInches(1.1), PptxInches(2), PptxPt(3))
                     shape.fill.solid()
                     shape.fill.fore_color.rgb = ACCENT
                     shape.line.fill.background()
                     
+                    # Subtitle as a clean short phrase (no bullets)
                     if subtitle:
-                        add_text_box(slide, 0.8, 1.4, 11.733, 0.5, subtitle, font_size=14, color=TEXT_LIGHT)
+                        add_text_box(slide, 0.8, 1.3, 11.733, 0.4, subtitle, font_size=13, color=TEXT_LIGHT)
                     
-                    y_start = 2.0 if subtitle else 1.6
+                    y_start = 1.8 if subtitle else 1.5
+                    # Calculate spacing based on number of bullets to use full slide
+                    num_bullets = min(len(bullets), 6)
+                    available_height = 5.5 - y_start  # Available space
+                    bullet_spacing = min(available_height / max(num_bullets, 1), 0.85)
+                    
                     for bi, bullet in enumerate(bullets[:6]):
                         clean = re.sub(r'\*\*([^*]+)\*\*', r'\1', str(bullet))
-                        add_text_box(slide, 1.2, y_start + bi * 0.8, 10.933, 0.7, f"\u2022 {clean[:120]}", font_size=16, color=TEXT_LIGHT)
+                        # Adapt font size based on text length
+                        font_sz = 14 if len(clean) > 80 else 15
+                        add_text_box(slide, 1.2, y_start + bi * bullet_spacing, 10.933, bullet_spacing, f"\u2022 {clean[:150]}", font_size=font_sz, color=TEXT_LIGHT)
             
             prs.save(filepath)
             
@@ -2378,6 +2439,7 @@ class ChatHandler:
         # CRITICAL: Include enough context so the LLM understands what "that topic" refers to
         conversation_summary = ""
         conversation_topic = ""  # Track the main topic for file generation
+        all_user_topics = []  # Collect ALL user messages to understand full context
         prev_messages = request.messages[:-1] if len(request.messages) > 1 else []
         if prev_messages:
             recent_exchanges = []
@@ -2386,11 +2448,26 @@ class ChatHandler:
                 if content and len(content) > 5:
                     role_label = "User" if msg.role == "user" else "Assistant"
                     # Include more content from assistant messages for better context
-                    max_len = 1500 if msg.role == "assistant" else 500
+                    max_len = 2000 if msg.role == "assistant" else 500
                     recent_exchanges.append(f"{role_label}: {content[:max_len]}")
-                    # Extract the conversation topic from user messages
-                    if msg.role == "user" and len(content) > 15:
-                        conversation_topic = content[:300]
+                    # Collect ALL user messages for topic extraction
+                    if msg.role == "user" and len(content) > 10:
+                        all_user_topics.append(content[:300])
+                    # Also extract topic from assistant responses (first line often has the topic)
+                    if msg.role == "assistant" and len(content) > 50:
+                        first_line = content.split('\n')[0][:200]
+                        all_user_topics.append(f"[Assistant discussed: {first_line}]")
+            
+            # Smart topic extraction: use the FIRST substantive user query as the main topic
+            # because follow-ups like "generate PPT about that" reference the original topic
+            if all_user_topics:
+                # Filter out short/generic messages like "yes", "ok", "generate ppt"
+                substantive_topics = [t for t in all_user_topics if len(t) > 20 and not any(w in t.lower() for w in ['generate', 'create', 'make', 'ppt', 'excel', 'word', 'pdf', 'yes', 'no', 'ok', 'thanks'])]
+                if substantive_topics:
+                    conversation_topic = substantive_topics[0]  # First substantive topic
+                elif all_user_topics:
+                    conversation_topic = all_user_topics[0]  # Fallback to first message
+            
             if recent_exchanges:
                 conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context, follow-ups, and what 'that topic', 'this', 'it' refers to):\n" + "\n".join(recent_exchanges)
                 conversation_summary += f"\n\nIDENTIFIED CONVERSATION TOPIC: {conversation_topic}"
@@ -2446,11 +2523,25 @@ CRITICAL RULES:
             yield event("status", {"message": f"Generating {', '.join(file_types_needed)} file(s)..."})
             
             # CRITICAL: Resolve the actual topic for file generation
-            # If user said "about that topic", use the conversation_topic instead
+            # ANY file generation request that doesn't contain a clear topic should use conversation_topic
             file_topic = user_message
-            topic_reference_patterns = [r'about that', r'about this', r'that topic', r'this topic', r'same topic', r'about it', r'the same']
-            is_topic_reference = any(re.search(p, user_message.lower()) for p in topic_reference_patterns)
-            if is_topic_reference and conversation_topic:
+            user_msg_lower = user_message.lower()
+            
+            # Check if the message is JUST a file generation request without a clear topic
+            # e.g., "generate PPT summarizing trends", "create excel", "make a presentation"
+            file_gen_words = ['generate', 'create', 'make', 'build', 'export', 'ppt', 'pptx', 'excel', 'word', 'pdf', 'presentation', 'slides', 'spreadsheet', 'document']
+            topic_reference_patterns = [r'about that', r'about this', r'that topic', r'this topic', r'same topic', r'about it', r'the same', r'summariz', r'about the', r'for that', r'for this']
+            
+            is_topic_reference = any(re.search(p, user_msg_lower) for p in topic_reference_patterns)
+            
+            # Also detect if the message is PRIMARILY a file generation request
+            # (more than 50% of words are file-generation related)
+            words = user_msg_lower.split()
+            file_word_count = sum(1 for w in words if any(fw in w for fw in file_gen_words))
+            is_mostly_file_request = len(words) > 0 and (file_word_count / len(words)) > 0.3
+            
+            # If it's a file request without a clear standalone topic, use conversation topic
+            if conversation_topic and (is_topic_reference or is_mostly_file_request):
                 file_topic = conversation_topic
                 logger.info(f"Resolved topic reference: '{user_message}' -> '{file_topic}'")
             
