@@ -1139,7 +1139,7 @@ Rules:
             
             excel_prompt = f"""You generate comprehensive Excel spreadsheets with MULTIPLE TABS. Return ONLY valid JSON.
 
-CRITICAL: Today is {current_date}. ALL data must reflect {current_year} current information. Do NOT use outdated 2024 data unless the user specifically asks for historical data.
+CRITICAL: Today is {current_date}. ALL data must reflect {current_year} current information.
 
 Format: {{"sheets": [{{"title": "...", "headers": [...], "rows": [...]}}]}}
 
@@ -1148,28 +1148,26 @@ Create 4-6 sheets with different perspectives:
 - Tab 2: Rankings or comparison view (10-15 rows)
 - Tab 3: Regional/category/segment breakdown (10-15 rows)
 - Tab 4: Key metrics, trends, or projections for {current_year}-{current_year+5} (8-12 rows)
-- Tab 5-6 (optional): Additional valuable perspectives
+- Tab 5: Contact/outreach information (if applicable)
+- Tab 6: Sources with URLs
 
-Rules:
-- Each tab title: specific and descriptive (e.g., "Revenue by Region {current_year}", "Brand Rankings {current_year}")
-- Headers MUST be specific (e.g., "Brand Name", "Revenue ($M)", "Market Share %", "YoY Growth %")
-- Extract SPECIFIC facts, numbers, names, dates from the search data
-- ALL numbers and data should reflect {current_year} current reality
-- If data is insufficient, supplement with your knowledge but mark with (est.)
-- Numbers should be actual numbers, not strings
-- Each row must have the same number of columns as headers
-- DO NOT use generic headers like "Item", "Value", "Date"
-- Main tab: 20-30 rows. Other tabs: 8-15 rows each
-- Return ONLY the JSON object, no markdown, no explanation
+DATA QUALITY RULES (ABSOLUTE REQUIREMENTS):
+- EVERY entity (company, brand, person, supplier) MUST be a REAL, NAMED entity from the search data or your verified knowledge.
+- NEVER use placeholder names like "Supplier A", "Company B", "Brand X", "Supplier C (from EPIA Directory)".
+- Use REAL company names: e.g., "Kering", "LVMH", "Inditex", "Prada Group", "Ermenegildo Zegna".
+- Use REAL contact information. If you cannot find real emails/phones, use the company's official website URL and mark contact as "Via website".
+- NEVER fabricate email addresses or phone numbers. Only include verified contact info from search results.
+- If you cannot find enough real data for 20+ rows, use fewer rows with REAL data rather than padding with fake entries.
+- Quality over quantity: 15 real entries > 50 fake entries.
 
-DATA INTEGRITY RULES (CRITICAL):
-- NEVER mix data types in the same column. If a column is "Headquarters", ALL values must be city/country names. If a column is "Founded Year", ALL values must be years.
+DATA INTEGRITY RULES:
+- NEVER mix data types in the same column. "Headquarters" = city names only. "Founded" = years only. "Revenue" = numbers only.
 - NEVER put a year in a city column or a city in a year column.
-- NEVER leave cells empty or null. If data is unknown, use "N/A" for text or 0 for numbers.
-- Double-check each row: verify that each cell value matches the column header type.
-- For each column, define the data type (text, number, year, percentage, currency) and ensure ALL rows follow it.
-- Validate: "Headquarters" = city name, "Founded" = year (4-digit number), "Revenue" = number, "CEO" = person name, etc.
-- If you are unsure about a data point, use your best estimate with (est.) rather than leaving it blank or putting wrong data type."""
+- NEVER leave cells empty. Use "N/A" for unknown text, 0 for unknown numbers.
+- Each row must have exactly the same number of columns as headers.
+- Numbers should be actual numbers, not strings.
+- Headers MUST be specific (e.g., "Brand Name", "Revenue ($M)", "Market Share %")
+- Return ONLY the JSON object, no markdown, no explanation"""
             
             def _parse_excel_json(raw_json: str, source_name: str) -> dict:
                 for strategy in [
@@ -1229,6 +1227,68 @@ DATA INTEGRITY RULES (CRITICAL):
                     excel_data = _parse_excel_json(raw_json, "Kimi")
                 except Exception as e:
                     logger.error(f"Kimi Excel fallback error: {e}")
+            
+            # ===== DATA QUALITY VERIFICATION LOOP =====
+            if excel_data:
+                # Check for placeholder/fake names
+                placeholder_patterns = ['Supplier A', 'Supplier B', 'Supplier C', 'Company A', 'Company B',
+                                       'Brand X', 'Brand Y', 'Brand Z', '(from ', '(est. from',
+                                       'Supplier D', 'Supplier E', 'Supplier F', 'Supplier G',
+                                       'Supplier H', 'Supplier I', 'Supplier J', 'Supplier K',
+                                       'Supplier L', 'Supplier M', 'Supplier N', 'Supplier O',
+                                       'Supplier P', 'Supplier Q', 'Supplier R', 'Supplier S',
+                                       'Supplier T', 'Supplier U', 'Supplier V', 'Supplier W',
+                                       'Supplier X', 'Supplier Y', 'Supplier Z', 'Supplier AA',
+                                       'Supplier BB', 'Supplier CC', 'Supplier DD']
+                
+                has_fake_data = False
+                for sheet in excel_data.get('sheets', []):
+                    for row in sheet.get('rows', []):
+                        for cell in row:
+                            cell_str = str(cell)
+                            if any(p in cell_str for p in placeholder_patterns):
+                                has_fake_data = True
+                                break
+                        if has_fake_data:
+                            break
+                    if has_fake_data:
+                        break
+                
+                if has_fake_data:
+                    logger.warning("Excel data contains placeholder names. Re-generating with stricter prompt...")
+                    # Re-generate with even stricter prompt
+                    strict_prompt = excel_prompt + f"""\n\nCRITICAL RE-GENERATION NOTICE:
+Your previous output contained FAKE placeholder names like 'Supplier A', 'Supplier B', etc.
+This is UNACCEPTABLE. You MUST use REAL company/brand/entity names.
+Examples of REAL names: LVMH, Kering, Prada, Zara (Inditex), H&M, Burberry, Hermès, etc.
+If the topic is about suppliers, use real supplier companies from the search data.
+If you truly cannot find real names, use FEWER rows (even 5-10) with REAL data.
+DO NOT pad with fake entries. Quality > Quantity."""
+                    
+                    retry_client = grok_client or kimi_client
+                    if retry_client:
+                        try:
+                            import functools as ft
+                            loop2 = asyncio.get_event_loop()
+                            model2 = "grok-3-mini" if retry_client == grok_client else "kimi-k2.5"
+                            temp2 = 0.3 if retry_client == grok_client else 1
+                            retry_response = await loop2.run_in_executor(None, ft.partial(
+                                retry_client.chat.completions.create,
+                                model=model2,
+                                messages=[
+                                    {"role": "system", "content": strict_prompt},
+                                    {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
+                                ],
+                                temperature=temp2,
+                                max_tokens=16384
+                            ))
+                            retry_raw = retry_response.choices[0].message.content.strip()
+                            retry_data = _parse_excel_json(retry_raw, "Retry")
+                            if retry_data:
+                                excel_data = retry_data
+                                logger.info("Excel re-generation successful with real data")
+                        except Exception as e:
+                            logger.error(f"Excel re-generation error: {e}")
             
             # Color palette
             COLORS = {
@@ -1729,30 +1789,36 @@ DATA INTEGRITY RULES (CRITICAL):
             current_date = get_current_date_str()
             
             # Use LLM to generate structured slide content
-            pptx_prompt = f"""Create a COMPREHENSIVE, DATA-RICH professional presentation. Today is {current_date}. Return ONLY valid JSON.
+            pptx_prompt = f"""Create a BOARD-READY, STRATEGY-GRADE professional presentation. Today is {current_date}. Return ONLY valid JSON.
 
 Format: {{"slides": [{{"title": "...", "subtitle": "...", "type": "title|content|two_column|data_table|key_metrics|conclusion", "bullets": ["..."], "table": {{"headers": [...], "rows": [[...]]}}, "metrics": [{{"label": "...", "value": "...", "change": "..."}}]}}]}}
 
-Rules:
-- Create 12-15 slides covering the topic in DEPTH (not shallow overviews)
-- Slide 1: Title slide with topic and professional subtitle
-- Slides 2-3: Executive summary with key findings and specific numbers
-- Slides 4-7: Deep analysis sections with tables, metrics, and detailed data
-- Slides 8-10: Trends, market comparisons, competitive landscape with data tables
-- Slides 11-12: Strategic insights, implications, and actionable recommendations
-- Slides 13-14: Detailed data tables with 5-8 rows of real data each
-- Slide 15: Sources and methodology
+PRESENTATION STRUCTURE (15-20 slides):
+- Slide 1: Title slide with compelling topic title and professional subtitle
+- Slide 2: Table of Contents / Agenda overview
+- Slides 3-4: Executive Summary with 3-4 key metrics and the most critical findings
+- Slides 5-7: Market Overview - current state, size, growth trajectory with data tables
+- Slides 8-10: Deep Analysis - competitive landscape, key players, market positioning with comparison tables
+- Slides 11-12: Trend Analysis - emerging patterns, consumer behavior shifts, technology impact
+- Slides 13-14: Strategic Roadmap - phased action plan with timeline, milestones, KPIs
+- Slide 15-16: Risk Assessment & Opportunities - SWOT or risk matrix with mitigation strategies
+- Slide 17-18: Financial Projections / ROI Analysis with data tables
+- Slide 19: Key Recommendations - prioritized, actionable next steps
+- Slide 20: Sources and methodology
 
-QUALITY REQUIREMENTS (CRITICAL):
-- Each bullet point should contain SPECIFIC data: numbers, percentages, dollar amounts, dates
-- Do NOT use vague statements like "significant growth" - use "23.5% YoY growth to $4.2B"
-- Use "data_table" type for at least 3 slides with real tabular data (5-8 rows each)
-- Use "key_metrics" type for at least 2 slides with 3-4 key statistics each
-- Each bullet should be informative (20-40 words), not just a label
-- Include comparative data: vs. competitors, vs. previous year, vs. industry average
-- Tables must have 4-6 columns with specific headers and real data in each cell
-- The presentation should be as information-dense as an Excel report
-- Maximum 6 bullets per slide, but each bullet must be substantive
+QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
+- EVERY bullet must contain SPECIFIC data: "Revenue grew 23.5% YoY to $4.2B in Q3 {current_year}"
+- NEVER use vague language: NO "significant growth", NO "various factors", NO "key players"
+- Use "data_table" type for at least 4 slides with REAL tabular data (5-8 rows, 4-6 columns each)
+- Use "key_metrics" type for at least 3 slides with 3-4 key statistics each
+- Each bullet: 25-50 words of substantive analysis, not just labels
+- Include comparative data: vs. competitors, vs. previous year, vs. industry benchmarks
+- Tables must use REAL company/brand names, REAL numbers from search data
+- Include a STRATEGIC ROADMAP slide with phases (Q1-Q4 or Year 1-3) and specific milestones
+- Include SWOT or competitive matrix with real entities
+- The presentation must be READY TO PRESENT - no placeholders, no TBD items
+- Maximum 5 bullets per content slide, but each must be deeply informative
+- ALL entities must be REAL named companies/brands/people - NEVER use placeholders
 - Return ONLY the JSON, no markdown"""
             
             slides_data = None
@@ -2329,7 +2395,7 @@ class ChatHandler:
                 conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context, follow-ups, and what 'that topic', 'this', 'it' refers to):\n" + "\n".join(recent_exchanges)
                 conversation_summary += f"\n\nIDENTIFIED CONVERSATION TOPIC: {conversation_topic}"
         
-        system_msg = f"""You are McLeuker AI, a professional research and analysis assistant. Today is {current_date}. The current year is {current_year}.
+        system_msg = f"""You are a professional research and analysis assistant. Today is {current_date}. The current year is {current_year}.
 
 CRITICAL RULES:
 1. ALL data must reflect {current_year} current reality. Do NOT provide outdated data.
@@ -2345,6 +2411,10 @@ CRITICAL RULES:
 11. If you are unsure about current {current_year} data, clearly state that and provide the most recent data you have with the year noted.
 12. DO NOT force a fixed structure on every response. Adapt your response structure to what makes sense for the query. NOT every response needs "Research Summary", "Key Insights", "Methodology", "Deliverables", "Recommendations". Use reasoning first, then provide the most natural and helpful structure.
 13. When the user uploads a file and asks about it, just answer the question directly. Do NOT generate unnecessary files (Excel, Word, PPTX) unless the user explicitly asks for them.
+14. NEVER introduce yourself. Do NOT start with "My Analysis of...", "As McLeuker AI...", "As a professional research assistant...", or any self-referential introduction. Go STRAIGHT to answering the user's question.
+15. NEVER say "Since I cannot actually create a real Excel file" or "I need to provide the data in a format that can be easily copied". You CAN generate real files. Just do it.
+16. For ALL file generation (Excel, PPTX, Word, PDF): use ONLY real, verified data from search results. NEVER use placeholder names like "Supplier A", "Company B", "Brand X". If you cannot find real names, search harder. Every entity must be a real, named company/person/place.
+17. Files should be generated AFTER the main response content, never in the middle of the response.
 {conversation_summary}
 {f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}"""
         
@@ -2580,16 +2650,33 @@ Answer ONLY "PASS" or "FAIL" followed by a brief reason."""
     
     @staticmethod
     async def _generate_conclusion(query: str, response: str, file_types: List[str], structured_data: Dict) -> str:
-        """Generate a dynamic, context-aware conclusion. NOT a forced template."""
+        """Generate a dynamic, context-aware conclusion. Only for deep multi-source research."""
         client = grok_client or kimi_client
         if not client:
             return ""
         
-        # Skip conclusion for simple queries, greetings, or short responses
+        # AGGRESSIVE skip - only generate conclusions for deep research with many sources
         query_lower = query.lower().strip()
-        if len(response) < 200:
+        num_sources = len(structured_data.get("sources", []))
+        num_data_points = len(structured_data.get("data_points", []))
+        
+        # Skip if response is short
+        if len(response) < 500:
             return ""
-        if any(query_lower.startswith(w) for w in ['hi', 'hello', 'hey', 'thanks', 'ok', 'what is this', 'tell me what']):
+        
+        # Skip for greetings, simple questions, emotional/personal queries
+        skip_patterns = ['hi', 'hello', 'hey', 'thanks', 'ok', 'what is this', 'tell me what',
+                        'what is', 'who is', 'how do', 'can you', 'i feel', 'i want', 'i need',
+                        'generate', 'create', 'make', 'show me', 'list', 'give me']
+        if any(query_lower.startswith(w) for w in skip_patterns):
+            return ""
+        
+        # Skip if not enough research depth (fewer than 5 sources = not deep research)
+        if num_sources < 5 and num_data_points < 8:
+            return ""
+        
+        # Skip if no files were generated and query is straightforward
+        if not file_types and len(query.split()) < 15:
             return ""
         
         try:

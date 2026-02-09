@@ -285,6 +285,79 @@ function SourcesSection({
 }
 
 // =============================================================================
+// Collapsible Table Component - for raw data sections
+// =============================================================================
+
+function CollapsibleTable({
+  headers,
+  rows,
+  isLargeTable,
+  processInlineFormatting
+}: {
+  headers: string[];
+  rows: string[][];
+  isLargeTable: boolean;
+  processInlineFormatting: (line: string) => React.ReactNode[] | React.ReactNode;
+}) {
+  const [isCollapsed, setIsCollapsed] = useState(isLargeTable);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  const toggleCollapse = () => {
+    // Save scroll position before toggle
+    const scrollY = window.scrollY;
+    setIsCollapsed(!isCollapsed);
+    // Restore scroll position after render
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+    });
+  };
+  
+  const visibleRows = isCollapsed ? rows.slice(0, 3) : rows;
+  const hiddenCount = rows.length - 3;
+  
+  return (
+    <div ref={containerRef} className="my-3">
+      <div className="overflow-x-auto rounded-lg border border-white/[0.08]">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="bg-white/[0.06]">
+              {headers.map((cell, ci) => (
+                <th key={ci} className="px-3 py-2.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap">
+                  {processInlineFormatting(cell)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, ri) => (
+              <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
+                {row.map((cell, ci) => (
+                  <td key={ci} className="px-3 py-2 text-white/65 border-b border-white/[0.04]">
+                    {processInlineFormatting(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {isLargeTable && (
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center gap-1.5 mt-1.5 px-3 py-1 text-[11px] text-[#7a8a6e] hover:text-[#9aaa8e] transition-colors rounded-md hover:bg-white/[0.03]"
+        >
+          {isCollapsed ? (
+            <>Show all {rows.length} rows <ChevronDown className="h-3 w-3" /></>
+          ) : (
+            <>Collapse table <ChevronUp className="h-3 w-3" /></>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // Message Content Component - Updated with McLeuker green
 // =============================================================================
 
@@ -541,7 +614,7 @@ function MessageContent({
         return;
       }
       
-      // Markdown table row
+      // Markdown table row - render as collapsible
       if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
         if (/^\|[\s\-:|]+\|$/.test(line.trim())) return;
         
@@ -560,31 +633,19 @@ function MessageContent({
         }
         
         if (tableRows.length > 0) {
+          const tableKey = `table-${i}`;
+          const dataRows = tableRows.slice(1);
+          const isLargeTable = dataRows.length > 5;
+          
+          // Use a self-contained collapsible table component
           elements.push(
-            <div key={`table-${i}`} className="my-3 overflow-x-auto rounded-lg border border-white/[0.08]">
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr className="bg-white/[0.06]">
-                    {tableRows[0].map((cell, ci) => (
-                      <th key={ci} className="px-3 py-2.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap">
-                        {processInlineFormatting(cell)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableRows.slice(1).map((row, ri) => (
-                    <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="px-3 py-2 text-white/65 border-b border-white/[0.04]">
-                          {processInlineFormatting(cell)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CollapsibleTable
+              key={tableKey}
+              headers={tableRows[0]}
+              rows={dataRows}
+              isLargeTable={isLargeTable}
+              processInlineFormatting={processInlineFormatting}
+            />
           );
         }
         return;
@@ -2813,7 +2874,18 @@ function DashboardContent() {
                             </div>
                           )}
                           
-                          {/* ===== DOWNLOAD FILES (shown above content for file generation) ===== */}
+                          {/* ===== MAIN CONTENT (conclusion/analysis) ===== */}
+                          {message.content && (
+                            <MessageContent
+                              content={message.content}
+                              sources={message.sources}
+                              followUpQuestions={message.follow_up_questions}
+                              onFollowUpClick={handleSendMessage}
+                              searchQuery={sidebarSearchQuery}
+                            />
+                          )}
+                          
+                          {/* ===== DOWNLOAD FILES (shown AFTER content) ===== */}
                           {message.downloads && message.downloads.length > 0 && (
                             <div className="mt-4 space-y-2">
                               <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Generated Files</p>
@@ -2855,17 +2927,6 @@ function DashboardContent() {
                                 );
                               })}
                             </div>
-                          )}
-                          
-                          {/* ===== MAIN CONTENT (conclusion/analysis) ===== */}
-                          {message.content && (
-                            <MessageContent
-                              content={message.content}
-                              sources={message.sources}
-                              followUpQuestions={message.follow_up_questions}
-                              onFollowUpClick={handleSendMessage}
-                              searchQuery={sidebarSearchQuery}
-                            />
                           )}
                         </div>
                       )}

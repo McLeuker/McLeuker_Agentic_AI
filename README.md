@@ -126,11 +126,8 @@ The FastAPI application that powers the AI functionality.
 
 ```
 apps/backend/
-├── main.py              # FastAPI application entry
-├── orchestrator.py      # AI orchestration logic
-├── search_layer.py      # Search and research layer
-├── settings.py          # Configuration settings
-├── src/                 # Source modules
+├── main.py              # Complete FastAPI application (API, search, file generation, chat)
+├── src/                 # Legacy source modules (not actively used by main.py)
 ├── Dockerfile           # Container configuration
 └── requirements.txt     # Python dependencies
 ```
@@ -160,14 +157,19 @@ interface V51Response {
 | Variable | Description |
 |----------|-------------|
 | `NEXT_PUBLIC_API_URL` | Backend API URL (Railway deployment) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 
 ### Backend
 
 | Variable | Description |
 |----------|-------------|
-| `XAI_API_KEY` | Grok API key |
-| `PERPLEXITY_API_KEY` | Perplexity search API |
-| `EXA_API_KEY` | Exa.ai search API |
+| `GROK_API_KEY` | xAI Grok API key |
+| `KIMI_API_KEY` | Moonshot Kimi API key |
+| `BRAVE_API_KEY` | Brave Search API key |
+| `SERPER_API_KEY` | Serper search API key |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_KEY` | Supabase service role key |
 
 See `apps/backend/.env.example` for the complete list.
 
