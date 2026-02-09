@@ -99,15 +99,15 @@ export function WorkspaceNavigation({
   const handleSectorClick = (sector: Sector) => {
     setSector(sector);
     if (sector === "all") {
-      // Clear any stored conversation so Global always goes to landing page
+      // Clear any stored conversation so Global always goes to dashboard landing page
       try {
         localStorage.removeItem('mcleuker_last_conversation_id');
         sessionStorage.removeItem('domainPrompt');
         sessionStorage.removeItem('autoExecute');
-        sessionStorage.removeItem('resetDashboard');
+        sessionStorage.setItem('resetDashboard', 'true');
       } catch (e) {}
-      // Navigate to the landing page - Global = home
-      router.push("/");
+      // Navigate to dashboard landing page ("Where is my mind?" view)
+      router.push("/dashboard");
     } else {
       router.push(`/domain/${sector}`);
     }

@@ -173,10 +173,6 @@ export function DomainHero({
         {onSubmit && (
           <div className="max-w-2xl mx-auto">
             <div className="flex items-end gap-2 p-2.5 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.15] transition-all mb-8">
-              <InlineModelPicker
-                value={searchMode}
-                onChange={setSearchMode}
-              />
               <Textarea
                 ref={textareaRef}
                 value={query}
@@ -191,6 +187,10 @@ export function DomainHero({
                   "text-[15px]"
                 )}
                 rows={1}
+              />
+              <InlineModelPicker
+                value={searchMode}
+                onChange={setSearchMode}
               />
               <Button
                 onClick={handleSubmit}

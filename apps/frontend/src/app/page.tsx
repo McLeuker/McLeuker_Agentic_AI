@@ -231,31 +231,31 @@ export default function LandingPage() {
 
         <div className="relative z-10 w-full max-w-3xl mx-auto px-6 text-center">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] mb-8">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] mb-6">
             <div className="w-1.5 h-1.5 rounded-full bg-[#5a7a3a] animate-pulse" />
             <span className="text-[11px] text-white/40 tracking-wide">Fashion Intelligence Platform</span>
           </div>
 
-          <h1 className="font-editorial text-5xl md:text-6xl lg:text-[5.5rem] text-white/[0.97] tracking-tight leading-[1.02] mb-6">
-            What do you want<br />to research?
+          <h1 className="font-editorial text-3xl md:text-4xl lg:text-5xl text-white/[0.95] tracking-tight leading-[1.08] mb-4">
+            What do you want to research?
           </h1>
-          <p className="text-white/40 text-lg md:text-xl mb-10 max-w-xl mx-auto leading-relaxed">
+          <p className="text-white/40 text-base md:text-lg mb-8 max-w-lg mx-auto leading-relaxed">
             From one prompt to structured reports, benchmarks, and clear next steps.
           </p>
 
-          <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-6 group">
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/10 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
-            <div className="relative flex items-center gap-2 p-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all backdrop-blur-sm">
-              <InlineModelPicker
-                value={searchMode}
-                onChange={setSearchMode}
-              />
+          <form onSubmit={handleSubmit} className="relative max-w-2xl mx-auto mb-5 group">
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/12 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
+            <div className="relative flex items-center gap-2 p-2.5 rounded-2xl bg-white/[0.05] border border-white/[0.10] hover:border-white/[0.16] focus-within:border-white/[0.22] transition-all backdrop-blur-sm">
               <input
                 type="text"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="Analyze SS26 trends, find suppliers, compare markets..."
-                className="flex-1 bg-transparent text-white text-base placeholder:text-white/25 focus:outline-none h-10 px-1"
+                className="flex-1 bg-transparent text-white text-[15px] placeholder:text-white/30 focus:outline-none h-10 px-2"
+              />
+              <InlineModelPicker
+                value={searchMode}
+                onChange={setSearchMode}
               />
               <button
                 type="submit"
@@ -271,18 +271,18 @@ export default function LandingPage() {
             </div>
           </form>
 
-          <p className="text-white/20 text-xs text-center mb-4">McLeukerAI can be wrong. Please verify important details.</p>
+          <p className="text-white/20 text-[11px] text-center mb-4">McLeukerAI can be wrong. Please verify important details.</p>
 
-          <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             {suggestionPrompts.map((s, i) => {
               const SIcon = s.icon;
               return (
                 <button
                   key={i}
                   onClick={() => handlePromptClick(s.prompt)}
-                  className="group/pill inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.03] border border-white/[0.06] text-white/40 text-sm hover:bg-white/[0.06] hover:text-white/60 hover:border-white/[0.12] transition-all duration-300"
+                  className="group/pill inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/[0.03] border border-white/[0.06] text-white/40 text-[13px] hover:bg-white/[0.06] hover:text-white/55 hover:border-white/[0.10] transition-all duration-300"
                 >
-                  <SIcon className="w-3.5 h-3.5 group-hover/pill:text-[#7a9a5a] transition-colors" />
+                  <SIcon className="w-3 h-3 group-hover/pill:text-[#7a9a5a] transition-colors" />
                   {s.title}
                 </button>
               );

@@ -2476,77 +2476,61 @@ function DashboardContent() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
-              /* STATE A: Empty State - "Where is my mind?" with search bar and suggestions */
-              <div className="relative flex flex-col items-center justify-center min-h-[60vh]">
+              /* STATE A: Empty State - "Where is my mind?" with search bar at bottom */
+              <div className="relative flex flex-col min-h-[calc(100vh-120px)]">
                 {/* Ambient glow */}
-                <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.06] blur-[100px] pointer-events-none" />
+                <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.04] blur-[120px] pointer-events-none" />
                 
-                {/* Title - Elegant, centered */}
-                <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.88] mb-8 text-center tracking-tight leading-[1.1]">
-                  Where is my mind?
-                </h1>
-                
-                {/* Search Bar - Directly under title */}
-                <div className="relative w-full max-w-xl mb-6 group">
-                  <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/10 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
-                  <div className="relative flex items-center gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all">
-                    <FileUploadButton
-                      onFileSelect={handleFileSelect}
-                      onOpenImageGenerator={() => setShowImageGenerator(true)}
-                      attachedFiles={attachedFiles}
-                      onRemoveFile={handleRemoveFile}
-                    />
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Ask me anything..."
-                      className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none text-sm"
-                    />
-                    <InlineModelPicker
-                      value={searchMode}
-                      onChange={setSearchMode}
-                      disabled={isStreaming}
-                    />
-                    <button
-                      onClick={() => handleSendMessage()}
-                      disabled={!input.trim() || isStreaming}
-                      className={cn(
-                        "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                        input.trim() && !isStreaming
-                          ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                          : "bg-white/[0.05] text-white/30"
-                      )}
-                    >
-                      {isStreaming ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
+                {/* Title - Vertically centered */}
+                <div className="flex-1 flex items-center justify-center">
+                  <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                    Where is my mind?
+                  </h1>
                 </div>
                 
-                {/* Suggestion Cards - Under search bar */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
-                  {starterQuestions.map((question, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSendMessage(question)}
-                      className={cn(
-                        "text-left p-3 rounded-xl transition-all",
-                        "mcleuker-bubble",
-                        i % 4 === 0 && "mcleuker-bubble-v1",
-                        i % 4 === 1 && "mcleuker-bubble-v2",
-                        i % 4 === 2 && "mcleuker-bubble-v3",
-                        i % 4 === 3 && "mcleuker-bubble-v4"
-                      )}
-                    >
-                      <p className="text-xs sm:text-sm text-white/80 line-clamp-2">{question}</p>
-                    </button>
-                  ))}
+                {/* Search Bar - Pinned to bottom */}
+                <div className="w-full max-w-xl mx-auto pb-8">
+                  <div className="relative group">
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-[#2E3524]/0 via-[#2E3524]/10 to-[#2E3524]/0 rounded-[18px] opacity-0 group-focus-within:opacity-100 transition-opacity duration-500 blur-sm" />
+                    <div className="relative flex items-center gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.20] transition-all">
+                      <FileUploadButton
+                        onFileSelect={handleFileSelect}
+                        onOpenImageGenerator={() => setShowImageGenerator(true)}
+                        attachedFiles={attachedFiles}
+                        onRemoveFile={handleRemoveFile}
+                      />
+                      <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Ask me anything..."
+                        className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none text-sm px-1"
+                      />
+                      <InlineModelPicker
+                        value={searchMode}
+                        onChange={setSearchMode}
+                        disabled={isStreaming}
+                      />
+                      <button
+                        onClick={() => handleSendMessage()}
+                        disabled={!input.trim() || isStreaming}
+                        className={cn(
+                          "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                          input.trim() && !isStreaming
+                            ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                            : "bg-white/[0.05] text-white/30"
+                        )}
+                      >
+                        {isStreaming ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
                 </div>
               </div>
             ) : (
