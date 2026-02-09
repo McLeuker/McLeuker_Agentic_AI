@@ -411,46 +411,45 @@ function MessageContent({
     let listItems: string[] = [];
     let listType: 'ul' | 'ol' | null = null;
     let inCodeBlock = false;
+    let consecutiveEmptyLines = 0;
+    const skipLines = new Set<number>();
     
     const processInlineFormatting = (line: string) => {
-      // Process markdown links [text](url) and bold **text** together
-      const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\*\*(.*?)\*\*/g;
+      // Process markdown: links [text](url), bold **text**, italic *text*, inline code `code`, bold-italic ***text***
+      const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`/g;
       const result: React.ReactNode[] = [];
       let lastIndex = 0;
       let match;
       let keyIdx = 0;
 
       while ((match = combinedRegex.exec(line)) !== null) {
-        // Add text before this match (apply search highlighting to plain text)
         if (match.index > lastIndex) {
           const plainText = line.slice(lastIndex, match.index);
           result.push(...highlightSearchInText(plainText, searchQuery));
         }
 
         if (match[1] && match[2]) {
-          // Markdown link: [text](url) - highlight inside link text
           const href = ensureValidUrl(match[2]);
           result.push(
-            <a
-              key={`link-${keyIdx++}`}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#7a8a6e] hover:text-[#9aaa8e] underline underline-offset-2 inline-flex items-center gap-0.5"
-            >
+            <a key={`link-${keyIdx++}`} href={href} target="_blank" rel="noopener noreferrer"
+              className="text-[#7a8a6e] hover:text-[#9aaa8e] underline underline-offset-2 inline-flex items-center gap-0.5">
               {highlightSearchInText(match[1], searchQuery)}
               <ExternalLink className="h-3 w-3 inline-block" />
             </a>
           );
         } else if (match[3]) {
-          // Bold text: **text** - highlight inside bold
-          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-medium">{highlightSearchInText(match[3], searchQuery)}</strong>);
+          result.push(<strong key={`bi-${keyIdx++}`} className="text-white font-semibold italic">{highlightSearchInText(match[3], searchQuery)}</strong>);
+        } else if (match[4]) {
+          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-semibold">{highlightSearchInText(match[4], searchQuery)}</strong>);
+        } else if (match[5]) {
+          result.push(<em key={`italic-${keyIdx++}`} className="text-white/90 italic">{highlightSearchInText(match[5], searchQuery)}</em>);
+        } else if (match[6]) {
+          result.push(<code key={`code-${keyIdx++}`} className="px-1.5 py-0.5 bg-white/[0.06] rounded text-[13px] text-white/80 font-mono">{match[6]}</code>);
         }
 
         lastIndex = match.index + match[0].length;
       }
 
-      // Add remaining text (apply search highlighting)
       if (lastIndex < line.length) {
         const remaining = line.slice(lastIndex);
         result.push(...highlightSearchInText(remaining, searchQuery));
@@ -463,9 +462,9 @@ function MessageContent({
       if (listItems.length > 0 && listType) {
         const ListTag = listType === 'ul' ? 'ul' : 'ol';
         elements.push(
-          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-0.5 my-1.5 ml-2`}>
+          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-1 my-2 ml-3`}>
             {listItems.map((item, idx) => (
-              <li key={idx} className="text-white/80 leading-relaxed">
+              <li key={idx} className="text-[14px] text-white/80 leading-relaxed">
                 {processInlineFormatting(item)}
               </li>
             ))}
@@ -477,11 +476,13 @@ function MessageContent({
     };
     
     lines.forEach((line, i) => {
-      // Code block toggle (``` fences) - skip highlighting inside code blocks
+      if (skipLines.has(i)) return;
+
+      // Code block toggle
       if (line.trim().startsWith('```')) {
         flushList();
+        consecutiveEmptyLines = 0;
         if (!inCodeBlock) {
-          // Opening code block
           inCodeBlock = true;
           const lang = line.trim().slice(3).trim();
           elements.push(
@@ -495,7 +496,6 @@ function MessageContent({
             </div>
           );
         } else {
-          // Closing code block
           inCodeBlock = false;
           elements.push(
             <div key={`cb-end-${i}`} className="rounded-b-lg bg-[#111] border border-white/[0.06] border-t-0 h-2" />
@@ -504,7 +504,6 @@ function MessageContent({
         return;
       }
 
-      // Inside code block - render as-is without search highlighting
       if (inCodeBlock) {
         elements.push(
           <pre key={i} className="text-[13px] text-white/70 font-mono bg-[#111] border-x border-white/[0.06] px-4 py-0.5 leading-relaxed overflow-x-auto">{line}</pre>
@@ -512,86 +511,103 @@ function MessageContent({
         return;
       }
 
-      // Empty line
+      // Empty line - collapse consecutive empty lines into a single spacer
       if (!line.trim()) {
         flushList();
-        elements.push(<br key={i} />);
+        consecutiveEmptyLines++;
+        if (consecutiveEmptyLines <= 1) {
+          elements.push(<div key={`spacer-${i}`} className="h-3" />);
+        }
+        return;
+      }
+      consecutiveEmptyLines = 0;
+      
+      // Horizontal rule (--- or ***)
+      if (/^\s*[-*_]{3,}\s*$/.test(line)) {
+        flushList();
+        elements.push(<hr key={i} className="border-white/[0.08] my-4" />);
+        return;
+      }
+
+      // Blockquote (> text)
+      if (line.trim().startsWith('> ')) {
+        flushList();
+        elements.push(
+          <blockquote key={i} className="border-l-2 border-[#5c6652]/50 pl-4 py-1 my-2 text-white/60 italic text-[14px]">
+            {processInlineFormatting(line.trim().slice(2))}
+          </blockquote>
+        );
         return;
       }
       
       // Markdown table row
       if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
-        // Check if this is a separator row (|---|---|)
         if (/^\|[\s\-:|]+\|$/.test(line.trim())) return;
         
-        // Collect table rows
-        if (!elements.length || !(elements[elements.length - 1] as any)?._tableRows) {
-          // Start new table collection
-          const tableRows: string[][] = [];
-          const cells = line.trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
-          tableRows.push(cells);
-          
-          // Look ahead for more table rows
-          let j = i + 1;
-          while (j < lines.length && lines[j].trim().startsWith('|') && lines[j].trim().endsWith('|')) {
-            if (!/^\|[\s\-:|]+\|$/.test(lines[j].trim())) {
-              const rowCells = lines[j].trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
-              tableRows.push(rowCells);
-            }
-            j++;
+        const tableRows: string[][] = [];
+        const cells = line.trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+        tableRows.push(cells);
+        
+        let j = i + 1;
+        while (j < lines.length && lines[j].trim().startsWith('|') && lines[j].trim().endsWith('|')) {
+          if (!/^\|[\s\-:|]+\|$/.test(lines[j].trim())) {
+            const rowCells = lines[j].trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+            tableRows.push(rowCells);
           }
-          
-          if (tableRows.length > 0) {
-            elements.push(
-              <div key={`table-${i}`} className="my-2 overflow-x-auto rounded-lg border border-white/[0.08]">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-white/[0.06]">
-                      {tableRows[0].map((cell, ci) => (
-                        <th key={ci} className="px-3 py-2 text-left text-white/70 font-semibold border-b border-white/[0.08]">
+          skipLines.add(j);
+          j++;
+        }
+        
+        if (tableRows.length > 0) {
+          elements.push(
+            <div key={`table-${i}`} className="my-3 overflow-x-auto rounded-lg border border-white/[0.08]">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="bg-white/[0.06]">
+                    {tableRows[0].map((cell, ci) => (
+                      <th key={ci} className="px-3 py-2.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap">
+                        {processInlineFormatting(cell)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableRows.slice(1).map((row, ri) => (
+                    <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className="px-3 py-2 text-white/65 border-b border-white/[0.04]">
                           {processInlineFormatting(cell)}
-                        </th>
+                        </td>
                       ))}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.slice(1).map((row, ri) => (
-                      <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className="px-3 py-1.5 text-white/60 border-b border-white/[0.04]">
-                            {processInlineFormatting(cell)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-            // Skip the rows we already processed (they'll be skipped by forEach)
-            // Mark them to skip
-            for (let k = i + 1; k < j; k++) {
-              lines[k] = ''; // Clear already-processed table rows
-            }
-          }
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
         }
         return;
       }
       
-      // Headers (apply search highlighting)
+      // Headers with consistent spacing
+      if (line.startsWith('#### ')) {
+        flushList();
+        elements.push(<h4 key={i} className="text-[14px] font-semibold text-white/90 mt-4 mb-1.5">{processInlineFormatting(line.slice(5))}</h4>);
+        return;
+      }
       if (line.startsWith('### ')) {
         flushList();
-        elements.push(<h3 key={i} className="text-base font-semibold text-white mt-3 mb-1">{highlightSearchInText(line.slice(4), searchQuery)}</h3>);
+        elements.push(<h3 key={i} className="text-[15px] font-semibold text-white mt-5 mb-2">{processInlineFormatting(line.slice(4))}</h3>);
         return;
       }
       if (line.startsWith('## ')) {
         flushList();
-        elements.push(<h2 key={i} className="text-lg font-semibold text-white mt-3 mb-1.5">{highlightSearchInText(line.slice(3), searchQuery)}</h2>);
+        elements.push(<h2 key={i} className="text-[17px] font-semibold text-white mt-6 mb-2">{processInlineFormatting(line.slice(3))}</h2>);
         return;
       }
       if (line.startsWith('# ')) {
         flushList();
-        elements.push(<h1 key={i} className="text-xl font-bold text-white mt-4 mb-2">{highlightSearchInText(line.slice(2), searchQuery)}</h1>);
+        elements.push(<h1 key={i} className="text-xl font-bold text-white mt-6 mb-3">{processInlineFormatting(line.slice(2))}</h1>);
         return;
       }
       
@@ -620,7 +636,7 @@ function MessageContent({
       // Regular paragraph
       flushList();
       elements.push(
-        <p key={i} className="text-white/80 leading-relaxed mb-1">
+        <p key={i} className="text-[14px] text-white/80 leading-relaxed mb-1.5">
           {processInlineFormatting(line)}
         </p>
       );
@@ -634,21 +650,12 @@ function MessageContent({
     <div className="space-y-0">
       {/* Response Content */}
       <div className="relative">
-        <div className={cn(
-          "prose prose-invert prose-sm max-w-none",
-          !expanded && "max-h-[400px] overflow-hidden"
-        )}>
+        <div className="prose prose-invert prose-sm max-w-none">
           {renderContent(content)}
         </div>
         
-        {content.length > 1500 && (
-          <div className={cn(
-            "relative",
-            !expanded && "mt-0"
-          )}>
-            {!expanded && (
-              <div className="absolute -top-12 left-0 right-0 h-12 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none" />
-            )}
+        {content.length > 3000 && (
+          <div className="relative mt-0">
             <button
               onClick={() => setExpanded(!expanded)}
               className="flex items-center gap-1 text-xs text-[#7a8a6e] hover:text-[#9aaa8e] mt-2 transition-colors"
@@ -2157,7 +2164,10 @@ function DashboardContent() {
                     : m
                 ));
               } else if (eventType === 'complete') {
-                const finalContent = eventData.content || currentContent;
+                // CRITICAL: Never overwrite streamed content with empty or shorter content from complete event
+                const finalContent = (eventData.content && eventData.content.length > currentContent.length) 
+                  ? eventData.content 
+                  : currentContent;
                 const creditsUsed = eventData.credits_used || ({ 'quick': 2, 'deep': 5, 'agent': 5, 'creative': 3 }[searchMode] || 3);
                 const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
