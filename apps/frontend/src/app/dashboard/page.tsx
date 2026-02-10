@@ -47,7 +47,11 @@ import {
   Lock,
   Crown,
   TrendingUp,
-  ArrowRight
+  ArrowRight,
+  ThumbsUp,
+  ThumbsDown,
+  Share2,
+  RotateCcw
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
@@ -374,18 +378,60 @@ function MessageContent({
   sources, 
   followUpQuestions,
   onFollowUpClick,
-  searchQuery = ''
+  searchQuery = '',
+  messageId = ''
 }: { 
   content: string; 
   sources: Source[]; 
   followUpQuestions: string[];
   onFollowUpClick: (question: string) => void;
   searchQuery?: string;
+  messageId?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
+  const [showShareToast, setShowShareToast] = useState(false);
+
+  const handleFeedback = async (type: 'like' | 'dislike') => {
+    const newFeedback = feedback === type ? null : type;
+    setFeedback(newFeedback);
+    try {
+      if (messageId) {
+        await supabase.from('message_feedback').upsert({
+          message_id: messageId,
+          feedback_type: newFeedback,
+          created_at: new Date().toISOString()
+        }, { onConflict: 'message_id' });
+      }
+    } catch (e) { console.error('Feedback error:', e); }
+  };
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/share/${messageId || 'temp'}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShowShareToast(true);
+      setTimeout(() => setShowShareToast(false), 2000);
+    } catch {
+      // Fallback
+      const input = document.createElement('input');
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setShowShareToast(true);
+      setTimeout(() => setShowShareToast(false), 2000);
+    }
+  };
+
+  const handleRegenerate = () => {
+    // Re-send the last query
+    if (searchQuery) onFollowUpClick(searchQuery);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
@@ -744,22 +790,67 @@ function MessageContent({
         )}
       </div>
 
-      {/* Action Bar - Below content */}
-      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/[0.04]">
+      {/* Action Bar - ChatGPT-style buttons */}
+      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-white/[0.04]">
         <button
           onClick={handleCopy}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all border",
-            copied
-              ? "bg-[#2E3524]/20 text-[#8a9a7e] border-[#2E3524]/30"
-              : "text-white/40 hover:text-white/70 hover:bg-white/[0.04] border-transparent hover:border-white/[0.06]"
-          )}
-          title="Copy to clipboard"
+          className="p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+          title={copied ? 'Copied!' : 'Copy'}
         >
-          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? <Check className="h-4 w-4 text-[#8a9a7e]" /> : <Copy className="h-4 w-4" />}
         </button>
-        
+
+        <button
+          onClick={() => handleFeedback('like')}
+          className={cn(
+            "p-1.5 rounded-md transition-all",
+            feedback === 'like'
+              ? "text-[#8a9a7e] bg-[#2E3524]/20"
+              : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+          )}
+          title="Good response"
+        >
+          <ThumbsUp className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={() => handleFeedback('dislike')}
+          className={cn(
+            "p-1.5 rounded-md transition-all",
+            feedback === 'dislike'
+              ? "text-red-400/80 bg-red-500/10"
+              : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+          )}
+          title="Bad response"
+        >
+          <ThumbsDown className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={handleRegenerate}
+          className="p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+          title="Regenerate response"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+
+        <div className="relative">
+          <button
+            onClick={handleShare}
+            className="p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+            title="Share"
+          >
+            <Share2 className="h-4 w-4" />
+          </button>
+          {showShareToast && (
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2.5 py-1 bg-[#1a1a1a] border border-white/10 rounded-lg text-[10px] text-white/70 whitespace-nowrap shadow-xl">
+              Link copied!
+            </div>
+          )}
+        </div>
+
+        <div className="w-px h-4 bg-white/[0.06] mx-1" />
+
         <div
           className="relative"
           onMouseLeave={() => setShowExportMenu(false)}
@@ -767,17 +858,16 @@ function MessageContent({
           <button
             onMouseEnter={() => setShowExportMenu(true)}
             onClick={() => setShowExportMenu(!showExportMenu)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-all rounded-lg text-[11px] font-medium border border-transparent hover:border-white/[0.06]"
-            title="Export document"
+            className="flex items-center gap-1 p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+            title="Export"
           >
-            <FileDown className="h-3 w-3" />
-            Export
-            <ChevronDown className="h-2.5 w-2.5 ml-0.5" />
+            <FileDown className="h-4 w-4" />
+            <ChevronDown className="h-3 w-3" />
           </button>
           
           {showExportMenu && (
             <div 
-              className="absolute left-0 bottom-full mb-1 bg-[#161616] border border-white/[0.10] rounded-xl shadow-2xl z-50 min-w-[180px] py-1 backdrop-blur-xl"
+              className="absolute left-0 bottom-full mb-1 bg-[#161616] border border-white/[0.10] rounded-xl shadow-2xl z-50 min-w-[160px] py-1 backdrop-blur-xl"
               onMouseLeave={() => setShowExportMenu(false)}
             >
               {[
@@ -792,7 +882,7 @@ function MessageContent({
                   key={format}
                   onClick={() => handleExport(format)}
                   disabled={!!exporting}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-white/60 hover:text-white hover:bg-white/[0.05] transition-colors disabled:opacity-40 first:rounded-t-lg last:rounded-b-lg"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-white/60 hover:text-white hover:bg-white/[0.05] transition-colors disabled:opacity-40"
                 >
                   {exporting === format ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
                   {label}

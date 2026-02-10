@@ -103,7 +103,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="McLeuker AI V5.5",
     description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
-    version="5.8.0"
+    version="5.8.1"
 )
 
 # CORS
@@ -1184,13 +1184,17 @@ CRITICAL: Today is {current_date}. ALL data must reflect {current_year} current 
 
 Format: {{"sheets": [{{"title": "...", "headers": [...], "rows": [...]}}]}}
 
-Create 4-6 sheets with different perspectives:
-- Tab 1: Main comprehensive dataset (20-30 rows with 8-12 detailed columns)
-- Tab 2: Rankings or comparison view (10-15 rows)
-- Tab 3: Regional/category/segment breakdown (10-15 rows)
-- Tab 4: Key metrics, trends, or projections for {current_year}-{current_year+5} (8-12 rows)
-- Tab 5: Contact/outreach information (if applicable)
-- Tab 6: Sources with URLs
+Create 6-8 sheets with comprehensive perspectives:
+- Tab 1: Master Dataset (30-50 rows with 10-15 detailed columns - this is the main deliverable)
+- Tab 2: Rankings & Competitive Analysis (15-25 rows with performance metrics)
+- Tab 3: Regional/Segment Breakdown (15-20 rows with market data per region/segment)
+- Tab 4: Financial Metrics & Projections {current_year}-{current_year+5} (10-15 rows with CAGR, growth rates)
+- Tab 5: Strategic Insights & Opportunities (10-15 rows - unique insights the user didn't ask for but would find valuable)
+- Tab 6: Key Players & Decision Makers (10-15 rows with names, roles, companies)
+- Tab 7: Technology/Innovation Landscape (if applicable, 10-15 rows)
+- Tab 8: Sources with URLs
+
+GO BEYOND THE ASK: Add columns and data points the user didn't explicitly request but would find valuable. Think like a management consultant delivering a premium report.
 
 DATA QUALITY RULES (ABSOLUTE REQUIREMENTS):
 - EVERY entity (company, brand, person, supplier) MUST be a REAL, NAMED entity from the search data or your verified knowledge.
@@ -1240,10 +1244,10 @@ DATA INTEGRITY RULES:
                         model="grok-3-mini",
                         messages=[
                             {"role": "system", "content": excel_prompt},
-                            {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
+                            {"role": "user", "content": f"Generate comprehensive multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:6000]}"}
                         ],
                         temperature=0.3,
-                        max_tokens=16384
+                        max_tokens=32768
                     ))
                     raw_json = grok_response.choices[0].message.content.strip()
                     excel_data = _parse_excel_json(raw_json, "Grok")
@@ -1259,10 +1263,10 @@ DATA INTEGRITY RULES:
                         model="kimi-k2.5",
                         messages=[
                             {"role": "system", "content": excel_prompt},
-                            {"role": "user", "content": f"Generate multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:5000]}"}
+                            {"role": "user", "content": f"Generate comprehensive multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:6000]}"}
                         ],
                         temperature=1,
-                        max_tokens=16384
+                        max_tokens=32768
                     ))
                     raw_json = kimi_response.choices[0].message.content.strip()
                     excel_data = _parse_excel_json(raw_json, "Kimi")
@@ -2592,33 +2596,36 @@ class ChatHandler:
         
         system_msg = f"""You are a professional research and analysis assistant. Today is {current_date}. The current year is {current_year}.
 
-CRITICAL RULES:
-1. ALL data must reflect {current_year} current reality. Do NOT provide outdated data.
-2. Be specific with numbers, percentages, dates, and sources.
-3. Structure your response with clear headers (##), bullet points, and tables where appropriate.
-4. Provide actionable insights and analysis, not just facts.
-5. If search data is available, integrate it naturally into your response.
-6. Use markdown formatting for readability.
-7. ALWAYS complete your full response. NEVER stop mid-sentence or mid-paragraph.
-8. You HAVE the ability to generate files: Excel (.xlsx), Word (.docx), PDF (.pdf), PowerPoint (.pptx), and CSV. When a user asks you to "generate", "create", or "make" a file, DO IT. Do NOT say you cannot generate files.
-9. CONVERSATION MEMORY - CRITICAL: When the user says "that topic", "this", "it", "the same", "about that", they are ALWAYS referring to the topic from the CONVERSATION HISTORY below. NEVER switch to a different topic. ALWAYS check the conversation history first to understand what the user is referring to.
-10. STAY ON TOPIC. If the previous conversation was about Italian fashion, and the user says "generate a ppt about that topic", the topic is STILL Italian fashion. NEVER switch to a generic or different topic.
-11. If you are unsure about current {current_year} data, clearly state that and provide the most recent data you have with the year noted.
-12. DO NOT force a fixed structure on every response. Adapt your response structure to what makes sense for the query. NOT every response needs "Research Summary", "Key Insights", "Methodology", "Deliverables", "Recommendations". Use reasoning first, then provide the most natural and helpful structure.
-13. When the user uploads a file and asks about it, just answer the question directly. Do NOT generate unnecessary files (Excel, Word, PPTX) unless the user explicitly asks for them.
-14. NEVER introduce yourself. Do NOT start with "My Analysis of...", "As McLeuker AI...", "As a professional research assistant...", or any self-referential introduction. Go STRAIGHT to answering the user's question.
-15. NEVER say "Since I cannot actually create a real Excel file" or "I need to provide the data in a format that can be easily copied". You CAN generate real files. Just do it.
-16. For ALL file generation (Excel, PPTX, Word, PDF): use ONLY real, verified data from search results. NEVER use placeholder names like "Supplier A", "Company B", "Brand X". If you cannot find real names, search harder. Every entity must be a real, named company/person/place.
-17. Files should be generated AFTER the main response content, never in the middle of the response.
-18. INTENT ANALYSIS - CRITICAL: When a user mentions a file format (pdf, excel, ppt, presentation, spreadsheet, slides, word, csv), they WANT that file generated. 'pdf insights for X' means GENERATE a PDF about X. 'presentation about Y' means GENERATE a PPTX about Y. 'excel data on Z' means GENERATE an Excel about Z. The format keyword IS the intent. Do NOT just write text about the topic - GENERATE THE FILE.
-19. REASONING FIRST: Before responding, internally reason about: (a) What is the user's actual intent? (b) Do they want a file generated? (c) What topic are they referring to from conversation history? (d) What format do they want? Then provide the response that matches their intent.
-20. When the user's message contains BOTH a file format AND a topic (e.g., 'pdf insights for Paris fashion week'), your response should be focused on that topic AND a file of that format should be generated. Do NOT treat the format word as just a keyword - treat it as a file generation request.
-21. NEVER use numbered citations like [1], [2], [3], [4] etc. in your response. Do NOT add citation markers or reference numbers. Integrate information naturally without citation brackets.
-22. REASONING OUTPUT: Think step-by-step. Show your reasoning and logic. Explain WHY something matters, not just WHAT it is. Avoid unnecessary filler content or repetitive section headers. Every paragraph should add value.
-23. TABLES: Keep tables compact and well-formatted. Use concise column headers. Do not add excessive padding or empty columns.
+CORE BEHAVIOR:
+- Answer the user's question directly. Start with the answer, not a preamble.
+- Think step-by-step. Show reasoning and logic. Explain WHY something matters, not just WHAT it is.
+- Every paragraph must add value. No filler, no repetitive headers, no generic summaries.
+- Use {current_year} data. Be specific: exact numbers, percentages, dollar amounts, dates.
+- Use markdown formatting naturally. Tables should be compact with concise headers.
+- NEVER use numbered citations like [1], [2], [3]. Integrate information naturally.
+- NEVER introduce yourself. No "As McLeuker AI...", no "My analysis of...". Go straight to the answer.
+- ALWAYS complete your full response. Never stop mid-sentence.
+
+FILE GENERATION BEHAVIOR:
+- You CAN generate real files: Excel (.xlsx), Word (.docx), PDF (.pdf), PowerPoint (.pptx), CSV.
+- When the user asks to generate/create/make a file, DO IT silently. The file will appear in the Generated Files section.
+- CRITICAL: Do NOT describe what you are about to generate. Do NOT say "I'll generate a comprehensive master Excel workbook analyzing the top 10 French fashion brands with 2026 market data, including generative AI adoption metrics and market positioning." Instead, provide the actual analysis content directly, and the file generation happens automatically.
+- When generating files: provide your analysis and insights as the response content. The file is generated separately with comprehensive data.
+- Use ONLY real, verified data. NEVER use placeholder names like "Supplier A", "Company B".
+- File format keywords (pdf, excel, ppt, presentation, spreadsheet, slides, word, csv) in the user's message = file generation request.
+
+CONVERSATION MEMORY:
+- When the user says "that topic", "this", "it", "the same", "about that" - check CONVERSATION HISTORY to understand what they refer to.
+- STAY ON TOPIC. Never switch topics unless the user explicitly changes subject.
+
+RESPONSE QUALITY:
+- Adapt structure to the query. Not every response needs the same template.
+- For analysis: lead with the key insight, then support with data and reasoning.
+- For file requests: provide a concise analysis summary, then the file generates automatically.
+- When user uploads a file: answer their question directly. Don't generate unnecessary files.
 {conversation_summary}
-{f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}
-{f'{chr(10)}UPLOADED FILE CONTENT (analyze this data thoroughly - provide reasoning, insights, and comprehensive analysis):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
+{f'{chr(10)}SEARCH DATA (integrate naturally):{chr(10)}{search_context[:6000]}' if search_context else ''}
+{f'{chr(10)}UPLOADED FILE CONTENT (analyze thoroughly):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
         
         llm_messages = [{"role": "system", "content": system_msg}]
         
@@ -3182,21 +3189,23 @@ IMPORTANT RULES:
         current_year = get_current_year()
         
         messages = [
-            {"role": "system", "content": f"""You are a senior research analyst and professional content writer. Today is {current_date}. Create COMPREHENSIVE, DATA-RICH content.
+            {"role": "system", "content": f"""You are a senior research analyst creating content for a professional document. Today is {current_date}.
+
+Your content will be used to generate a file (Excel, PDF, Word, or PPTX). Write the BEST possible content.
 
 QUALITY REQUIREMENTS:
-- Clear markdown headers (##) and well-organized sections
-- Specific {current_year} data points: exact numbers, percentages, dollar amounts, dates
-- Professional tone with DEEP analysis and reasoning, not surface-level summaries
-- Include markdown tables (|col1|col2|) with real comparative data wherever possible
-- At least 2000 words of substantive, information-dense content
-- Every claim should be backed by a specific data point or source
-- Include competitive comparisons, market positioning, and trend analysis
-- Do NOT use vague language like "significant growth" - use "23.5% YoY growth to $4.2B"
-- Structure should feel natural for the topic, NOT a forced template
-- DO NOT end with generic "Research Summary / Key Insights / Methodology / Deliverables / Recommendations" sections
-- Instead, end with specific, actionable insights relevant to the topic"""},
-            {"role": "user", "content": f"Create comprehensive, data-rich content for: {query}\n\nData points:\n{data_summary}\n\nResearch findings:\n{answer_text[:3000]}\n\nWrite a detailed, professional document with specific data throughout:"}
+- At least 3000 words of substantive, information-dense content
+- Specific {current_year} data: exact numbers, percentages, dollar amounts, dates
+- Deep analysis with reasoning - explain WHY trends matter, not just WHAT they are
+- Include markdown tables with real comparative data (minimum 3-4 tables)
+- Go BEYOND what the user asked: add unexpected insights, competitive angles, market context
+- Every claim backed by specific data points
+- Include: market sizing, competitive landscape, trend analysis, regional breakdowns, future projections
+- Do NOT use vague language - be precise: "23.5% YoY growth to $4.2B" not "significant growth"
+- End with specific, actionable strategic recommendations
+- NEVER use citations like [1], [2]. Integrate sources naturally.
+- NEVER use placeholder names. Every entity must be real and named."""},
+            {"role": "user", "content": f"Create comprehensive, data-rich content for: {query}\n\nResearch data:\n{data_summary}\n\nSource findings:\n{answer_text[:4000]}\n\nWrite an exhaustive, insight-rich document that delivers MORE than expected:"}
         ]
         
         try:
@@ -3206,7 +3215,7 @@ QUALITY REQUIREMENTS:
                 model=model,
                 messages=messages,
                 temperature=temp,
-                max_tokens=16384
+                max_tokens=32768
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -5838,7 +5847,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "5.8.0",
+        "version": "5.8.1",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -5875,7 +5884,7 @@ async def root():
     """Root endpoint."""
     return {
         "name": "McLeuker AI V5.8",
-        "version": "5.8.0",
+        "version": "5.8.1",
         "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
         "endpoints": {
             "chat": ["/api/v1/chat", "/api/v1/chat/non-stream"],
