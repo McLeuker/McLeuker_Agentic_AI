@@ -1225,16 +1225,27 @@ function ProfileDropdown() {
   const fetchUserData = useCallback(async () => {
     if (!user) return;
     try {
+      // Fetch profile data from users table
       const { data, error } = await supabase
         .from("users")
-        .select("name, profile_image, credit_balance, subscription_plan")
+        .select("name, profile_image, subscription_plan")
         .eq("id", user.id)
         .single();
       
       if (data && !error) {
         setUserProfile({ name: data.name, profile_image: data.profile_image });
-        setCreditBalance(data.credit_balance ?? 50);
         setPlan(data.subscription_plan || 'free');
+      }
+      
+      // Fetch credit balance from user_credits table (source of truth)
+      const { data: creditData } = await supabase
+        .from("user_credits")
+        .select("balance")
+        .eq("user_id", user.id)
+        .single();
+      
+      if (creditData) {
+        setCreditBalance(creditData.balance ?? 50);
       }
     } catch (err) {
       console.error('Error fetching user data:', err);

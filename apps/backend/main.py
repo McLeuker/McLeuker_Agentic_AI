@@ -2451,6 +2451,7 @@ class ChatHandler:
         
         # Credit billing - check balance and start task
         billing_task_id = None
+        credits_to_deduct = 0
         user_id = getattr(request, 'user_id', None)
         if credit_service and user_id:
             try:
@@ -2458,13 +2459,10 @@ class ChatHandler:
                 if not has_credits:
                     yield event("error", {"message": "Insufficient credits. Please purchase more credits or claim your daily free credits."})
                     return
-                billing_task_id = await credit_service.start_task(
-                    user_id=user_id,
-                    task_type="chat",
-                    module_type="search",
-                    conversation_id=conversation_id,
-                    input_data={"query": user_message[:200]}
-                )
+                # Determine credit cost based on mode
+                mode_costs = {'quick': 5, 'deep': 15, 'agent': 25, 'creative': 10}
+                credits_to_deduct = mode_costs.get(request.mode.value, 10)
+                billing_task_id = str(conversation_id or 'task')
             except Exception as e:
                 logger.warning(f"Billing check failed (non-blocking): {e}")
         
@@ -2743,20 +2741,27 @@ CRITICAL RULES:
         yield event("follow_up", {"questions": follow_ups})
         
         # Complete billing task
-        if billing_task_id and credit_service:
+        credits_used = 0
+        if credit_service and user_id and credits_to_deduct > 0:
             try:
-                await credit_service.complete_task(
-                    task_id=billing_task_id,
-                    status="completed",
-                    output_data={"response_length": len(full_response), "files_generated": len(all_downloads)}
+                billing_result = await credit_service.deduct_credits(
+                    user_id=user_id,
+                    amount=credits_to_deduct,
+                    reason=f"chat_{request.mode.value}"
                 )
+                if billing_result.success:
+                    credits_used = billing_result.credits_used
+                    logger.info(f"Deducted {credits_used} credits from user {user_id}. Remaining: {billing_result.remaining_balance}")
+                else:
+                    logger.warning(f"Credit deduction failed: {billing_result.error}")
             except Exception as e:
                 logger.warning(f"Billing completion failed (non-blocking): {e}")
         
         yield event("complete", {
             "content": full_response[:500],
             "conversation_id": conversation_id,
-            "follow_up_questions": follow_ups
+            "follow_up_questions": follow_ups,
+            "credits_used": credits_used
         })
     
     @staticmethod
