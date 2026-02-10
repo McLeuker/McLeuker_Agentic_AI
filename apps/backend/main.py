@@ -1,5 +1,5 @@
 """
-McLeuker AI V5.4 - Complete Backend with Kimi-2.5 Full Capabilities + Critical Fixes
+McLeuker AI V5.5 - Complete Backend with Billing & Pricing Overhaul
 ====================================================================
 
 Features:
@@ -101,9 +101,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 app = FastAPI(
-    title="McLeuker AI V5.4",
+    title="McLeuker AI V5.5",
     description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
-    version="5.4.0"
+    version="5.5.0"
 )
 
 # CORS
@@ -5639,7 +5639,7 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {
-        "name": "McLeuker AI V5.4",
+        "name": "McLeuker AI V5.5",
         "version": "5.4.0",
         "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
         "endpoints": {
@@ -5663,7 +5663,7 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize persistent file store on server boot."""
-    logger.info("McLeuker AI V5.4 starting up...")
+    logger.info("McLeuker AI V5.5 starting up...")
     await PersistentFileStore.initialize()
     logger.info(f"Persistent file store loaded: {len(PersistentFileStore._file_cache)} files cached")
     logger.info("Startup complete.")
