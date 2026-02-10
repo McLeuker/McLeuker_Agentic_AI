@@ -2,41 +2,39 @@
 
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { Zap, Brain, Bot, Code2, ChevronDown, Check } from "lucide-react";
+import { Sparkles, Zap, Bot, ChevronDown, Check } from "lucide-react";
 
-export type SearchMode = "quick" | "deep" | "agent" | "creative";
+export type SearchMode = "auto" | "instant" | "agent";
 
 interface ModelOption {
   id: SearchMode;
   label: string;
   description: string;
   icon: React.ElementType;
+  credits: string;
 }
 
 const MODEL_OPTIONS: ModelOption[] = [
   {
-    id: "quick",
-    label: "Quick",
-    description: "Fast, concise answers",
-    icon: Zap,
+    id: "auto",
+    label: "Auto",
+    description: "Smart routing, deep analysis",
+    icon: Sparkles,
+    credits: "10cr",
   },
   {
-    id: "deep",
-    label: "Research",
-    description: "Deep multi-source analysis",
-    icon: Brain,
+    id: "instant",
+    label: "Instant",
+    description: "Fast, concise answers",
+    icon: Zap,
+    credits: "5cr",
   },
   {
     id: "agent",
     label: "Agent",
-    description: "Multi-step reasoning",
+    description: "Multi-step reasoning & tasks",
     icon: Bot,
-  },
-  {
-    id: "creative",
-    label: "Creative",
-    description: "Code & creative writing",
-    icon: Code2,
+    credits: "25cr",
   },
 ];
 
@@ -103,6 +101,9 @@ export function InlineModelPicker({
         <span className={cn("text-white/70 font-medium", compact ? "text-[10px]" : "text-[11px]")}>
           {selected.label}
         </span>
+        <span className={cn("text-white/30 font-normal", compact ? "text-[9px]" : "text-[10px]")}>
+          {selected.credits}
+        </span>
         <ChevronDown
           className={cn(
             "text-white/30 transition-transform duration-200",
@@ -161,13 +162,18 @@ export function InlineModelPicker({
                     <Icon className="h-3.5 w-3.5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div
-                      className={cn(
-                        "text-xs font-medium",
-                        isSelected ? "text-white/90" : "text-white/60"
-                      )}
-                    >
-                      {option.label}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "text-xs font-medium",
+                          isSelected ? "text-white/90" : "text-white/60"
+                        )}
+                      >
+                        {option.label}
+                      </span>
+                      <span className="text-[9px] text-white/25">
+                        {option.credits}
+                      </span>
                     </div>
                     <div className="text-[10px] text-white/30 leading-tight">
                       {option.description}

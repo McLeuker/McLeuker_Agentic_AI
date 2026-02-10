@@ -97,7 +97,7 @@ export function DomainHero({
 }: DomainHeroProps) {
   const theme = domainThemes[sector] || defaultTheme;
   const [query, setQuery] = useState("");
-  const [searchMode, setSearchMode] = useState<SearchMode>("deep");
+  const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {

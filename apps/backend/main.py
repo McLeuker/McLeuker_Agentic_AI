@@ -2460,7 +2460,7 @@ class ChatHandler:
                     yield event("error", {"message": "Insufficient credits. Please purchase more credits or claim your daily free credits."})
                     return
                 # Determine credit cost based on mode
-                mode_costs = {'quick': 5, 'deep': 15, 'agent': 25, 'creative': 10}
+                mode_costs = {'instant': 5, 'research': 10, 'agent': 25, 'thinking': 10, 'code': 10, 'hybrid': 10, 'swarm': 25}
                 credits_to_deduct = mode_costs.get(request.mode.value, 10)
                 billing_task_id = str(conversation_id or 'task')
             except Exception as e:

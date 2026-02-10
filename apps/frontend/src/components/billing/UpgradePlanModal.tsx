@@ -100,7 +100,7 @@ const plans: Plan[] = [
     features: [
       '300 daily fresh credits',
       'All 10 domains',
-      'Agent mode & creative',
+      'Agent mode & auto analysis',
       'Advanced trend forecasting',
       'Supplier intelligence',
       'Unlimited concurrent tasks',
@@ -208,7 +208,7 @@ export function UpgradePlanModal({ open, onOpenChange }: UpgradePlanModalProps) 
               Choose your plan
             </DialogTitle>
             <DialogDescription className="text-white/50">
-              Upgrade to unlock more domains, deep search, file exports, and agent mode.
+              Upgrade to unlock more domains, auto analysis, file exports, and agent mode.
             </DialogDescription>
           </DialogHeader>
 

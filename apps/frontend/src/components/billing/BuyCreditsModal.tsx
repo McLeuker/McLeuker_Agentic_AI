@@ -125,7 +125,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
               Buy Credits
             </DialogTitle>
             <DialogDescription className="text-white/50">
-              Purchase credits to use for deep search, agent mode, creative tasks, and file exports.
+              Purchase credits to use for auto analysis, agent mode, instant search, and file exports.
             </DialogDescription>
           </DialogHeader>
 

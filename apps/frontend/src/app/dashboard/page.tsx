@@ -1804,7 +1804,7 @@ function DashboardContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [searchMode, setSearchMode] = useState<'quick' | 'deep' | 'agent' | 'creative'>('quick');
+  const [searchMode, setSearchMode] = useState<'auto' | 'instant' | 'agent'>('auto');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
@@ -2122,7 +2122,7 @@ function DashboardContent() {
 
     try {
       // Map frontend mode names to backend mode names
-      const modeMap: Record<string, string> = { 'quick': 'instant', 'deep': 'research', 'agent': 'agent', 'creative': 'code' };
+      const modeMap: Record<string, string> = { 'auto': 'research', 'instant': 'instant', 'agent': 'agent' };
       const backendMode = modeMap[searchMode] || 'research';
       
       // Build messages array with optional sector context
@@ -2425,7 +2425,7 @@ function DashboardContent() {
                 const finalContent = (eventData.content && eventData.content.length > currentContent.length) 
                   ? eventData.content 
                   : currentContent;
-                const creditsUsed = eventData.credits_used || ({ 'quick': 2, 'deep': 5, 'agent': 5, 'creative': 3 }[searchMode] || 3);
+                const creditsUsed = eventData.credits_used || ({ 'auto': 10, 'instant': 5, 'agent': 25 }[searchMode] || 10);
                 const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));

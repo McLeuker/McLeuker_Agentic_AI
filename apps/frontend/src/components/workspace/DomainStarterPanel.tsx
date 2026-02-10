@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { useSector } from "@/contexts/SectorContext";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Zap, Microscope } from "lucide-react";
+import { ArrowRight, Sparkles, Zap, Bot } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-type ResearchMode = "quick" | "deep";
+type ResearchMode = "auto" | "instant" | "agent";
 
 interface DomainStarterPanelProps {
   onSelectPrompt: (prompt: string, mode?: ResearchMode) => void;
@@ -21,7 +21,7 @@ export function DomainStarterPanel({
   const config = getSectorConfig();
   const starters = getStarters();
   const [searchValue, setSearchValue] = useState("");
-  const [researchMode, setResearchMode] = useState<ResearchMode>("quick");
+  const [researchMode, setResearchMode] = useState<ResearchMode>("auto");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,31 +56,43 @@ export function DomainStarterPanel({
             Powered by McLeuker AI • All Domains Intelligence Mode
           </p>
 
-          {/* Mode Toggle */}
+          {/* Mode Toggle - 3 modes: Auto / Instant / Agent */}
           <div className="flex items-center gap-1 bg-white/[0.05] rounded-lg p-1 mb-6">
             <button
-              onClick={() => setResearchMode("quick")}
+              onClick={() => setResearchMode("auto")}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
-                researchMode === "quick" 
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" 
+                researchMode === "auto" 
+                  ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20" 
+                  : "text-white/60 hover:text-white hover:bg-white/[0.08]"
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Auto
+            </button>
+            <button
+              onClick={() => setResearchMode("instant")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
+                researchMode === "instant" 
+                  ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20" 
                   : "text-white/60 hover:text-white hover:bg-white/[0.08]"
               )}
             >
               <Zap className="w-3.5 h-3.5" />
-              Quick
+              Instant
             </button>
             <button
-              onClick={() => setResearchMode("deep")}
+              onClick={() => setResearchMode("agent")}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all",
-                researchMode === "deep" 
-                  ? "bg-purple-600 text-white shadow-lg shadow-purple-600/20" 
+                researchMode === "agent" 
+                  ? "bg-[#2E3524] text-white shadow-lg shadow-[#2E3524]/20" 
                   : "text-white/60 hover:text-white hover:bg-white/[0.08]"
               )}
             >
-              <Microscope className="w-3.5 h-3.5" />
-              Deep
+              <Bot className="w-3.5 h-3.5" />
+              Agent
             </button>
           </div>
 
@@ -106,7 +118,7 @@ export function DomainStarterPanel({
           {/* Credit Hint */}
           <div className="text-center mb-8">
             <p className="text-white/50 text-xs">
-              {researchMode === "quick" ? "4-12" : "50"} credits • Press Enter to send
+              {{ "auto": "10", "instant": "5", "agent": "25" }[researchMode]} credits • Press Enter to send
             </p>
             <p className="text-white/40 text-xs mt-1 hidden sm:block">
               Shift + Enter for new line
