@@ -5838,7 +5838,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "5.7.0",
+        "version": "5.8.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -5874,8 +5874,8 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {
-        "name": "McLeuker AI V5.6",
-        "version": "5.7.0",
+        "name": "McLeuker AI V5.8",
+        "version": "5.8.0",
         "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
         "endpoints": {
             "chat": ["/api/v1/chat", "/api/v1/chat/non-stream"],
