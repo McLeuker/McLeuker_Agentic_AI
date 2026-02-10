@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
+import { useDailyCredits } from "@/hooks/useDailyCredits";
 import { supabase } from "@/integrations/supabase/client";
 import { InlineModelPicker } from "@/components/chat/InlineModelPicker";
 import { useConversations, Conversation } from "@/hooks/useConversations";
@@ -1772,6 +1773,9 @@ function DashboardContent() {
   const { currentSector } = useSector();
   const sectorConfig = SECTORS.find(s => s.id === currentSector) || SECTORS[0];
   
+  // Auto-claim daily credits on dashboard load
+  const { lastResult: dailyCreditResult } = useDailyCredits();
+  
   const {
     conversations,
     currentConversation,
@@ -2133,14 +2137,21 @@ function DashboardContent() {
         chatMessages.push({ role: 'user', content: messageText });
       }
       
+      const chatHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        chatHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
       const response = await fetch(`${API_URL}/api/v1/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: chatHeaders,
         body: JSON.stringify({
           messages: chatMessages,
           mode: backendMode,
           stream: true,
           enable_tools: true,
+          user_id: user?.id || undefined,
+          conversation_id: currentConversation?.id || undefined,
         }),
         signal: currentAbortController.signal,
       });
@@ -2755,11 +2766,22 @@ function DashboardContent() {
                 {/* Ambient glow */}
                 <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.04] blur-[120px] pointer-events-none" />
                 
-                {/* Title */}
-                <div className="pt-8 pb-4 flex items-center justify-center">
-                  <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
-                    Where is my mind?
-                  </h1>
+                {/* Title - "Where is my mind?" only on Global, domain tagline on others */}
+                <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-2">
+                  {currentSector === 'all' ? (
+                    <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                      Where is my mind?
+                    </h1>
+                  ) : (
+                    <>
+                      <h1 className="relative text-2xl md:text-3xl lg:text-4xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                        {sectorConfig.label} Intelligence
+                      </h1>
+                      <p className="text-sm text-white/40 font-light tracking-wide">
+                        {sectorConfig.tagline}
+                      </p>
+                    </>
+                  )}
                 </div>
                 
                 {/* Domain Trends - Only shown for non-Global domains */}

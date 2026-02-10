@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -24,6 +23,9 @@ import {
   Star,
   Tag,
   Info,
+  Calendar,
+  Repeat,
+  CreditCard,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -58,16 +60,13 @@ interface BuyCreditsModalProps {
 export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
   const { user, session } = useAuth();
   const [currentPlan, setCurrentPlan] = useState<string>('free');
-  const [billingInterval, setBillingInterval] = useState<string>('month');
+  const [purchaseType, setPurchaseType] = useState<'one-time' | 'annual'>('one-time');
   const [creditBalance, setCreditBalance] = useState<number>(0);
   const [purchasingPack, setPurchasingPack] = useState<string | null>(null);
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
 
-  const isAnnual = billingInterval === 'year';
-
   useEffect(() => {
     if (!user || !session || !open) return;
-    // Fetch current plan and billing info
     fetch(`${API_URL}/api/v1/billing/credits`, {
       headers: { 'Authorization': `Bearer ${session.access_token}` },
     })
@@ -76,10 +75,6 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
         if (data.success) {
           setCurrentPlan(data.data?.plan || 'free');
           setCreditBalance(data.data?.balance || 0);
-          // Check if user is on annual billing
-          if (data.data?.billing_interval === 'year') {
-            setBillingInterval('year');
-          }
         }
       })
       .catch(console.error);
@@ -93,6 +88,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
 
     setPurchasingPack(packSlug);
     try {
+      const isAnnualPurchase = purchaseType === 'annual';
       const res = await fetch(`${API_URL}/api/v1/billing/checkout`, {
         method: 'POST',
         headers: {
@@ -100,8 +96,9 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          package_slug: packSlug,
-          mode: 'payment',
+          package_slug: isAnnualPurchase ? `${packSlug}-annual` : packSlug,
+          mode: isAnnualPurchase ? 'subscription' : 'payment',
+          billing_interval: isAnnualPurchase ? 'year' : undefined,
         }),
       });
       const data = await res.json();
@@ -119,7 +116,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[640px] w-[95vw] max-h-[90vh] overflow-hidden bg-[#111111] border-white/[0.08] p-0">
+      <DialogContent className="max-w-[680px] w-[95vw] max-h-[90vh] overflow-hidden bg-[#111111] border-white/[0.08] p-0">
         {/* Header */}
         <div className="p-6 pb-0">
           <DialogHeader>
@@ -144,21 +141,50 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
             </div>
           </div>
 
-          {/* Annual discount banner */}
-          {(currentPlan === 'standard' || currentPlan === 'pro' || currentPlan === 'enterprise') && isAnnual && (
-            <div className="mt-3 p-2.5 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center gap-2">
-              <Tag className="h-4 w-4 text-green-400 flex-shrink-0" />
-              <p className="text-xs text-green-400">
-                Annual subscriber discount applied — <strong>18% off</strong> all credit purchases!
+          {/* Purchase Type Toggle: One-Time vs Annual */}
+          <div className="mt-4 p-1 rounded-xl bg-white/[0.03] border border-white/[0.06] flex">
+            <button
+              onClick={() => setPurchaseType('one-time')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm transition-all',
+                purchaseType === 'one-time'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.10]'
+                  : 'text-white/40 hover:text-white/60'
+              )}
+            >
+              <CreditCard className="h-3.5 w-3.5" />
+              One-Time Purchase
+            </button>
+            <button
+              onClick={() => setPurchaseType('annual')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm transition-all relative',
+                purchaseType === 'annual'
+                  ? 'bg-white/[0.08] text-white border border-white/[0.10]'
+                  : 'text-white/40 hover:text-white/60'
+              )}
+            >
+              <Repeat className="h-3.5 w-3.5" />
+              Annual Credit Plan
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/20 font-medium">
+                -18%
+              </span>
+            </button>
+          </div>
+
+          {/* Purchase type description */}
+          {purchaseType === 'one-time' ? (
+            <div className="mt-3 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-white/30 flex-shrink-0" />
+              <p className="text-xs text-white/40">
+                Buy credits once. Credits never expire and are added to your balance immediately.
               </p>
             </div>
-          )}
-
-          {(currentPlan === 'free') && (
-            <div className="mt-3 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06] flex items-center gap-2">
-              <Info className="h-4 w-4 text-white/30 flex-shrink-0" />
-              <p className="text-xs text-white/40">
-                Upgrade to an annual plan to save <strong className="text-white/60">18%</strong> on all credit purchases.
+          ) : (
+            <div className="mt-3 p-2.5 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-green-400 flex-shrink-0" />
+              <p className="text-xs text-green-400">
+                Subscribe to receive credits <strong>every month</strong> at <strong>18% off</strong>. Billed annually. Cancel anytime.
               </p>
             </div>
           )}
@@ -191,15 +217,23 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
         {/* Scrollable Credit Tiers */}
         <div className="px-6 pb-6 pt-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Select Credit Amount</h3>
-            <p className="text-[10px] text-white/30">$0.10 per credit</p>
+            <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">
+              {purchaseType === 'annual' ? 'Select Monthly Credit Amount' : 'Select Credit Amount'}
+            </h3>
+            <p className="text-[10px] text-white/30">
+              {purchaseType === 'annual' ? '$0.082 per credit/mo' : '$0.10 per credit'}
+            </p>
           </div>
 
-          <div className="max-h-[320px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+          <div className="max-h-[280px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {creditTiers.map((tier) => {
-                const displayPrice = isAnnual ? Math.round(tier.price * (1 - ANNUAL_DISCOUNT)) : tier.price;
-                const savings = isAnnual ? tier.price - displayPrice : 0;
+                const isAnnual = purchaseType === 'annual';
+                const oneTimePrice = tier.price;
+                const annualMonthlyPrice = Math.round(tier.price * (1 - ANNUAL_DISCOUNT));
+                const annualTotalPrice = annualMonthlyPrice * 12;
+                const displayPrice = isAnnual ? annualMonthlyPrice : oneTimePrice;
+                const savings = isAnnual ? (oneTimePrice * 12) - annualTotalPrice : 0;
                 const isSelected = selectedTier === tier.slug;
 
                 return (
@@ -240,38 +274,93 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
                     <p className="text-lg font-editorial text-white/90 leading-tight">
                       {tier.credits.toLocaleString()}
                     </p>
-                    <p className="text-[10px] text-white/30 mb-1.5">credits</p>
+                    <p className="text-[10px] text-white/30 mb-1.5">
+                      {isAnnual ? 'credits / month' : 'credits'}
+                    </p>
 
                     <div className="flex items-baseline gap-1.5">
-                      <p className="text-base font-medium text-white/80">${displayPrice.toLocaleString()}</p>
-                      {isAnnual && savings > 0 && (
-                        <p className="text-[10px] text-white/30 line-through">${tier.price}</p>
+                      <p className="text-base font-medium text-white/80">
+                        ${displayPrice.toLocaleString()}
+                        {isAnnual && <span className="text-[10px] text-white/40">/mo</span>}
+                      </p>
+                      {isAnnual && (
+                        <p className="text-[10px] text-white/30 line-through">${oneTimePrice}</p>
                       )}
                     </div>
 
-                    {isAnnual && savings > 0 && (
-                      <p className="text-[9px] text-green-400/70 mt-0.5">Save ${savings}</p>
+                    {isAnnual && (
+                      <div className="mt-0.5">
+                        <p className="text-[9px] text-white/30">
+                          ${annualTotalPrice.toLocaleString()}/yr
+                        </p>
+                        <p className="text-[9px] text-green-400/70">
+                          Save ${savings.toLocaleString()}/yr
+                        </p>
+                      </div>
                     )}
 
-                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                      <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
-                        {purchasingPack === tier.slug ? (
-                          <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing...</>
-                        ) : (
-                          <>Buy <ArrowRight className="w-2.5 h-2.5" /></>
-                        )}
-                      </span>
-                    </div>
+                    {!isAnnual && (
+                      <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                        <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
+                          {purchasingPack === tier.slug ? (
+                            <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing...</>
+                          ) : (
+                            <>Buy now <ArrowRight className="w-2.5 h-2.5" /></>
+                          )}
+                        </span>
+                      </div>
+                    )}
+
+                    {isAnnual && (
+                      <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                        <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
+                          {purchasingPack === tier.slug ? (
+                            <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing...</>
+                          ) : (
+                            <>Subscribe <ArrowRight className="w-2.5 h-2.5" /></>
+                          )}
+                        </span>
+                      </div>
+                    )}
                   </button>
                 );
               })}
             </div>
           </div>
 
+          {/* Annual comparison summary */}
+          {purchaseType === 'annual' && (
+            <div className="mt-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="h-3.5 w-3.5 text-white/40" />
+                <p className="text-xs font-medium text-white/60">Annual Credit Plan Benefits</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-[10px] text-white/30">Discount</p>
+                  <p className="text-sm font-medium text-green-400">18% off</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-white/30">Delivery</p>
+                  <p className="text-sm font-medium text-white/70">Monthly</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-white/30">Billing</p>
+                  <p className="text-sm font-medium text-white/70">Annually</p>
+                </div>
+              </div>
+              <p className="text-[10px] text-white/30 mt-2 text-center">
+                Credits are delivered monthly. Billed once per year. Cancel anytime with remaining months refunded.
+              </p>
+            </div>
+          )}
+
           {/* Footer info */}
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between">
             <p className="text-[10px] text-white/30">
-              Credits never expire. Secure payment via Stripe.
+              {purchaseType === 'annual'
+                ? 'Annual subscription. Credits delivered monthly. Cancel anytime.'
+                : 'Credits never expire. Secure payment via Stripe.'}
             </p>
             <div className="flex items-center gap-1 text-[10px] text-white/30">
               <Check className="h-3 w-3" />
