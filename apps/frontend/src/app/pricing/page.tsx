@@ -216,7 +216,7 @@ export default function PricingPage() {
       // Not logged in
       if (planSlug === 'free') return 'Get Started Free';
       if (planSlug === 'enterprise') return 'Contact Sales';
-      return 'Start Free Trial';
+      return 'Subscribe';
     }
     // Logged in
     if (planSlug === 'enterprise') return 'Contact Sales';
@@ -245,7 +245,7 @@ export default function PricingPage() {
       return;
     }
     if (!session?.access_token) {
-      window.location.href = '/login';
+      window.location.href = `/login?redirect=/pricing&plan=${planSlug}`;
       return;
     }
     setSubscribing(planSlug);
@@ -467,10 +467,10 @@ export default function PricingPage() {
                 Credits never expire and work for all task types including deep search, agent mode, and creative.
               </p>
               <Link
-                href="/dashboard"
+                href={user ? "/billing" : "/login?redirect=/billing"}
                 className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-xl border border-white/[0.10] text-white/60 text-sm hover:bg-white/[0.04] transition-all"
               >
-                Buy Credits in Dashboard <ArrowRight className="w-3.5 h-3.5" />
+                Buy Credits <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
           </div>

@@ -43,7 +43,8 @@ function LoginContent() {
       setError(error.message || "Failed to sign in");
       setIsLoading(false);
     } else {
-      router.push("/dashboard");
+      const redirectUrl = searchParams.get('redirect') || '/dashboard';
+      router.push(redirectUrl);
     }
   };
 

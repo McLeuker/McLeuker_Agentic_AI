@@ -2400,11 +2400,50 @@ class ChatHandler:
         
         conversation_id = request.conversation_id or str(uuid.uuid4())
         user_message = ""
+        uploaded_file_context = ""  # Extracted text from uploaded files
+        has_uploaded_files = False
+        
         for msg in reversed(request.messages):
-            content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            if msg.role == "user" and content:
-                user_message = content
-                break
+            if msg.role == "user":
+                if isinstance(msg.content, str):
+                    if msg.content:
+                        user_message = msg.content
+                        break
+                elif isinstance(msg.content, list):
+                    # Multimodal message - extract text and file content
+                    for part in msg.content:
+                        if isinstance(part, dict):
+                            if part.get("type") == "text":
+                                user_message = part.get("text", "")
+                            elif part.get("type") == "image_url":
+                                url_data = part.get("image_url", {}).get("url", "")
+                                if url_data.startswith("data:"):
+                                    mime_type = url_data.split(";")[0].replace("data:", "")
+                                    doc_types = [
+                                        "application/pdf",
+                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                        "text/csv", "text/plain", "application/json",
+                                        "application/vnd.ms-excel", "application/msword"
+                                    ]
+                                    if mime_type in doc_types:
+                                        has_uploaded_files = True
+                                        try:
+                                            b64_data = url_data.split(",", 1)[1] if "," in url_data else ""
+                                            if b64_data:
+                                                file_bytes = base64.b64decode(b64_data)
+                                                extracted = await FileUploadManager._extract_document_text(
+                                                    file_bytes, mime_type, "uploaded_file"
+                                                )
+                                                if extracted:
+                                                    uploaded_file_context += f"\n\n=== Uploaded Document Content ===\n{extracted[:5000]}"
+                                        except Exception as e:
+                                            logger.warning(f"Failed to extract uploaded file content: {e}")
+                                    elif mime_type.startswith("image/"):
+                                        has_uploaded_files = True
+                    if user_message:
+                        break
         
         if not user_message:
             yield event("error", {"message": "No user message found"})
@@ -2549,7 +2588,8 @@ CRITICAL RULES:
 19. REASONING FIRST: Before responding, internally reason about: (a) What is the user's actual intent? (b) Do they want a file generated? (c) What topic are they referring to from conversation history? (d) What format do they want? Then provide the response that matches their intent.
 20. When the user's message contains BOTH a file format AND a topic (e.g., 'pdf insights for Paris fashion week'), your response should be focused on that topic AND a file of that format should be generated. Do NOT treat the format word as just a keyword - treat it as a file generation request.
 {conversation_summary}
-{f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}"""
+{f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}
+{f'{chr(10)}UPLOADED FILE CONTENT (analyze this data thoroughly - provide reasoning, insights, and comprehensive analysis):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
         
         llm_messages = [{"role": "system", "content": system_msg}]
         
@@ -2573,10 +2613,30 @@ CRITICAL RULES:
                 full_response += evt_data.get("data", {}).get("chunk", "")
         
         # Detect if file generation is needed
-        file_types_needed = ChatHandler._detect_file_needs(user_message)
+        file_types_needed = ChatHandler._detect_file_needs(user_message, has_uploaded_files=has_uploaded_files)
         
         if file_types_needed:
             yield event("status", {"message": f"Generating {', '.join(file_types_needed)} file(s)..."})
+            
+            # NEW: If no search data exists, do a search first to get real data for file generation
+            if not search_context and not uploaded_file_context:
+                yield event("status", {"message": "Researching data for file generation..."})
+                try:
+                    file_search_results = await SearchLayer.search(user_message, sources=["web", "news"], num_results=10)
+                    file_structured_data = file_search_results.get("structured_data", {})
+                    if file_structured_data.get("data_points"):
+                        structured_data = file_structured_data
+                        search_results = file_search_results
+                        # Build search context for file generation
+                        for dp in structured_data.get("data_points", [])[:15]:
+                            search_context += f"- {dp.get('title', '')}: {dp.get('description', '')[:200]}\n"
+                        for source_name in ["perplexity", "grok", "google", "exa", "bing", "firecrawl"]:
+                            if source_name in search_results.get("results", {}):
+                                answer = search_results["results"][source_name].get("answer", "")
+                                if answer:
+                                    search_context += f"\n{answer[:1500]}\n"
+                except Exception as e:
+                    logger.warning(f"Pre-file-generation search failed: {e}")
             
             # CRITICAL: Resolve the actual topic for file generation
             # ANY file generation request that doesn't contain a clear topic should use conversation_topic
@@ -2604,9 +2664,18 @@ CRITICAL RULES:
             for file_type in file_types_needed:
                 try:
                     # Generate content for documents using LLM
+                    # IMPROVED: Always generate comprehensive content for files, not just when response is short
                     content_for_file = full_response
-                    if file_type != "excel" and len(full_response) < 500:
-                        content_for_file = await ChatHandler._generate_content(file_topic, structured_data)
+                    if file_type != "excel":
+                        # Always generate dedicated file content for better quality
+                        try:
+                            generated_content = await ChatHandler._generate_content(file_topic, structured_data)
+                            if generated_content and len(generated_content) > len(full_response):
+                                content_for_file = generated_content
+                            elif len(full_response) < 500:
+                                content_for_file = generated_content or full_response
+                        except Exception as gen_err:
+                            logger.warning(f"Content generation for file failed, using response: {gen_err}")
                     
                     full_data_for_excel = {
                         **structured_data,
@@ -2627,6 +2696,28 @@ CRITICAL RULES:
                     if result.get("success"):
                         # Quality double-check
                         quality_ok = await ChatHandler._quality_check(file_type, user_message, result)
+                        
+                        # NEW: If quality check fails, re-generate with more data
+                        if not quality_ok:
+                            logger.warning(f"Quality check failed for {file_type}, re-generating...")
+                            yield event("status", {"message": f"Improving {file_type} quality..."})
+                            try:
+                                # Re-generate content with explicit quality instructions
+                                enhanced_content = await ChatHandler._generate_content(
+                                    file_topic + " (IMPORTANT: Include specific data, real numbers, comprehensive analysis, and actionable insights)",
+                                    structured_data
+                                )
+                                if file_type == "excel":
+                                    result = await FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id)
+                                elif file_type == "pptx":
+                                    result = await FileEngine.generate_pptx(file_topic, enhanced_content, request.user_id)
+                                elif file_type == "word":
+                                    result = await FileEngine.generate_word(file_topic, enhanced_content, request.user_id)
+                                elif file_type == "pdf":
+                                    result = await FileEngine.generate_pdf(file_topic, enhanced_content, request.user_id)
+                                quality_ok = True  # Accept the re-generation
+                            except Exception as regen_err:
+                                logger.error(f"Re-generation failed: {regen_err}")
                         
                         yield event("download", {
                             "file_id": result["file_id"],
@@ -2730,7 +2821,7 @@ CRITICAL RULES:
         return True
     
     @staticmethod
-    def _detect_file_needs(query: str) -> List[str]:
+    def _detect_file_needs(query: str, has_uploaded_files: bool = False) -> List[str]:
         """Detect which file types the user needs based on their query.
         
         PHILOSOPHY: When a user mentions a file format (pdf, excel, ppt, etc.),
@@ -2763,10 +2854,23 @@ CRITICAL RULES:
             r'(can you (read|open|check|look at|analyze) (this|the|my) (file|doc|document|pdf|excel))',
             r'(summarize (this|the|my) (uploaded|attached|existing))',
             r'(what does this (file|doc|document) (say|contain|mean))',
+            # NEW: Catch broader patterns for uploaded file analysis
+            r'(summary|summarize|analyze|analyse|review|explain|describe|tell me about|what.?s in|insights? (from|about|on))\s+(these|this|the|those|my|both|all)\s+(doc|docs|document|documents|file|files|attachment|attachments)',
+            r'(give me|provide|can you give|please give)\s+(a |the |)(summary|analysis|overview|review|breakdown)\s+(of |about |for |on )?(these|this|the|those|my|both|all)',
+            r'(these|those|both)\s+(two |three |)?(doc|docs|document|documents|file|files)',
         ]
         for pattern in skip_patterns:
             if re.search(pattern, query_lower):
                 return []  # Asking about an existing file, not requesting generation
+        
+        # NEW: If user has uploaded files and the query is about analysis/summary,
+        # do NOT generate new files even if file extensions appear in the message
+        if has_uploaded_files:
+            analysis_words = ['summary', 'summarize', 'analyze', 'analyse', 'review', 'explain',
+                            'describe', 'tell me', 'what', 'insights', 'overview', 'breakdown',
+                            'compare', 'comparison', 'about these', 'about this', 'about the']
+            if any(w in query_lower for w in analysis_words):
+                return []  # User is asking about their uploaded files, not requesting new file generation
         
         # ===== FILE FORMAT DETECTION =====
         # When user mentions a format, they want that file. Period.
@@ -2848,31 +2952,43 @@ CRITICAL RULES:
     
     @staticmethod
     async def _quality_check(file_type: str, original_query: str, file_result: Dict) -> bool:
-        """LLM quality double-check on generated files."""
-        client = grok_client or kimi_client
+        """LLM quality double-check on generated files with stricter criteria."""
+        client = kimi_client or grok_client  # Prefer kimi for quality checks
         if not client:
             return True
         
         try:
-            model = "grok-3-mini" if client == grok_client else "kimi-k2.5"
-            temp = 0.3 if client == grok_client else 1
+            import functools
+            model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
+            temp = 1 if client == kimi_client else 0.3
             
-            check_prompt = f"""You are a quality assurance agent. Evaluate if this file generation was successful:
+            # More detailed quality criteria
+            check_prompt = f"""You are a strict quality assurance agent for professional document generation. Evaluate this file:
 
-User requested: {original_query[:200]}
+User requested: {original_query[:300]}
 File type: {file_type}
 File generated: {file_result.get('filename', 'unknown')}
 Row count: {file_result.get('row_count', 'N/A')}
+Slide count: {file_result.get('slide_count', 'N/A')}
 
-Quick check - does this seem like a proper, complete response to the user's request?
-Answer ONLY "PASS" or "FAIL" followed by a brief reason."""
+QUALITY CRITERIA (ALL must pass):
+1. Does the file address the user's EXACT topic? (not a generic or different topic)
+2. For Excel: Does it have at least 10 rows of REAL data (not placeholders)?
+3. For PPTX: Does it have at least 10 slides with substantive content (not empty bullets)?
+4. For PDF/Word: Does it have at least 500 words of substantive analysis?
+5. Does it contain SPECIFIC data points (numbers, percentages, dates) rather than vague statements?
+6. Are all entities REAL named companies/brands/people (no "Company A", "Supplier B")?
+
+Answer ONLY "PASS" or "FAIL" followed by a one-line reason."""
             
-            result = client.chat.completions.create(
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, functools.partial(
+                client.chat.completions.create,
                 model=model,
                 messages=[{"role": "user", "content": check_prompt}],
                 temperature=temp,
-                max_tokens=100
-            )
+                max_tokens=150
+            ))
             
             answer = result.choices[0].message.content.strip().upper()
             if "FAIL" in answer:

@@ -1215,12 +1215,13 @@ function DomainTabs() {
                 <TrendingUp className="w-4 h-4" />
                 View Plans
               </Link>
-              <button
-                onClick={() => setShowUpgradeModal(false)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-white/[0.08] text-white/60 text-sm hover:bg-white/[0.04] transition-all"
+              <Link
+                href="/billing"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/[0.08] text-white/60 text-sm hover:bg-white/[0.04] transition-all"
               >
-                Close
-              </button>
+                <Coins className="w-4 h-4" />
+                Buy Credits
+              </Link>
             </div>
           </div>
         </div>
