@@ -57,6 +57,7 @@ import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { UpgradePlanModal } from "@/components/billing/UpgradePlanModal";
 import { BuyCreditsModal } from "@/components/billing/BuyCreditsModal";
+import { DomainTrends } from "@/components/trends/DomainTrends";
 import { formatDistanceToNow } from "date-fns";
 
 // =============================================================================
@@ -2754,12 +2755,22 @@ function DashboardContent() {
                 {/* Ambient glow */}
                 <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.04] blur-[120px] pointer-events-none" />
                 
-                {/* Title - Vertically centered */}
-                <div className="flex-1 flex items-center justify-center">
+                {/* Title */}
+                <div className="pt-8 pb-4 flex items-center justify-center">
                   <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
                     Where is my mind?
                   </h1>
                 </div>
+                
+                {/* Domain Trends - Only shown for non-Global domains */}
+                {currentSector !== 'all' && (
+                  <div className="flex-1 overflow-y-auto px-1 py-4 scrollbar-thin scrollbar-thumb-white/5">
+                    <DomainTrends domain={currentSector} />
+                  </div>
+                )}
+                
+                {/* Spacer for Global domain */}
+                {currentSector === 'all' && <div className="flex-1" />}
                 
                 {/* Search Bar - Pinned to bottom */}
                 <div className="w-full max-w-3xl mx-auto pb-8">
