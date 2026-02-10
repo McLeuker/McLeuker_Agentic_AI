@@ -54,11 +54,27 @@ const PLAN_DETAILS: Record<string, { name: string; dailyCredits: number; monthly
   enterprise: { name: 'Enterprise', dailyCredits: 500, monthlyCredits: 25000, maxDomains: 10, price: 'Custom' },
 };
 
-const creditPacks = [
-  { name: "Starter", credits: 100, price: 10, perCredit: "10.0", slug: "starter_100" },
-  { name: "Growth", credits: 300, price: 25, perCredit: "8.3", popular: true, slug: "growth_300" },
-  { name: "Power", credits: 700, price: 50, perCredit: "7.1", slug: "power_700" },
-  { name: "Enterprise", credits: 1500, price: 100, perCredit: "6.7", slug: "enterprise_1500" },
+const ANNUAL_DISCOUNT = 0.18;
+
+const creditTiers = [
+  { slug: 'credits-50', credits: 50, price: 5 },
+  { slug: 'credits-100', credits: 100, price: 10 },
+  { slug: 'credits-150', credits: 150, price: 15 },
+  { slug: 'credits-200', credits: 200, price: 20 },
+  { slug: 'credits-300', credits: 300, price: 30 },
+  { slug: 'credits-400', credits: 400, price: 40 },
+  { slug: 'credits-500', credits: 500, price: 50, popular: true },
+  { slug: 'credits-750', credits: 750, price: 75 },
+  { slug: 'credits-1000', credits: 1000, price: 100, bestValue: true },
+  { slug: 'credits-1500', credits: 1500, price: 150 },
+  { slug: 'credits-2000', credits: 2000, price: 200 },
+  { slug: 'credits-2500', credits: 2500, price: 250 },
+  { slug: 'credits-3000', credits: 3000, price: 300 },
+  { slug: 'credits-5000', credits: 5000, price: 500 },
+  { slug: 'credits-7500', credits: 7500, price: 750 },
+  { slug: 'credits-10000', credits: 10000, price: 1000 },
+  { slug: 'credits-15000', credits: 15000, price: 1500 },
+  { slug: 'credits-25000', credits: 25000, price: 2500 },
 ];
 
 interface CreditSummary {
@@ -443,42 +459,66 @@ function BillingContent() {
               </CardContent>
             </Card>
 
-            {/* Credit Packs */}
+            {/* Add Credits — Full 18-tier store */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
-                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
-                  <ShoppingCart className="h-5 w-5" />
-                  Buy Credits
-                </CardTitle>
-                <CardDescription>Purchase additional credits — works for all task types, never expires</CardDescription>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
+                      <ShoppingCart className="h-5 w-5" />
+                      Add Credits
+                    </CardTitle>
+                    <CardDescription>
+                      Flat rate of $0.10/credit for all users. Credits never expire and work for all task types.
+                      {(plan === 'standard' || plan === 'pro' || plan === 'enterprise') && (
+                        <span className="text-green-400 ml-1">Annual subscribers save 18%!</span>
+                      )}
+                    </CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {creditPacks.map((pkg) => (
-                    <button
-                      key={pkg.slug}
-                      onClick={() => handlePurchaseCredits(pkg.slug)}
-                      disabled={purchasingPack === pkg.slug}
-                      className={cn(
-                        "relative p-4 rounded-xl border transition-all text-left hover:border-white/20",
-                        pkg.popular ? "border-white/15 bg-white/[0.04]" : "border-white/[0.06] bg-white/[0.02]",
-                        purchasingPack === pkg.slug && "opacity-50 cursor-wait"
-                      )}
-                    >
-                      {pkg.popular && (
-                        <Badge className="mb-2 bg-white/10 text-white/70 text-[10px]">Popular</Badge>
-                      )}
-                      <p className="text-2xl font-light text-white">{pkg.credits.toLocaleString()}</p>
-                      <p className="text-xs text-white/40">credits</p>
-                      <p className="text-lg font-medium text-white mt-3">${pkg.price}</p>
-                      <p className="text-[10px] text-white/30">{pkg.perCredit}&cent; per credit</p>
-                      <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                        <span className="text-[11px] text-white/40 flex items-center gap-1">
-                          {purchasingPack === pkg.slug ? 'Processing...' : 'Purchase'} <ArrowRight className="w-3 h-3" />
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+                <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+                  {creditTiers.map((tier) => {
+                    const isAnnual = false; // TODO: check actual billing cycle
+                    const displayPrice = isAnnual ? Math.round(tier.price * (1 - ANNUAL_DISCOUNT)) : tier.price;
+                    return (
+                      <button
+                        key={tier.slug}
+                        onClick={() => handlePurchaseCredits(tier.slug)}
+                        disabled={purchasingPack === tier.slug}
+                        className={cn(
+                          "relative p-3.5 rounded-xl border transition-all text-left hover:border-white/20 group",
+                          tier.popular ? "border-white/15 bg-white/[0.05] ring-1 ring-white/[0.08]" :
+                          tier.bestValue ? "border-white/12 bg-white/[0.04]" :
+                          "border-white/[0.06] bg-white/[0.02]",
+                          purchasingPack === tier.slug && "opacity-50 cursor-wait"
+                        )}
+                      >
+                        {tier.popular && (
+                          <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+                            <span className="text-[8px] px-2 py-0.5 rounded-full bg-white/[0.10] text-white/70 border border-white/[0.10] uppercase tracking-wider whitespace-nowrap">Popular</span>
+                          </div>
+                        )}
+                        {tier.bestValue && (
+                          <div className="absolute -top-2 left-1/2 -translate-x-1/2">
+                            <span className="text-[8px] px-2 py-0.5 rounded-full bg-white/[0.10] text-white/70 border border-white/[0.10] uppercase tracking-wider whitespace-nowrap">Best Value</span>
+                          </div>
+                        )}
+                        <p className="text-lg font-editorial text-white/90 leading-tight">{tier.credits.toLocaleString()}</p>
+                        <p className="text-[10px] text-white/30 mb-2">credits</p>
+                        <p className="text-base font-medium text-white/80">${displayPrice.toLocaleString()}</p>
+                        {isAnnual && (
+                          <p className="text-[9px] text-green-400/70 line-through">${tier.price}</p>
+                        )}
+                        <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                          <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
+                            {purchasingPack === tier.slug ? 'Processing...' : 'Buy'} <ArrowRight className="w-2.5 h-2.5" />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

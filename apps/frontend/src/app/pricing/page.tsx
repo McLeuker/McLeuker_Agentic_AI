@@ -10,7 +10,7 @@ import {
   ArrowRight, Check, X as XIcon, Zap, Building2, Sparkles, Crown,
   FileText, BarChart3, Users, Shield, Headphones, Globe, Coins,
   Lock, Search, Brain, Palette, Layers, Clock, Download, Star,
-  MessageSquare, ShoppingCart
+  MessageSquare
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -75,7 +75,8 @@ const plans = [
     ],
     limitations: [],
     cta: "Subscribe",
-    highlighted: false,
+    highlighted: true,
+    badge: "Most Popular",
   },
   {
     id: "pro",
@@ -100,8 +101,7 @@ const plans = [
     ],
     limitations: [],
     cta: "Subscribe",
-    highlighted: true,
-    badge: "Most Popular",
+    highlighted: false,
   },
   {
     id: "enterprise",
@@ -132,12 +132,6 @@ const plans = [
   },
 ];
 
-const creditPacks = [
-  { name: "Starter", credits: 100, price: 10, perCredit: "10.0", priceId: "price_1Sz50cB0LQyHc0cSkn4nKUIj" },
-  { name: "Growth", credits: 300, price: 25, perCredit: "8.3", popular: true, priceId: "price_1Sz50dB0LQyHc0cSlm7mshlJ" },
-  { name: "Power", credits: 700, price: 50, perCredit: "7.1", priceId: "price_1Sz50eB0LQyHc0cSi3O36SDS" },
-  { name: "Enterprise", credits: 1500, price: 100, perCredit: "6.7", priceId: "price_1Sz50fB0LQyHc0cSWrkUwtfW" },
-];
 
 const comparisonFeatures = [
   { category: "Credits & Usage", features: [
@@ -182,12 +176,13 @@ const comparisonFeatures = [
 ];
 
 const faqs = [
-  { q: "What are credits and how do they work?", a: "Credits are the currency for AI research on McLeuker. Each task consumes credits based on complexity — instant search uses fewer credits, while deep research, agent mode, and creative tasks use more. You receive daily fresh credits that refresh every 24 hours, plus you can purchase credit packs anytime." },
-  { q: "What's the difference between daily fresh credits and purchased credits?", a: "Daily fresh credits refresh every 24 hours and can only be used for instant search queries. Purchased credits (from credit packs or included in paid plans) can be used for any task type including deep search, agent mode, and creative tasks. Purchased credits never expire." },
+  { q: "What are credits and how do they work?", a: "Credits are the currency for AI research on McLeuker. Each task consumes credits based on complexity — instant search uses fewer credits, while deep research, agent mode, and creative tasks use more. You receive daily fresh credits that refresh every 24 hours, plus you can purchase additional credits from the Usage page in your dashboard." },
+  { q: "What's the difference between daily fresh credits and purchased credits?", a: "Daily fresh credits refresh every 24 hours and can only be used for instant search queries. Purchased credits can be used for any task type including deep search, agent mode, and creative tasks. Purchased credits never expire." },
   { q: "What happens when I run out of credits during a task?", a: "If you run out of credits mid-task, the system will pause and prompt you to purchase additional credits to continue. Your progress is saved, so you can resume right where you left off after adding credits." },
+  { q: "How much do credits cost?", a: "Credits are priced at a flat rate of $0.10 per credit for all users, starting from 50 credits ($5). There are 18 different credit tiers available from 50 to 25,000 credits. Annual subscribers receive an 18% discount on all credit purchases." },
   { q: "How does domain access work?", a: "Domains are specialized research areas (Fashion, Beauty, Sustainability, etc.). Free users get 2 domains, Standard gets 5, and Pro gets all 10. Locked domains show an upgrade prompt when selected." },
   { q: "Can I change plans later?", a: "Yes, you can upgrade or downgrade at any time. Upgrades take effect immediately with prorated billing. Downgrades apply at the end of your current billing period." },
-  { q: "Is there a discount for annual billing?", a: "Yes! Annual billing saves you 18% compared to monthly pricing. Standard drops from $19/mo to $15.58/mo, and Pro drops from $99/mo to $81.18/mo." },
+  { q: "Is there a discount for annual billing?", a: "Yes! Annual billing saves you 18% compared to monthly pricing. Standard drops from $19/mo to $15.58/mo, and Pro drops from $99/mo to $81.18/mo. Annual subscribers also get 18% off all credit purchases." },
   { q: "What payment methods do you accept?", a: "We accept all major credit and debit cards via Stripe. Enterprise plans also support wire transfers and invoicing." },
   { q: "Do you offer refunds?", a: "We offer a 14-day money-back guarantee on all paid plans. Credit pack purchases are non-refundable but never expire." },
 ];
@@ -238,33 +233,6 @@ export default function PricingPage() {
     }
   };
 
-  const handleBuyCredits = async (priceId: string) => {
-    if (!session?.access_token) {
-      window.location.href = '/login';
-      return;
-    }
-    try {
-      const res = await fetch(`${API_URL}/api/v1/billing/checkout`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          package_slug: priceId,
-          mode: 'payment',
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.url) {
-        window.location.href = data.url;
-      } else if (data.detail) {
-        alert(data.detail);
-      }
-    } catch (error) {
-      console.error('Credit purchase error:', error);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-[#070707]">
@@ -429,52 +397,32 @@ export default function PricingPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════ */}
-      {/* CREDIT PACKS */}
+      {/* CREDIT INFO BANNER */}
       {/* ═══════════════════════════════════════════════════════ */}
-      <section className="py-16 lg:py-20 bg-[#0a0a0a]">
+      <section className="py-12 lg:py-16 bg-[#0a0a0a]">
         <div className="container mx-auto px-6 lg:px-12">
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-10">
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="p-6 lg:p-8 rounded-2xl border border-white/[0.06] bg-white/[0.02]">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] mb-4">
-                <ShoppingCart className="w-3 h-3 text-white/30" />
-                <span className="text-[11px] text-white/35 uppercase tracking-[0.15em]">Credit Packs</span>
+                <Coins className="w-3 h-3 text-white/30" />
+                <span className="text-[11px] text-white/35 uppercase tracking-[0.15em]">Credits</span>
               </div>
-              <h2 className="font-editorial text-3xl md:text-4xl text-white/[0.95] tracking-tight mb-3">
+              <h3 className="font-editorial text-2xl md:text-3xl text-white/[0.95] tracking-tight mb-3">
                 Need more credits?
-              </h2>
-              <p className="text-white/35 text-base max-w-lg mx-auto">
-                Purchase credit packs starting at $10. Credits never expire and work for all task types including deep search, agent mode, and creative.
+              </h3>
+              <p className="text-white/40 text-base max-w-lg mx-auto mb-4">
+                Purchase credits starting at $5 from your dashboard. Flat rate of $0.10/credit for all users.
+                Annual subscribers save 18% on every credit purchase.
               </p>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              {creditPacks.map((pack) => (
-                <button
-                  key={pack.name}
-                  onClick={() => handleBuyCredits(pack.priceId)}
-                  className={cn(
-                    "relative p-5 rounded-xl border text-left transition-all hover:border-white/[0.15] group",
-                    pack.popular
-                      ? "border-white/[0.12] bg-white/[0.04]"
-                      : "border-white/[0.06] bg-white/[0.02]"
-                  )}
-                >
-                  {pack.popular && (
-                    <div className="absolute -top-2 right-3">
-                      <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/[0.08] text-white/60 border border-white/[0.08] uppercase tracking-wider">Popular</span>
-                    </div>
-                  )}
-                  <p className="text-2xl font-editorial text-white/90">{pack.credits.toLocaleString()}</p>
-                  <p className="text-[11px] text-white/30 mb-3">credits</p>
-                  <p className="text-lg font-medium text-white/80">${pack.price}</p>
-                  <p className="text-[10px] text-white/25">{pack.perCredit}&cent; per credit</p>
-                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                    <span className="text-[11px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
-                      Purchase <ArrowRight className="w-3 h-3" />
-                    </span>
-                  </div>
-                </button>
-              ))}
+              <p className="text-white/30 text-sm">
+                Credits never expire and work for all task types including deep search, agent mode, and creative.
+              </p>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-2 mt-5 px-5 py-2.5 rounded-xl border border-white/[0.10] text-white/60 text-sm hover:bg-white/[0.04] transition-all"
+              >
+                Buy Credits in Dashboard <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
             </div>
           </div>
         </div>
