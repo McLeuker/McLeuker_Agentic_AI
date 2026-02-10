@@ -43,7 +43,11 @@ import {
   Presentation,
   Bot,
   Code2,
-  Palette
+  Palette,
+  Lock,
+  Crown,
+  TrendingUp,
+  ArrowRight
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
@@ -1117,33 +1121,110 @@ function ChatSidebar({
 // Domain Tabs Component - Non-scrollable, centered with olive glow underline
 // =============================================================================
 
+// Domain access rules per plan tier
+const DOMAIN_ACCESS: Record<string, Sector[]> = {
+  free: ['all', 'fashion'],
+  standard: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech'],
+  pro: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'],
+  enterprise: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'],
+};
+
 function DomainTabs() {
   const { currentSector, setSector } = useSector();
+  const { user } = useAuth();
   const router = useRouter();
+  const [userPlan, setUserPlan] = useState('free');
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [blockedDomain, setBlockedDomain] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('users')
+      .select('subscription_plan')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data?.subscription_plan) setUserPlan(data.subscription_plan);
+      });
+  }, [user]);
+
+  const accessibleDomains = DOMAIN_ACCESS[userPlan] || DOMAIN_ACCESS.free;
   
   const handleDomainClick = (sectorId: Sector) => {
+    if (!accessibleDomains.includes(sectorId)) {
+      setBlockedDomain(sectorId);
+      setShowUpgradeModal(true);
+      return;
+    }
     setSector(sectorId);
-    // Navigate to domain page for all tabs
     router.push(`/domain/${sectorId}`);
   };
 
   return (
-    <div className="flex items-center justify-center gap-1">
-      {SECTORS.map((sector) => (
-        <button
-          key={sector.id}
-          onClick={() => handleDomainClick(sector.id)}
-          className={cn(
-            "domain-tab relative px-3 py-1.5 text-[13px] font-medium transition-all whitespace-nowrap",
-            currentSector === sector.id
-              ? "domain-tab-active text-white"
-              : "text-white/50 hover:text-white/80"
-          )}
-        >
-          {sector.label}
-        </button>
-      ))}
-    </div>
+    <>
+      <div className="flex items-center justify-center gap-1">
+        {SECTORS.map((sector) => {
+          const isLocked = !accessibleDomains.includes(sector.id);
+          return (
+            <button
+              key={sector.id}
+              onClick={() => handleDomainClick(sector.id)}
+              className={cn(
+                "domain-tab relative px-3 py-1.5 text-[13px] font-medium transition-all whitespace-nowrap flex items-center gap-1",
+                currentSector === sector.id
+                  ? "domain-tab-active text-white"
+                  : isLocked
+                    ? "text-white/25 hover:text-white/40 cursor-not-allowed"
+                    : "text-white/50 hover:text-white/80"
+              )}
+            >
+              {sector.label}
+              {isLocked && <Lock className="w-2.5 h-2.5 text-white/20" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Upgrade Modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}>
+          <div className="bg-[#141414] border border-white/[0.08] rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
+                <Lock className="h-5 w-5 text-white/50" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-white">Domain Locked</h3>
+                <p className="text-sm text-white/40">
+                  {blockedDomain && SECTORS.find(s => s.id === blockedDomain)?.label} requires a higher plan
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-white/50 mb-6">
+              {userPlan === 'free'
+                ? 'Upgrade to Standard ($19/mo) for 5 domains, or Pro ($99/mo) for all 10 domains.'
+                : 'Upgrade to Pro ($99/mo) to unlock all 10 research domains.'}
+            </p>
+            <div className="flex gap-3">
+              <Link
+                href="/pricing"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-black text-sm font-medium hover:bg-white/90 transition-all"
+              >
+                <TrendingUp className="w-4 h-4" />
+                View Plans
+              </Link>
+              <button
+                onClick={() => setShowUpgradeModal(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-white/[0.08] text-white/60 text-sm hover:bg-white/[0.04] transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1174,14 +1255,14 @@ function ProfileDropdown() {
     if (!user) return;
     const { data } = await supabase
       .from("users")
-      .select("name, profile_image, credits_balance, subscription_tier")
+      .select("name, profile_image, credits_balance, subscription_plan")
       .eq("id", user.id)
       .single();
     
     if (data) {
       setUserProfile({ name: data.name, profile_image: data.profile_image });
       setCreditBalance(data.credits_balance || 50);
-      setPlan(data.subscription_tier || 'free');
+      setPlan(data.subscription_plan || 'free');
     }
   }, [user]);
 
@@ -1253,11 +1334,36 @@ function ProfileDropdown() {
               )}>
                 {user?.email}
               </p>
-              <p className="text-xs text-white/50 capitalize mt-0.5">{plan} plan</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-white/50 capitalize">{plan} plan</span>
+                {plan === 'free' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/40">Free</span>
+                )}
+                {plan === 'standard' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">Standard</span>
+                )}
+                {plan === 'pro' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-400">Pro</span>
+                )}
+              </div>
               <div className="text-xs text-white/50 mt-1">
                 <span className="font-medium text-[#5c6652]">{creditBalance}</span> credits available
               </div>
             </div>
+
+            {/* Upgrade Button - shown for free and standard users */}
+            {(plan === 'free' || plan === 'standard') && (
+              <div className="px-3 py-2 border-b border-white/10">
+                <Link
+                  href="/pricing"
+                  onClick={() => setIsOpen(false)}
+                  className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90 transition-all"
+                >
+                  <Crown className="h-3.5 w-3.5" />
+                  {plan === 'free' ? 'Upgrade Plan' : 'Upgrade to Pro'}
+                </Link>
+              </div>
+            )}
             
             {/* Menu Items */}
             <div className="py-1">
@@ -1692,7 +1798,9 @@ function DashboardContent() {
     createConversation,
     saveMessage,
     updateConversationTitle,
-      const { user, session } = useAuth();
+    loadConversations,
+  } = useConversations();
+  const { session } = useAuth();
 
   // Core state
   const [messages, setMessages] = useState<Message[]>([]);

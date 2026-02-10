@@ -25,6 +25,7 @@ import {
   Calendar,
   TrendingUp,
   ArrowUpRight,
+  ArrowRight,
   Zap,
   Receipt,
   ChevronLeft,
@@ -36,9 +37,29 @@ import {
   ShoppingCart,
   ExternalLink,
   Flame,
+  Crown,
+  Lock,
+  Globe,
+  Search,
+  Brain,
+  Palette,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
+
+const PLAN_DETAILS: Record<string, { name: string; dailyCredits: number; monthlyCredits: number; maxDomains: number; price: string }> = {
+  free: { name: 'Free', dailyCredits: 15, monthlyCredits: 450, maxDomains: 2, price: '$0' },
+  standard: { name: 'Standard', dailyCredits: 50, monthlyCredits: 1500, maxDomains: 5, price: '$19/mo' },
+  pro: { name: 'Pro', dailyCredits: 300, monthlyCredits: 9000, maxDomains: 10, price: '$99/mo' },
+  enterprise: { name: 'Enterprise', dailyCredits: 500, monthlyCredits: 25000, maxDomains: 10, price: 'Custom' },
+};
+
+const creditPacks = [
+  { name: "Starter", credits: 100, price: 10, perCredit: "10.0", slug: "starter_100" },
+  { name: "Growth", credits: 300, price: 25, perCredit: "8.3", popular: true, slug: "growth_300" },
+  { name: "Power", credits: 700, price: 50, perCredit: "7.1", slug: "power_700" },
+  { name: "Enterprise", credits: 1500, price: 100, perCredit: "6.7", slug: "enterprise_1500" },
+];
 
 interface CreditSummary {
   balance: number;
@@ -46,8 +67,12 @@ interface CreditSummary {
   plan_name?: string;
   monthly_credits?: number;
   daily_credits_available?: boolean;
+  daily_credits_balance?: number;
+  daily_fresh_credits?: number;
+  extra_credits?: number;
   streak?: number;
   total_consumed?: number;
+  max_domains?: number;
 }
 
 interface UsageItem {
@@ -58,25 +83,16 @@ interface UsageItem {
   task_type?: string;
 }
 
-interface CreditPackage {
-  slug: string;
-  name: string;
-  credits: number;
-  price_usd: number;
-  bonus_credits: number;
-  popular?: boolean;
-}
-
 function BillingContent() {
   const router = useRouter();
   const { user, session, signOut } = useAuth();
 
   const [creditSummary, setCreditSummary] = useState<CreditSummary | null>(null);
   const [usageHistory, setUsageHistory] = useState<UsageItem[]>([]);
-  const [creditPackages, setCreditPackages] = useState<CreditPackage[]>([]);
   const [loading, setLoading] = useState(true);
   const [claimingDaily, setClaimingDaily] = useState(false);
   const [dailyClaimed, setDailyClaimed] = useState(false);
+  const [purchasingPack, setPurchasingPack] = useState<string | null>(null);
 
   const getAuthHeaders = useCallback(() => {
     const token = session?.access_token;
@@ -91,19 +107,16 @@ function BillingContent() {
 
   const fetchData = async () => {
     try {
-      const [creditsRes, usageRes, packagesRes] = await Promise.all([
+      const [creditsRes, usageRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/billing/credits`, { headers: getAuthHeaders() }),
         fetch(`${API_URL}/api/v1/billing/usage?days=30`, { headers: getAuthHeaders() }),
-        fetch(`${API_URL}/api/v1/billing/credits/packages`),
       ]);
 
       const creditsData = await creditsRes.json();
       const usageData = await usageRes.json();
-      const packagesData = await packagesRes.json();
 
       if (creditsData.success) setCreditSummary(creditsData.data);
       if (usageData.success) setUsageHistory(usageData.history || []);
-      if (packagesData.success) setCreditPackages(packagesData.packages || []);
     } catch (error) {
       console.error('Error fetching billing data:', error);
     } finally {
@@ -127,6 +140,31 @@ function BillingContent() {
       console.error('Error claiming daily credits:', error);
     } finally {
       setClaimingDaily(false);
+    }
+  };
+
+  const handlePurchaseCredits = async (packSlug: string) => {
+    if (!session?.access_token) return;
+    setPurchasingPack(packSlug);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/billing/checkout`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          package_slug: packSlug,
+          mode: 'payment',
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        window.location.href = data.url;
+      } else if (data.detail) {
+        alert(data.detail);
+      }
+    } catch (error) {
+      console.error('Error purchasing credits:', error);
+    } finally {
+      setPurchasingPack(null);
     }
   };
 
@@ -155,12 +193,12 @@ function BillingContent() {
     } catch { return '—'; }
   };
 
-  const balance = creditSummary?.balance || 0;
   const plan = creditSummary?.plan || 'free';
-  const planName = creditSummary?.plan_name || plan.charAt(0).toUpperCase() + plan.slice(1);
-  const monthlyCredits = creditSummary?.monthly_credits || 50;
+  const planInfo = PLAN_DETAILS[plan] || PLAN_DETAILS.free;
+  const balance = creditSummary?.balance || 0;
+  const dailyBalance = creditSummary?.daily_credits_balance || 0;
+  const extraCredits = creditSummary?.extra_credits || 0;
   const totalConsumed = creditSummary?.total_consumed || 0;
-  const usagePercentage = monthlyCredits > 0 ? Math.min(100, (balance / monthlyCredits) * 100) : 0;
 
   if (loading) {
     return (
@@ -211,7 +249,7 @@ function BillingContent() {
           </div>
 
           <div className="space-y-8">
-            {/* Current Plan */}
+            {/* Current Plan + Upgrade Banner */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -222,34 +260,72 @@ function BillingContent() {
                     </CardTitle>
                     <CardDescription className="mt-1">Your active subscription tier</CardDescription>
                   </div>
-                  <Badge className={cn(plan === 'free' ? 'bg-white/10 text-white/60' : 'bg-green-600/20 text-green-400 border-green-500/30')}>
-                    {planName}
+                  <Badge className={cn(
+                    plan === 'free' ? 'bg-white/10 text-white/60' :
+                    plan === 'standard' ? 'bg-blue-600/20 text-blue-400 border-blue-500/30' :
+                    plan === 'pro' ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' :
+                    'bg-green-600/20 text-green-400 border-green-500/30'
+                  )}>
+                    {planInfo.name}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-6 sm:grid-cols-3">
+                <div className="grid gap-6 sm:grid-cols-4">
                   <div className="space-y-1">
                     <p className="text-sm text-white/60">Plan</p>
-                    <p className="text-2xl font-light text-white">{planName}</p>
+                    <p className="text-2xl font-light text-white">{planInfo.name}</p>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm text-white/60">Monthly Credits</p>
-                    <p className="text-2xl font-light text-white">{monthlyCredits.toLocaleString()}</p>
+                    <p className="text-sm text-white/60">Daily Credits</p>
+                    <p className="text-2xl font-light text-white">{planInfo.dailyCredits}</p>
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm text-white/60">Total Used</p>
-                    <p className="text-2xl font-light text-white">{totalConsumed.toLocaleString()}</p>
+                    <p className="text-sm text-white/60">Domains</p>
+                    <p className="text-2xl font-light text-white">{planInfo.maxDomains === 10 ? 'All 10' : planInfo.maxDomains}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60">Price</p>
+                    <p className="text-2xl font-light text-white">{planInfo.price}</p>
                   </div>
                 </div>
 
                 <Separator className="bg-white/[0.08]" />
 
+                {/* Upgrade prompt for free/standard users */}
+                {(plan === 'free' || plan === 'standard') && (
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
+                          <Crown className="h-5 w-5 text-white/50" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {plan === 'free' ? 'Upgrade to Standard or Pro' : 'Upgrade to Pro'}
+                          </p>
+                          <p className="text-xs text-white/40">
+                            {plan === 'free'
+                              ? 'Unlock deep search, file exports, and more domains'
+                              : 'Unlock agent mode, creative, and all 10 domains'}
+                          </p>
+                        </div>
+                      </div>
+                      <Link href="/pricing">
+                        <Button className="bg-white text-black hover:bg-white/90 text-sm">
+                          <TrendingUp className="h-4 w-4 mr-2" />
+                          Upgrade
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-3">
                   <Link href="/pricing">
                     <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]">
                       <TrendingUp className="h-4 w-4 mr-2" />
-                      {plan === 'free' ? 'Upgrade Plan' : 'Change Plan'}
+                      {plan === 'free' ? 'View Plans' : 'Change Plan'}
                     </Button>
                   </Link>
                   {plan !== 'free' && (
@@ -271,27 +347,34 @@ function BillingContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="space-y-3">
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-4xl font-light text-white">{balance.toLocaleString()}</p>
-                      <p className="text-sm text-white/60">credits available</p>
-                    </div>
-                    {creditSummary?.streak && creditSummary.streak > 1 && (
-                      <div className="flex items-center gap-1.5 text-orange-400">
-                        <Flame className="h-4 w-4" />
-                        <span className="text-sm font-medium">{creditSummary.streak}-day streak</span>
-                      </div>
-                    )}
+                <div className="grid gap-6 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60">Total Balance</p>
+                    <p className="text-4xl font-light text-white">{balance.toLocaleString()}</p>
+                    <p className="text-xs text-white/40">credits available</p>
                   </div>
-                  <Progress value={usagePercentage} className="h-2 bg-white/[0.08]" />
-                  {balance < 20 && (
-                    <p className="text-sm text-orange-400 flex items-center gap-1">
-                      <Zap className="h-4 w-4" />
-                      Low credits — claim daily credits or purchase more
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60 flex items-center gap-1">
+                      <Gift className="h-3 w-3" /> Daily Fresh
                     </p>
-                  )}
+                    <p className="text-2xl font-light text-white">{dailyBalance}</p>
+                    <p className="text-xs text-white/30">of {planInfo.dailyCredits} &middot; Instant search only</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60 flex items-center gap-1">
+                      <ShoppingCart className="h-3 w-3" /> Purchased
+                    </p>
+                    <p className="text-2xl font-light text-white">{extraCredits.toLocaleString()}</p>
+                    <p className="text-xs text-white/30">All task types &middot; Never expires</p>
+                  </div>
                 </div>
+
+                {balance < 20 && (
+                  <p className="text-sm text-orange-400 flex items-center gap-1">
+                    <Zap className="h-4 w-4" />
+                    Low credits — claim daily credits or purchase more below
+                  </p>
+                )}
 
                 <Separator className="bg-white/[0.08]" />
 
@@ -303,71 +386,102 @@ function BillingContent() {
                         <Gift className="h-5 w-5 text-white/50" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-white">Daily Free Credits</p>
-                        <p className="text-xs text-white/40">Claim 50 free credits every day</p>
+                        <p className="text-sm font-medium text-white">Daily Fresh Credits</p>
+                        <p className="text-xs text-white/40">
+                          Claim {planInfo.dailyCredits} credits every day &middot; Usable for instant search
+                        </p>
                       </div>
                     </div>
-                    <Button
-                      onClick={handleClaimDaily}
-                      disabled={claimingDaily || dailyClaimed || !creditSummary?.daily_credits_available}
-                      className={cn(
-                        "text-sm",
-                        dailyClaimed || !creditSummary?.daily_credits_available
-                          ? "bg-white/[0.05] text-white/30"
-                          : "bg-white text-black hover:bg-white/90"
+                    <div className="flex items-center gap-3">
+                      {creditSummary?.streak && creditSummary.streak > 1 && (
+                        <div className="flex items-center gap-1 text-orange-400">
+                          <Flame className="h-4 w-4" />
+                          <span className="text-sm font-medium">{creditSummary.streak}-day streak</span>
+                        </div>
                       )}
-                    >
-                      {dailyClaimed ? (
-                        <><CheckCircle className="h-4 w-4 mr-1" /> Claimed</>
-                      ) : !creditSummary?.daily_credits_available ? (
-                        <><Clock className="h-4 w-4 mr-1" /> Already Claimed</>
-                      ) : claimingDaily ? (
-                        'Claiming...'
-                      ) : (
-                        <><Gift className="h-4 w-4 mr-1" /> Claim Now</>
-                      )}
-                    </Button>
+                      <Button
+                        onClick={handleClaimDaily}
+                        disabled={claimingDaily || dailyClaimed || !creditSummary?.daily_credits_available}
+                        className={cn(
+                          "text-sm",
+                          dailyClaimed || !creditSummary?.daily_credits_available
+                            ? "bg-white/[0.05] text-white/30"
+                            : "bg-white text-black hover:bg-white/90"
+                        )}
+                      >
+                        {dailyClaimed ? (
+                          <><CheckCircle className="h-4 w-4 mr-1" /> Claimed</>
+                        ) : !creditSummary?.daily_credits_available ? (
+                          <><Clock className="h-4 w-4 mr-1" /> Already Claimed</>
+                        ) : claimingDaily ? (
+                          'Claiming...'
+                        ) : (
+                          <><Gift className="h-4 w-4 mr-1" /> Claim Now</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Credit type explanation */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Search className="h-3.5 w-3.5 text-white/40" />
+                      <span className="text-xs font-medium text-white/60">Daily Fresh Credits</span>
+                    </div>
+                    <p className="text-[11px] text-white/30">Instant search only. Refresh daily. Cannot be used for deep search, agent, or creative tasks.</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Brain className="h-3.5 w-3.5 text-white/40" />
+                      <span className="text-xs font-medium text-white/60">Purchased Credits</span>
+                    </div>
+                    <p className="text-[11px] text-white/30">All task types: deep search, agent mode, creative, exports. Never expire.</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Credit Packages */}
-            {creditPackages.length > 0 && (
-              <Card className="border-white/[0.08] bg-[#1A1A1A]">
-                <CardHeader>
-                  <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
-                    <ShoppingCart className="h-5 w-5" />
-                    Buy Credits
-                  </CardTitle>
-                  <CardDescription>Purchase additional credits anytime</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {creditPackages.map((pkg) => (
-                      <div
-                        key={pkg.slug}
-                        className={cn(
-                          "p-4 rounded-xl border transition-all cursor-pointer hover:border-white/20",
-                          pkg.popular ? "border-white/15 bg-white/[0.04]" : "border-white/[0.06] bg-white/[0.02]"
-                        )}
-                      >
-                        {pkg.popular && (
-                          <Badge className="mb-2 bg-white/10 text-white/70 text-[10px]">Popular</Badge>
-                        )}
-                        <p className="text-2xl font-light text-white">{pkg.credits.toLocaleString()}</p>
-                        <p className="text-xs text-white/40">credits</p>
-                        {pkg.bonus_credits > 0 && (
-                          <p className="text-xs text-green-400 mt-1">+{pkg.bonus_credits} bonus</p>
-                        )}
-                        <p className="text-lg font-medium text-white mt-3">${pkg.price_usd}</p>
-                        <p className="text-[10px] text-white/30">${(pkg.price_usd / (pkg.credits + pkg.bonus_credits) * 100).toFixed(1)}¢ per credit</p>
+            {/* Credit Packs */}
+            <Card className="border-white/[0.08] bg-[#1A1A1A]">
+              <CardHeader>
+                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
+                  <ShoppingCart className="h-5 w-5" />
+                  Buy Credits
+                </CardTitle>
+                <CardDescription>Purchase additional credits — works for all task types, never expires</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {creditPacks.map((pkg) => (
+                    <button
+                      key={pkg.slug}
+                      onClick={() => handlePurchaseCredits(pkg.slug)}
+                      disabled={purchasingPack === pkg.slug}
+                      className={cn(
+                        "relative p-4 rounded-xl border transition-all text-left hover:border-white/20",
+                        pkg.popular ? "border-white/15 bg-white/[0.04]" : "border-white/[0.06] bg-white/[0.02]",
+                        purchasingPack === pkg.slug && "opacity-50 cursor-wait"
+                      )}
+                    >
+                      {pkg.popular && (
+                        <Badge className="mb-2 bg-white/10 text-white/70 text-[10px]">Popular</Badge>
+                      )}
+                      <p className="text-2xl font-light text-white">{pkg.credits.toLocaleString()}</p>
+                      <p className="text-xs text-white/40">credits</p>
+                      <p className="text-lg font-medium text-white mt-3">${pkg.price}</p>
+                      <p className="text-[10px] text-white/30">{pkg.perCredit}&cent; per credit</p>
+                      <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                        <span className="text-[11px] text-white/40 flex items-center gap-1">
+                          {purchasingPack === pkg.slug ? 'Processing...' : 'Purchase'} <ArrowRight className="w-3 h-3" />
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Usage History */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">

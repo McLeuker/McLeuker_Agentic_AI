@@ -5482,6 +5482,75 @@ async def get_invoices(user: Dict = Depends(AuthManager.require_auth)):
     return {"success": True, "invoices": invoices}
 
 
+class CheckoutSessionRequest(BaseModel):
+    plan_slug: Optional[str] = None
+    billing_interval: str = "month"
+    package_slug: Optional[str] = None
+    mode: str = "subscription"  # 'subscription' or 'payment'
+
+
+@app.post("/api/v1/billing/checkout")
+async def create_checkout_session(req: CheckoutSessionRequest, user: Dict = Depends(AuthManager.require_auth)):
+    """Create a Stripe Checkout Session for subscription or credit pack purchase"""
+    if not stripe_service or not STRIPE_SECRET_KEY:
+        return {"success": False, "error": "Stripe not configured"}
+    
+    import stripe as stripe_lib
+    stripe_lib.api_key = STRIPE_SECRET_KEY
+    
+    try:
+        user_id = user["user_id"]
+        email = user.get("email", "")
+        customer_id = await stripe_service.get_or_create_customer(user_id, email)
+        
+        if req.mode == "subscription" and req.plan_slug:
+            # Get plan price ID from database
+            plan_response = supabase.table("pricing_plans").select("*").eq("slug", req.plan_slug).single().execute()
+            if not plan_response.data:
+                raise HTTPException(status_code=404, detail="Plan not found")
+            plan = plan_response.data
+            price_id = plan.get("stripe_yearly_price_id") if req.billing_interval == "year" else plan.get("stripe_monthly_price_id")
+            if not price_id:
+                raise HTTPException(status_code=400, detail="Stripe price not configured for this plan")
+            
+            session = stripe_lib.checkout.Session.create(
+                customer=customer_id,
+                mode="subscription",
+                line_items=[{"price": price_id, "quantity": 1}],
+                success_url=f"https://mcleuker.com/billing?success=true&plan={req.plan_slug}",
+                cancel_url=f"https://mcleuker.com/pricing?canceled=true",
+                metadata={"user_id": user_id, "plan_slug": req.plan_slug, "billing_interval": req.billing_interval},
+                subscription_data={"metadata": {"user_id": user_id, "plan_slug": req.plan_slug}}
+            )
+        elif req.mode == "payment" and req.package_slug:
+            # Get credit pack price ID from database
+            pkg_response = supabase.table("credit_packages").select("*").eq("slug", req.package_slug).single().execute()
+            if not pkg_response.data:
+                raise HTTPException(status_code=404, detail="Credit package not found")
+            pkg = pkg_response.data
+            price_id = pkg.get("stripe_price_id")
+            if not price_id:
+                raise HTTPException(status_code=400, detail="Stripe price not configured for this package")
+            
+            session = stripe_lib.checkout.Session.create(
+                customer=customer_id,
+                mode="payment",
+                line_items=[{"price": price_id, "quantity": 1}],
+                success_url=f"https://mcleuker.com/billing?success=true&credits={pkg['credits']}",
+                cancel_url=f"https://mcleuker.com/billing?canceled=true",
+                metadata={"user_id": user_id, "package_slug": req.package_slug, "credits": str(pkg["credits"]), "type": "credit_purchase"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid checkout request")
+        
+        return {"success": True, "url": session.url, "session_id": session.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Checkout session error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/v1/webhooks/stripe")
 async def stripe_webhook(request: Request):
     """Handle Stripe webhooks"""
@@ -5502,12 +5571,25 @@ async def get_billing_config():
         "success": True,
         "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
         "billing_enabled": bool(STRIPE_SECRET_KEY),
-        "free_daily_credits": 50,
+        "daily_credits_by_plan": {
+            "free": 15,
+            "standard": 50,
+            "pro": 300,
+            "enterprise": 500
+        },
+        "domain_limits_by_plan": {
+            "free": 2,
+            "standard": 5,
+            "pro": 10,
+            "enterprise": 10
+        },
         "credit_costs": {
             "search": {"brave": 1, "serper": 1, "perplexity": 3, "exa": 2},
             "llm": {"kimi": 2, "grok": 3},
             "file_generation": {"excel": 5, "pdf": 5, "pptx": 8, "docx": 5, "csv": 2}
-        }
+        },
+        "daily_credit_allowed_modes": ["quick"],
+        "paid_credit_modes": ["deep", "agent", "creative"]
     }
 
 

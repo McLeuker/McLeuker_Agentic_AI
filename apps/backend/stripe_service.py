@@ -237,6 +237,28 @@ class StripeService:
         """Set webhook secret for verification"""
         self.webhook_secret = secret
     
+    # Plan details for updating users table
+    PLAN_DETAILS = {
+        "free": {"daily_fresh_credits": 15, "monthly_credits": 450, "max_domains": 2},
+        "standard": {"daily_fresh_credits": 50, "monthly_credits": 1500, "max_domains": 5},
+        "pro": {"daily_fresh_credits": 300, "monthly_credits": 9000, "max_domains": 10},
+        "enterprise": {"daily_fresh_credits": 500, "monthly_credits": 25000, "max_domains": 10},
+    }
+
+    def _update_user_plan(self, user_id: str, plan_slug: str, status: str = "active"):
+        """Update the users table with plan details"""
+        try:
+            details = self.PLAN_DETAILS.get(plan_slug, self.PLAN_DETAILS["free"])
+            self.supabase.table("users").update({
+                "subscription_plan": plan_slug,
+                "subscription_status": status,
+                "daily_fresh_credits": details["daily_fresh_credits"],
+                "monthly_credits": details["monthly_credits"],
+                "max_domains": details["max_domains"],
+            }).eq("id", user_id).execute()
+        except Exception as e:
+            print(f"Error updating user plan: {e}")
+
     async def handle_webhook(self, payload: bytes, sig_header: str) -> Dict[str, Any]:
         """Handle Stripe webhook events"""
         try:
@@ -259,6 +281,7 @@ class StripeService:
             "customer.subscription.updated": self._handle_subscription_updated,
             "customer.subscription.deleted": self._handle_subscription_deleted,
             "payment_intent.succeeded": self._handle_payment_intent_succeeded,
+            "checkout.session.completed": self._handle_checkout_completed,
         }
         
         handler = handlers.get(event_type)
@@ -267,6 +290,31 @@ class StripeService:
         
         return {"received": True, "type": event_type}
     
+    async def _handle_checkout_completed(self, session: Dict) -> Dict[str, Any]:
+        """Handle completed checkout session - update users table with plan"""
+        metadata = session.get("metadata", {})
+        user_id = metadata.get("user_id")
+        plan_slug = metadata.get("plan_slug")
+        mode = session.get("mode")
+        
+        if mode == "subscription" and user_id and plan_slug:
+            # Update users table with new plan
+            self._update_user_plan(user_id, plan_slug, "active")
+            # Also store stripe_customer_id in users table
+            try:
+                self.supabase.table("users").update({
+                    "stripe_customer_id": session.get("customer"),
+                    "billing_cycle": metadata.get("billing_interval", "month"),
+                }).eq("id", user_id).execute()
+            except Exception:
+                pass
+            return {"success": True, "event": "checkout.session.completed", "user_id": user_id, "plan": plan_slug}
+        elif mode == "payment" and metadata.get("type") == "credit_purchase":
+            # Credit purchase - credits will be added via payment_intent.succeeded
+            return {"success": True, "event": "checkout.session.completed", "type": "credit_purchase"}
+        
+        return {"success": True, "event": "checkout.session.completed"}
+
     async def _handle_invoice_paid(self, invoice: Dict) -> Dict[str, Any]:
         """Handle successful subscription payment"""
         customer_id = invoice.get("customer")
@@ -337,6 +385,7 @@ class StripeService:
                 .single()\
                 .execute()
             if response.data:
+                user_id = response.data["user_id"]
                 free_plan = self.supabase.table("pricing_plans")\
                     .select("id")\
                     .eq("slug", "free")\
@@ -349,7 +398,9 @@ class StripeService:
                         "canceled_at": datetime.utcnow().isoformat(),
                         "stripe_subscription_id": None,
                         "updated_at": datetime.utcnow().isoformat()
-                    }).eq("user_id", response.data["user_id"]).execute()
+                    }).eq("user_id", user_id).execute()
+                # Downgrade user to free tier
+                self._update_user_plan(user_id, "free", "canceled")
         except Exception:
             pass
         return {"success": True, "event": "subscription.deleted"}
