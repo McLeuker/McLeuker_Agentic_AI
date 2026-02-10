@@ -32,8 +32,8 @@ const FAQS = [
     answer: "Yes. All your conversations are saved in Chat History. You can search past conversations and continue where you left off. Important insights can be exported for use in your own systems and reports."
   },
   {
-    question: "What's the difference between quick questions and deep research?",
-    answer: "Quick questions provide concise answers using existing knowledge. Deep research mode conducts comprehensive analysis, cross-references multiple sources, and generates structured reports—using more credits but delivering more thorough results."
+    question: "What are the different modes and how do they work?",
+    answer: "McLeuker offers three modes: Instant mode provides fast, concise answers using existing knowledge. Auto mode conducts comprehensive analysis, cross-references multiple sources, and generates structured reports. Agent mode handles complex multi-step tasks with deep reasoning. Credits are deducted dynamically based on actual usage during each task."
   },
   {
     question: "Is my data private and secure?",

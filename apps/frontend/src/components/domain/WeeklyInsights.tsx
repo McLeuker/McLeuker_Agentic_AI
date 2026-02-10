@@ -59,7 +59,27 @@ export function WeeklyInsights({ sector, onInsightClick }: WeeklyInsightsProps) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Cache TTL: 24 hours for weekly insights
+  const WEEKLY_CACHE_TTL = 24 * 60 * 60 * 1000;
+
   const fetchInsights = useCallback(async (forceRefresh = false) => {
+    // Check localStorage cache first (unless force refresh)
+    if (!forceRefresh) {
+      try {
+        const cacheKey = `mcleuker_weekly_${sector}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { insights: cachedInsights, timestamp } = JSON.parse(cached);
+          const age = Date.now() - timestamp;
+          if (age < WEEKLY_CACHE_TTL && cachedInsights?.length > 0) {
+            setInsights(cachedInsights);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch { /* continue to fetch */ }
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -70,7 +90,13 @@ export function WeeklyInsights({ sector, onInsightClick }: WeeklyInsightsProps) 
       });
       const data = await res.json();
       if (data.success && data.insights?.length > 0) {
-        setInsights(data.insights.slice(0, 10));
+        const sliced = data.insights.slice(0, 10);
+        setInsights(sliced);
+        // Save to localStorage cache
+        try {
+          const cacheKey = `mcleuker_weekly_${sector}`;
+          localStorage.setItem(cacheKey, JSON.stringify({ insights: sliced, timestamp: Date.now() }));
+        } catch { /* ignore */ }
       } else {
         setError(data.error || "No insights available right now.");
       }

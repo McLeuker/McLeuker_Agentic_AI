@@ -97,8 +97,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
         },
         body: JSON.stringify({
           package_slug: isAnnualPurchase ? `${packSlug}-annual` : packSlug,
-          mode: isAnnualPurchase ? 'subscription' : 'payment',
-          billing_interval: isAnnualPurchase ? 'year' : undefined,
+          mode: 'payment',
         }),
       });
       const data = await res.json();
@@ -189,27 +188,22 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
             </div>
           )}
 
-          {/* Credit usage info */}
-          <div className="mt-3 grid grid-cols-4 gap-2">
+          {/* Credit usage info - matches 3 modes */}
+          <div className="mt-3 grid grid-cols-3 gap-2">
             <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
               <Search className="h-3.5 w-3.5 mx-auto text-white/30 mb-1" />
-              <p className="text-[9px] text-white/40">Deep Search</p>
-              <p className="text-[10px] text-white/60 font-medium">5-15 cr</p>
+              <p className="text-[9px] text-white/40">Auto Mode</p>
+              <p className="text-[10px] text-white/60 font-medium">3-20 cr</p>
+            </div>
+            <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
+              <Zap className="h-3.5 w-3.5 mx-auto text-white/30 mb-1" />
+              <p className="text-[9px] text-white/40">Instant Mode</p>
+              <p className="text-[10px] text-white/60 font-medium">2-8 cr</p>
             </div>
             <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
               <Brain className="h-3.5 w-3.5 mx-auto text-white/30 mb-1" />
               <p className="text-[9px] text-white/40">Agent Mode</p>
-              <p className="text-[10px] text-white/60 font-medium">20-50 cr</p>
-            </div>
-            <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
-              <Palette className="h-3.5 w-3.5 mx-auto text-white/30 mb-1" />
-              <p className="text-[9px] text-white/40">Creative</p>
-              <p className="text-[10px] text-white/60 font-medium">10-30 cr</p>
-            </div>
-            <div className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-center">
-              <FileText className="h-3.5 w-3.5 mx-auto text-white/30 mb-1" />
-              <p className="text-[9px] text-white/40">File Export</p>
-              <p className="text-[10px] text-white/60 font-medium">5-10 cr</p>
+              <p className="text-[10px] text-white/60 font-medium">5-40 cr</p>
             </div>
           </div>
         </div>

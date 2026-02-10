@@ -83,9 +83,33 @@ export function DomainInsights({ sector, onSignalClick }: DomainInsightsProps) {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // Cache TTL: 1 hour for live signals ("What's Happening Now")
+  const SIGNALS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
   const fetchSignals = useCallback(
     async (forceRefresh = false) => {
       if (sector === "all") return;
+
+      // Check localStorage cache first (unless force refresh)
+      if (!forceRefresh) {
+        try {
+          const cacheKey = `mcleuker_signals_${sector}`;
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const { signals: cachedSignals, timestamp } = JSON.parse(cached);
+            const age = Date.now() - timestamp;
+            if (age < SIGNALS_CACHE_TTL && cachedSignals?.length > 0) {
+              setSignals(cachedSignals);
+              setLastUpdated(new Date(timestamp));
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // Cache read failed, continue to fetch
+        }
+      }
+
       setLoading(true);
       setError(null);
       try {
@@ -99,8 +123,15 @@ export function DomainInsights({ sector, onSignalClick }: DomainInsightsProps) {
         });
         const data = await res.json();
         if (data.success && data.signals?.length > 0) {
-          setSignals(data.signals.slice(0, 6));
+          const sliced = data.signals.slice(0, 6);
+          setSignals(sliced);
           setLastUpdated(new Date());
+
+          // Save to localStorage cache
+          try {
+            const cacheKey = `mcleuker_signals_${sector}`;
+            localStorage.setItem(cacheKey, JSON.stringify({ signals: sliced, timestamp: Date.now() }));
+          } catch { /* ignore storage errors */ }
         } else {
           setError(data.error || "No live signals available.");
         }

@@ -41,12 +41,12 @@ const plans = [
       "15 daily fresh credits",
       "~450 credits / month",
       "2 domains (Global + 1)",
-      "Instant search only",
+      "Instant mode only",
       "Standard response time",
       "Community support",
     ],
     limitations: [
-      "No deep search",
+      "No auto mode",
       "No agent mode",
       "No file exports",
     ],
@@ -69,7 +69,7 @@ const plans = [
       "50 daily fresh credits",
       "~1,500 credits / month",
       "5 domains access",
-      "Deep search & analysis",
+      "Auto mode (search & analysis)",
       "Export to PDF, Excel, PPTX",
       "3 concurrent tasks",
       "Priority support",
@@ -94,7 +94,7 @@ const plans = [
       "300 daily fresh credits",
       "~9,000 credits / month",
       "All 10 domains",
-      "Agent mode & creative",
+      "Agent mode",
       "Advanced trend forecasting",
       "Supplier intelligence",
       "Unlimited concurrent tasks",
@@ -138,14 +138,13 @@ const comparisonFeatures = [
   { category: "Credits & Usage", features: [
     { name: "Daily fresh credits", free: "15", standard: "50", pro: "300", enterprise: "500+" },
     { name: "Monthly credits (approx.)", free: "~450", standard: "~1,500", pro: "~9,000", enterprise: "Custom" },
-    { name: "Fresh credits usable for", free: "Instant search", standard: "Instant search", pro: "Instant search", enterprise: "Instant search" },
+    { name: "Fresh credits usable for", free: "Instant mode", standard: "Instant mode", pro: "Instant mode", enterprise: "Instant mode" },
     { name: "Purchased credits usable for", free: "All tasks", standard: "All tasks", pro: "All tasks", enterprise: "All tasks" },
   ]},
   { category: "Research Capabilities", features: [
-    { name: "Instant search", free: true, standard: true, pro: true, enterprise: true },
-    { name: "Deep search & analysis", free: false, standard: true, pro: true, enterprise: true },
+    { name: "Instant mode", free: true, standard: true, pro: true, enterprise: true },
+    { name: "Auto mode (search & analysis)", free: false, standard: true, pro: true, enterprise: true },
     { name: "Agent mode", free: false, standard: false, pro: true, enterprise: true },
-    { name: "Creative mode", free: false, standard: false, pro: true, enterprise: true },
     { name: "Real-time data", free: "Basic", standard: "Standard", pro: "Advanced", enterprise: "Custom" },
     { name: "Concurrent tasks", free: "1", standard: "3", pro: "Unlimited", enterprise: "Unlimited" },
     { name: "Response time", free: "Standard", standard: "Priority", pro: "Priority", enterprise: "Instant" },
@@ -177,8 +176,8 @@ const comparisonFeatures = [
 ];
 
 const faqs = [
-  { q: "What are credits and how do they work?", a: "Credits are the currency for AI research on McLeuker. Each task consumes credits based on complexity — instant search uses fewer credits, while deep research, agent mode, and creative tasks use more. You receive daily fresh credits that refresh every 24 hours, plus you can purchase additional credits from the Usage page in your dashboard." },
-  { q: "What's the difference between daily fresh credits and purchased credits?", a: "Daily fresh credits refresh every 24 hours and can only be used for instant search queries. Purchased credits can be used for any task type including deep search, agent mode, and creative tasks. Purchased credits never expire." },
+  { q: "What are credits and how do they work?", a: "Credits are the currency for AI research on McLeuker. Each task consumes credits dynamically based on actual usage — instant mode uses fewer credits (2-8 per task), auto mode uses moderate credits (3-20 per task), and agent mode uses more for complex multi-step tasks (5-40 per task). Credits are deducted in real-time as each operation executes. You receive daily fresh credits that refresh every 24 hours, plus you can purchase additional credits from the Usage page." },
+  { q: "What's the difference between daily fresh credits and purchased credits?", a: "Daily fresh credits refresh every 24 hours and can only be used for instant mode queries. Purchased credits can be used for any mode including auto mode, agent mode, and file exports. Purchased credits never expire." },
   { q: "What happens when I run out of credits during a task?", a: "If you run out of credits mid-task, the system will pause and prompt you to purchase additional credits to continue. Your progress is saved, so you can resume right where you left off after adding credits." },
   { q: "How much do credits cost?", a: "Credits are priced at a flat rate of $0.10 per credit for all users, starting from 50 credits ($5). There are 18 different credit tiers available from 50 to 25,000 credits. Annual subscribers receive an 18% discount on all credit purchases." },
   { q: "How does domain access work?", a: "Domains are specialized research areas (Fashion, Beauty, Sustainability, etc.). Free users get 2 domains, Standard gets 5, and Pro gets all 10. Locked domains show an upgrade prompt when selected." },
@@ -464,7 +463,7 @@ export default function PricingPage() {
                 Annual subscribers save 18% on every credit purchase.
               </p>
               <p className="text-white/30 text-sm">
-                Credits never expire and work for all task types including deep search, agent mode, and creative.
+                Credits never expire and work for all modes: auto, instant, and agent. File exports included.
               </p>
               <Link
                 href={user ? "/billing" : "/login?redirect=/billing"}

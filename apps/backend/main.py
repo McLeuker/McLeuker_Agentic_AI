@@ -187,7 +187,7 @@ if SUPABASE_URL and SUPABASE_KEY:
 
 # Initialize billing services
 try:
-    from credit_service import CreditService
+    from credit_service import CreditService, OPERATION_COSTS
     from stripe_service import StripeService
     credit_service = CreditService(supabase) if supabase else None
     stripe_service = StripeService(STRIPE_SECRET_KEY, supabase) if STRIPE_SECRET_KEY and supabase else None
@@ -2449,20 +2449,21 @@ class ChatHandler:
             yield event("error", {"message": "No user message found"})
             return
         
-        # Credit billing - check balance and start task
-        billing_task_id = None
-        credits_to_deduct = 0
+        # Credit billing - real-time usage-based deduction
+        billing_session_id = None
         user_id = getattr(request, 'user_id', None)
         if credit_service and user_id:
             try:
-                has_credits = await credit_service.has_sufficient_credits(user_id, min_required=5)
+                min_required = await credit_service.get_min_required_for_mode(request.mode.value)
+                has_credits = await credit_service.has_sufficient_credits(user_id, min_required=min_required)
                 if not has_credits:
                     yield event("error", {"message": "Insufficient credits. Please purchase more credits or claim your daily free credits."})
                     return
-                # Determine credit cost based on mode
-                mode_costs = {'instant': 5, 'research': 10, 'agent': 25, 'thinking': 10, 'code': 10, 'hybrid': 10, 'swarm': 25}
-                credits_to_deduct = mode_costs.get(request.mode.value, 10)
-                billing_task_id = str(conversation_id or 'task')
+                # Start billing session (deducts base cost immediately)
+                billing_session_id = await credit_service.start_billing_session(user_id, request.mode.value)
+                if billing_session_id:
+                    balance = await credit_service.get_balance(user_id)
+                    yield event("credit_update", {"balance": balance, "operation": f"base_{request.mode.value}"})
             except Exception as e:
                 logger.warning(f"Billing check failed (non-blocking): {e}")
         
@@ -2484,18 +2485,20 @@ class ChatHandler:
             search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
             
-            # Bill for search APIs used
-            if billing_task_id and credit_service:
+            # Bill for search APIs used (real-time deduction)
+            if billing_session_id and credit_service:
                 try:
-                    num_apis = len(search_results.get("raw_results", {}))
-                    await credit_service.bill_consumption(
-                        task_id=billing_task_id,
-                        api_service="search",
-                        api_operation="multi_search",
-                        units=max(num_apis, 1),
-                        reasoning_step=1,
-                        reasoning_context="Web search across multiple engines"
-                    )
+                    raw_results = search_results.get("raw_results", {})
+                    for api_name in raw_results.keys():
+                        op_key = f"search_{api_name}" if f"search_{api_name}" in OPERATION_COSTS else "search_brave"
+                        result = await credit_service.bill_operation(
+                            billing_session_id, op_key, 1.0, f"Search via {api_name}"
+                        )
+                        if result.should_pause:
+                            yield event("credit_update", {"balance": result.remaining_balance, "warning": "low_credits"})
+                    # Send updated balance
+                    balance = await credit_service.get_balance(user_id)
+                    yield event("credit_update", {"balance": balance, "operation": "search"})
                 except Exception as e:
                     logger.warning(f"Search billing failed (non-blocking): {e}")
             
@@ -2609,6 +2612,18 @@ CRITICAL RULES:
             evt_data = json.loads(evt.replace("data: ", "").strip())
             if evt_data.get("type") == "content":
                 full_response += evt_data.get("data", {}).get("chunk", "")
+        
+        # Bill for LLM streaming call (real-time deduction)
+        if billing_session_id and credit_service:
+            try:
+                llm_op = "llm_grok_stream" if request.mode.value == "instant" else "llm_kimi_stream"
+                result = await credit_service.bill_operation(billing_session_id, llm_op, 1.0, "LLM response generation")
+                balance = await credit_service.get_balance(user_id)
+                yield event("credit_update", {"balance": balance, "operation": "llm_response"})
+                if result.should_pause:
+                    yield event("credit_update", {"balance": balance, "warning": "low_credits"})
+            except Exception as e:
+                logger.warning(f"LLM billing failed (non-blocking): {e}")
         
         # Detect if file generation is needed
         file_types_needed = ChatHandler._detect_file_needs(user_message, has_uploaded_files=has_uploaded_files)
@@ -2724,9 +2739,26 @@ CRITICAL RULES:
                             "file_type": file_type,
                             "quality_verified": quality_ok
                         })
+                        
+                        # Bill for file generation (real-time deduction)
+                        if billing_session_id and credit_service:
+                            try:
+                                file_op = f"file_{file_type}"
+                                await credit_service.bill_operation(billing_session_id, file_op, 1.0, f"Generated {file_type} file")
+                                balance = await credit_service.get_balance(user_id)
+                                yield event("credit_update", {"balance": balance, "operation": f"file_{file_type}"})
+                            except Exception as e:
+                                logger.warning(f"File billing failed (non-blocking): {e}")
                 except Exception as e:
                     logger.error(f"File generation error for {file_type}: {e}")
                     yield event("file_error", {"file_type": file_type, "error": str(e)})
+        
+        # Bill for conclusion generation
+        if billing_session_id and credit_service:
+            try:
+                await credit_service.bill_operation(billing_session_id, "llm_kimi_conclusion", 1.0, "Conclusion generation")
+            except Exception:
+                pass
         
         # Generate Manus-style conclusion
         conclusion = await ChatHandler._generate_conclusion(user_message, full_response, file_types_needed, structured_data)
@@ -2740,22 +2772,19 @@ CRITICAL RULES:
         follow_ups = ChatHandler._generate_follow_ups(user_message, full_response)
         yield event("follow_up", {"questions": follow_ups})
         
-        # Complete billing task
+        # End billing session and get total credits used
         credits_used = 0
-        if credit_service and user_id and credits_to_deduct > 0:
+        if billing_session_id and credit_service:
             try:
-                billing_result = await credit_service.deduct_credits(
-                    user_id=user_id,
-                    amount=credits_to_deduct,
-                    reason=f"chat_{request.mode.value}"
-                )
-                if billing_result.success:
-                    credits_used = billing_result.credits_used
-                    logger.info(f"Deducted {credits_used} credits from user {user_id}. Remaining: {billing_result.remaining_balance}")
-                else:
-                    logger.warning(f"Credit deduction failed: {billing_result.error}")
+                billing_summary = await credit_service.end_billing_session(billing_session_id)
+                if billing_summary:
+                    credits_used = billing_summary.get("total_credits_used", 0)
+                    logger.info(f"Billing session {billing_session_id} ended. Total credits: {credits_used}, Operations: {billing_summary.get('operations_count', 0)}")
+                # Send final balance update
+                balance = await credit_service.get_balance(user_id)
+                yield event("credit_update", {"balance": balance, "operation": "complete", "total_used": credits_used})
             except Exception as e:
-                logger.warning(f"Billing completion failed (non-blocking): {e}")
+                logger.warning(f"Billing session end failed (non-blocking): {e}")
         
         yield event("complete", {
             "content": full_response[:500],

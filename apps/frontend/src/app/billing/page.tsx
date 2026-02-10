@@ -308,7 +308,7 @@ function BillingContent() {
                           <p className="text-xs text-white/40">
                             {plan === 'free'
                               ? 'Unlock deep search, file exports, and more domains'
-                              : 'Unlock agent mode, creative, and all 10 domains'}
+                              : 'Unlock agent mode and all 10 domains'}
                           </p>
                         </div>
                       </div>
@@ -453,14 +453,14 @@ function BillingContent() {
                       <Search className="h-3.5 w-3.5 text-white/40" />
                       <span className="text-xs font-medium text-white/60">Daily Fresh Credits</span>
                     </div>
-                    <p className="text-[11px] text-white/30">Instant search only. Refresh daily. Cannot be used for deep search, agent, or creative tasks.</p>
+                    <p className="text-[11px] text-white/30">Instant mode only. Refresh daily. Cannot be used for auto or agent mode tasks.</p>
                   </div>
                   <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
                     <div className="flex items-center gap-2 mb-1">
                       <Brain className="h-3.5 w-3.5 text-white/40" />
                       <span className="text-xs font-medium text-white/60">Purchased Credits</span>
                     </div>
-                    <p className="text-[11px] text-white/30">All task types: deep search, agent mode, creative, exports. Never expire.</p>
+                    <p className="text-[11px] text-white/30">All modes: auto, instant, agent. File exports included. Never expire.</p>
                   </div>
                 </div>
               </CardContent>
@@ -476,30 +476,24 @@ function BillingContent() {
                 <CardDescription>How many credits each task type costs</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
                     <Search className="h-5 w-5 mx-auto text-white/40 mb-2" />
-                    <p className="text-sm font-medium text-white">Instant Search</p>
-                    <p className="text-xs text-white/40 mt-1">1-3 credits</p>
-                    <p className="text-[10px] text-white/30 mt-0.5">Uses daily fresh credits</p>
+                    <p className="text-sm font-medium text-white">Auto Mode</p>
+                    <p className="text-xs text-white/40 mt-1">3-20 credits per task</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Smart routing, deep analysis, file exports</p>
                   </div>
                   <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
-                    <Search className="h-5 w-5 mx-auto text-white/40 mb-2" />
-                    <p className="text-sm font-medium text-white">Deep Search</p>
-                    <p className="text-xs text-white/40 mt-1">5-15 credits</p>
-                    <p className="text-[10px] text-white/30 mt-0.5">Purchased credits only</p>
+                    <Zap className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Instant Mode</p>
+                    <p className="text-xs text-white/40 mt-1">2-8 credits per task</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Fast answers, quick lookups</p>
                   </div>
                   <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
                     <Brain className="h-5 w-5 mx-auto text-white/40 mb-2" />
                     <p className="text-sm font-medium text-white">Agent Mode</p>
-                    <p className="text-xs text-white/40 mt-1">20-50 credits</p>
-                    <p className="text-[10px] text-white/30 mt-0.5">Pro plan & above</p>
-                  </div>
-                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
-                    <Palette className="h-5 w-5 mx-auto text-white/40 mb-2" />
-                    <p className="text-sm font-medium text-white">Creative & Export</p>
-                    <p className="text-xs text-white/40 mt-1">5-30 credits</p>
-                    <p className="text-[10px] text-white/30 mt-0.5">Standard plan & above</p>
+                    <p className="text-xs text-white/40 mt-1">5-40 credits per task</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Multi-step reasoning, complex tasks</p>
                   </div>
                 </div>
 

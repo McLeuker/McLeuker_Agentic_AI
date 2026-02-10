@@ -59,11 +59,11 @@ const plans: Plan[] = [
     features: [
       '15 daily fresh credits',
       '2 domains (Global + 1)',
-      'Instant search only',
+      'Instant mode only',
       'Community support',
     ],
     limitations: [
-      'No deep search',
+      'No auto mode',
       'No agent mode',
       'No file exports',
     ],
@@ -80,7 +80,7 @@ const plans: Plan[] = [
     features: [
       '50 daily fresh credits',
       '5 domains access',
-      'Deep search & analysis',
+      'Auto mode (search & analysis)',
       'Export to PDF, Excel, PPTX',
       '3 concurrent tasks',
       'Priority support',
@@ -100,7 +100,7 @@ const plans: Plan[] = [
     features: [
       '300 daily fresh credits',
       'All 10 domains',
-      'Agent mode & auto analysis',
+      'Agent mode',
       'Advanced trend forecasting',
       'Supplier intelligence',
       'Unlimited concurrent tasks',
@@ -208,7 +208,7 @@ export function UpgradePlanModal({ open, onOpenChange }: UpgradePlanModalProps) 
               Choose your plan
             </DialogTitle>
             <DialogDescription className="text-white/50">
-              Upgrade to unlock more domains, auto analysis, file exports, and agent mode.
+              Upgrade to unlock more domains, auto mode, file exports, and agent mode.
             </DialogDescription>
           </DialogHeader>
 
@@ -356,7 +356,7 @@ export function UpgradePlanModal({ open, onOpenChange }: UpgradePlanModalProps) 
               <div className="text-center text-white/40">Pro</div>
               <div className="text-center text-white/40">Enterprise</div>
 
-              <div className="text-white/50 flex items-center gap-1"><Search className="h-3 w-3" /> Deep Search</div>
+              <div className="text-white/50 flex items-center gap-1"><Search className="h-3 w-3" /> Auto Mode</div>
               <div className="text-center text-white/20"><XIcon className="h-3 w-3 mx-auto" /></div>
               <div className="text-center text-white/50"><Check className="h-3 w-3 mx-auto" /></div>
               <div className="text-center text-white/50"><Check className="h-3 w-3 mx-auto" /></div>
@@ -380,9 +380,9 @@ export function UpgradePlanModal({ open, onOpenChange }: UpgradePlanModalProps) 
               <div className="text-center text-white/40">All 10</div>
               <div className="text-center text-white/40">All 10+</div>
 
-              <div className="text-white/50 flex items-center gap-1"><Palette className="h-3 w-3" /> Creative Mode</div>
-              <div className="text-center text-white/20"><XIcon className="h-3 w-3 mx-auto" /></div>
-              <div className="text-center text-white/20"><XIcon className="h-3 w-3 mx-auto" /></div>
+              <div className="text-white/50 flex items-center gap-1"><Zap className="h-3 w-3" /> Instant Mode</div>
+              <div className="text-center text-white/50"><Check className="h-3 w-3 mx-auto" /></div>
+              <div className="text-center text-white/50"><Check className="h-3 w-3 mx-auto" /></div>
               <div className="text-center text-white/50"><Check className="h-3 w-3 mx-auto" /></div>
               <div className="text-center text-white/50"><Check className="h-3 w-3 mx-auto" /></div>
             </div>

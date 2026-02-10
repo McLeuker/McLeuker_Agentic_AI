@@ -11,7 +11,6 @@ interface ModelOption {
   label: string;
   description: string;
   icon: React.ElementType;
-  credits: string;
 }
 
 const MODEL_OPTIONS: ModelOption[] = [
@@ -20,21 +19,18 @@ const MODEL_OPTIONS: ModelOption[] = [
     label: "Auto",
     description: "Smart routing, deep analysis",
     icon: Sparkles,
-    credits: "10cr",
   },
   {
     id: "instant",
     label: "Instant",
     description: "Fast, concise answers",
     icon: Zap,
-    credits: "5cr",
   },
   {
     id: "agent",
     label: "Agent",
     description: "Multi-step reasoning & tasks",
     icon: Bot,
-    credits: "25cr",
   },
 ];
 
@@ -100,9 +96,6 @@ export function InlineModelPicker({
         <SelectedIcon className={cn("text-white/60", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
         <span className={cn("text-white/70 font-medium", compact ? "text-[10px]" : "text-[11px]")}>
           {selected.label}
-        </span>
-        <span className={cn("text-white/30 font-normal", compact ? "text-[9px]" : "text-[10px]")}>
-          {selected.credits}
         </span>
         <ChevronDown
           className={cn(
@@ -170,9 +163,6 @@ export function InlineModelPicker({
                         )}
                       >
                         {option.label}
-                      </span>
-                      <span className="text-[9px] text-white/25">
-                        {option.credits}
                       </span>
                     </div>
                     <div className="text-[10px] text-white/30 leading-tight">

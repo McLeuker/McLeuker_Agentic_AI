@@ -2420,12 +2420,17 @@ function DashboardContent() {
                     ? { ...m, follow_up_questions: finalFollowUp }
                     : m
                 ));
+              } else if (eventType === 'credit_update') {
+                // Real-time credit deduction during task execution
+                if (eventData.credits_deducted && eventData.credits_deducted > 0) {
+                  setCreditBalance(prev => Math.max(0, prev - eventData.credits_deducted));
+                }
               } else if (eventType === 'complete') {
                 // CRITICAL: Never overwrite streamed content with empty or shorter content from complete event
                 const finalContent = (eventData.content && eventData.content.length > currentContent.length) 
                   ? eventData.content 
                   : currentContent;
-                const creditsUsed = eventData.credits_used || ({ 'auto': 10, 'instant': 5, 'agent': 25 }[searchMode] || 10);
+                const creditsUsed = eventData.credits_used || 0;
                 const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
@@ -2461,7 +2466,11 @@ function DashboardContent() {
                     : m
                 ));
 
-                setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+                // Balance already updated via credit_update events during execution
+                // Only use this as fallback if no real-time updates were received
+                if (creditsUsed > 0) {
+                  setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+                }
 
                 // Save assistant message to database with full metadata
                 if (requestConversationId && user) {
@@ -2777,33 +2786,35 @@ function DashboardContent() {
                 {/* Ambient glow */}
                 <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.04] blur-[120px] pointer-events-none" />
                 
-                {/* Title - "Where is my mind?" only on Global, domain tagline on others */}
-                <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-2">
-                  {currentSector === 'all' ? (
-                    <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
-                      Where is my mind?
-                    </h1>
-                  ) : (
-                    <>
+                {/* Domain Trends - Only shown for non-Global domains */}
+                {currentSector !== 'all' && (
+                  <>
+                    {/* Title for domain */}
+                    <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-2">
                       <h1 className="relative text-2xl md:text-3xl lg:text-4xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
                         {sectorConfig.label} Intelligence
                       </h1>
                       <p className="text-sm text-white/40 font-light tracking-wide">
                         {sectorConfig.tagline}
                       </p>
-                    </>
-                  )}
-                </div>
-                
-                {/* Domain Trends - Only shown for non-Global domains */}
-                {currentSector !== 'all' && (
-                  <div className="flex-1 overflow-y-auto px-1 py-4 scrollbar-thin scrollbar-thumb-white/5">
-                    <DomainTrends domain={currentSector} />
-                  </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-1 py-4 scrollbar-thin scrollbar-thumb-white/5">
+                      <DomainTrends domain={currentSector} />
+                    </div>
+                  </>
                 )}
                 
-                {/* Spacer for Global domain */}
-                {currentSector === 'all' && <div className="flex-1" />}
+                {/* Global domain: "Where is my mind?" centered vertically */}
+                {currentSector === 'all' && (
+                  <div className="flex-1 flex flex-col items-center justify-center">
+                    <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                      Where is my mind?
+                    </h1>
+                    <p className="text-white/30 text-sm mt-3 text-center">
+                      Powered by McLeuker AI
+                    </p>
+                  </div>
+                )}
                 
                 {/* Search Bar - Pinned to bottom */}
                 <div className="w-full max-w-3xl mx-auto pb-8">

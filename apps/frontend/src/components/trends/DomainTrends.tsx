@@ -1001,9 +1001,33 @@ export function DomainTrends({ domain, className }: DomainTrendsProps) {
     return FALLBACK_DATA[domain] || null;
   }, [domain]);
 
+  // Cache key and TTL (24 hours for trends)
+  const TRENDS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
   const fetchTrends = useCallback(async (forceRefresh = false) => {
     if (domain === "all") return; // No trends for Global domain
     
+    // Check localStorage cache first (unless force refresh)
+    if (!forceRefresh) {
+      try {
+        const cacheKey = `mcleuker_trends_${domain}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { data: cachedData, timestamp } = JSON.parse(cached);
+          const age = Date.now() - timestamp;
+          if (age < TRENDS_CACHE_TTL && cachedData) {
+            setTrendsData(cachedData);
+            setUsingFallback(false);
+            setError(null);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // Cache read failed, continue to fetch
+      }
+    }
+
     try {
       if (forceRefresh) setRefreshing(true);
       else setLoading(true);
@@ -1035,6 +1059,12 @@ export function DomainTrends({ domain, className }: DomainTrendsProps) {
       setTrendsData(enriched);
       setUsingFallback(false);
       setError(null);
+
+      // Save to localStorage cache
+      try {
+        const cacheKey = `mcleuker_trends_${domain}`;
+        localStorage.setItem(cacheKey, JSON.stringify({ data: enriched, timestamp: Date.now() }));
+      } catch { /* ignore storage errors */ }
     } catch (err: any) {
       console.error("Error fetching trends:", err);
       // Use fallback data when API is unavailable
@@ -1139,8 +1169,7 @@ export function DomainTrends({ domain, className }: DomainTrendsProps) {
         <RisingCreatorsSection creators={trendsData.rising_creators} domain={trendsData.domain} />
       )}
 
-      {/* Premium Upgrade CTA */}
-      <PremiumInsightsCTA domain={trendsData.domain} />
+
     </div>
   );
 }

@@ -115,13 +115,10 @@ export function DomainStarterPanel({
             </div>
           </form>
 
-          {/* Credit Hint */}
+          {/* Hint */}
           <div className="text-center mb-8">
-            <p className="text-white/50 text-xs">
-              {{ "auto": "10", "instant": "5", "agent": "25" }[researchMode]} credits • Press Enter to send
-            </p>
-            <p className="text-white/40 text-xs mt-1 hidden sm:block">
-              Shift + Enter for new line
+            <p className="text-white/40 text-xs">
+              Press Enter to send • Shift + Enter for new line
             </p>
             <p className="text-white/20 text-[11px] mt-2">McLeukerAI can be wrong. Please verify important details.</p>
           </div>
