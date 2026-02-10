@@ -1144,9 +1144,10 @@ function DomainTabs() {
       .select('subscription_plan')
       .eq('id', user.id)
       .single()
-      .then(({ data }) => {
-        if (data?.subscription_plan) setUserPlan(data.subscription_plan);
-      });
+      .then(({ data, error }) => {
+        if (!error && data?.subscription_plan) setUserPlan(data.subscription_plan);
+      })
+      .catch(() => {});
   }, [user]);
 
   const accessibleDomains = DOMAIN_ACCESS[userPlan] || DOMAIN_ACCESS.free;
@@ -1253,16 +1254,20 @@ function ProfileDropdown() {
 
   const fetchUserData = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from("users")
-      .select("name, profile_image, credits_balance, subscription_plan")
-      .eq("id", user.id)
-      .single();
-    
-    if (data) {
-      setUserProfile({ name: data.name, profile_image: data.profile_image });
-      setCreditBalance(data.credits_balance || 50);
-      setPlan(data.subscription_plan || 'free');
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("name, profile_image, credit_balance, subscription_plan")
+        .eq("id", user.id)
+        .single();
+      
+      if (data && !error) {
+        setUserProfile({ name: data.name, profile_image: data.profile_image });
+        setCreditBalance(data.credit_balance ?? 50);
+        setPlan(data.subscription_plan || 'free');
+      }
+    } catch (err) {
+      console.error('Error fetching user data:', err);
     }
   }, [user]);
 
@@ -1837,8 +1842,9 @@ function DashboardContent() {
         const res = await fetch(`${API_URL}/api/v1/billing/credits`, {
           headers: { 'Authorization': `Bearer ${session.access_token}` },
         });
+        if (!res.ok) return;
         const data = await res.json();
-        if (data.success) setCreditBalance(data.data?.balance ?? 0);
+        if (data?.success) setCreditBalance(data.data?.balance ?? 0);
       } catch (e) { console.error('Failed to fetch credits:', e); }
     };
     fetchCredits();

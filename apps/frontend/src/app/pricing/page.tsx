@@ -1,9 +1,10 @@
 'use client';
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { TopNavigation } from "@/components/layout/TopNavigation";
 import { Footer } from "@/components/layout/Footer";
 import {
@@ -187,15 +188,56 @@ const faqs = [
   { q: "Do you offer refunds?", a: "We offer a 14-day money-back guarantee on all paid plans. Credit pack purchases are non-refundable but never expire." },
 ];
 
+const PLAN_RANK: Record<string, number> = { free: 0, standard: 1, pro: 2, enterprise: 3 };
+
 export default function PricingPage() {
   const [annual, setAnnual] = useState(true);
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const { user, session } = useAuth();
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+
+  // Fetch user's current plan if logged in
+  useEffect(() => {
+    if (!user) { setCurrentPlan(null); return; }
+    supabase
+      .from('users')
+      .select('subscription_plan')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => {
+        setCurrentPlan(data?.subscription_plan || 'free');
+      });
+  }, [user]);
+
+  // Determine button text based on login state and current plan
+  const getButtonText = (planSlug: string) => {
+    if (!user) {
+      // Not logged in
+      if (planSlug === 'free') return 'Get Started Free';
+      if (planSlug === 'enterprise') return 'Contact Sales';
+      return 'Start Free Trial';
+    }
+    // Logged in
+    if (planSlug === 'enterprise') return 'Contact Sales';
+    if (currentPlan === planSlug) return 'Current Plan';
+    if (PLAN_RANK[planSlug] > PLAN_RANK[currentPlan || 'free']) return 'Upgrade';
+    if (PLAN_RANK[planSlug] < PLAN_RANK[currentPlan || 'free']) return 'Downgrade';
+    return 'Subscribe';
+  };
+
+  const isCurrentPlan = (planSlug: string) => user && currentPlan === planSlug;
 
   const handleSubscribe = async (planSlug: string) => {
-    if (planSlug === 'free') {
+    // Don't do anything if it's the current plan
+    if (isCurrentPlan(planSlug)) return;
+    if (planSlug === 'free' && !user) {
       window.location.href = '/signup';
+      return;
+    }
+    if (planSlug === 'free' && user) {
+      // Already on free or downgrading — go to billing
+      window.location.href = '/billing';
       return;
     }
     if (planSlug === 'enterprise') {
@@ -377,17 +419,24 @@ export default function PricingPage() {
                   {/* CTA */}
                   <button
                     onClick={() => handleSubscribe(plan.slug)}
-                    disabled={subscribing === plan.slug}
+                    disabled={subscribing === plan.slug || isCurrentPlan(plan.slug)}
                     className={cn(
                       "w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all mt-auto",
-                      plan.highlighted
-                        ? "bg-white text-[#0A0A0A] hover:bg-white/90"
-                        : "border border-white/[0.10] text-white/70 hover:bg-white/[0.05] hover:text-white",
+                      isCurrentPlan(plan.slug)
+                        ? "border border-[#5c6652]/40 text-[#5c6652] cursor-default"
+                        : plan.highlighted
+                          ? "bg-white text-[#0A0A0A] hover:bg-white/90"
+                          : "border border-white/[0.10] text-white/70 hover:bg-white/[0.05] hover:text-white",
                       subscribing === plan.slug && "opacity-50 cursor-wait"
                     )}
                   >
-                    {subscribing === plan.slug ? 'Processing...' : plan.cta}
-                    {subscribing !== plan.slug && <ArrowRight className="w-3.5 h-3.5" />}
+                    {subscribing === plan.slug ? 'Processing...' : (
+                      <>
+                        {isCurrentPlan(plan.slug) && <Check className="w-3.5 h-3.5" />}
+                        {getButtonText(plan.slug)}
+                        {!isCurrentPlan(plan.slug) && subscribing !== plan.slug && <ArrowRight className="w-3.5 h-3.5" />}
+                      </>
+                    )}
                   </button>
                 </div>
               );

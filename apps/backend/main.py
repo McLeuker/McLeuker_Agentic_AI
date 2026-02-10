@@ -3456,13 +3456,29 @@ class AuthManager:
     
     @staticmethod
     def verify_token(token: str) -> Optional[Dict]:
-        """Verify and decode JWT token."""
+        """Verify and decode JWT token. Tries local JWT first, then Supabase JWT."""
+        # Try local JWT first
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             return payload
-        except JWTError as e:
-            logger.warning(f"JWT verification failed: {e}")
-            return None
+        except JWTError:
+            pass
+        
+        # Fallback: verify as Supabase JWT using supabase.auth.get_user()
+        if supabase:
+            try:
+                user_response = supabase.auth.get_user(token)
+                if user_response and user_response.user:
+                    su = user_response.user
+                    return {
+                        "sub": su.id,
+                        "email": su.email or "",
+                        "role": su.user_metadata.get("role", "user") if su.user_metadata else "user",
+                    }
+            except Exception as e:
+                logger.warning(f"Supabase token verification failed: {e}")
+        
+        return None
     
     @staticmethod
     async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security_bearer)) -> Optional[Dict]:
@@ -5517,8 +5533,8 @@ async def create_checkout_session(req: CheckoutSessionRequest, user: Dict = Depe
                 customer=customer_id,
                 mode="subscription",
                 line_items=[{"price": price_id, "quantity": 1}],
-                success_url=f"https://mcleuker.com/billing?success=true&plan={req.plan_slug}",
-                cancel_url=f"https://mcleuker.com/pricing?canceled=true",
+                success_url=f"https://mcleukerai.com/billing?success=true&plan={req.plan_slug}",
+                cancel_url=f"https://mcleukerai.com/pricing?canceled=true",
                 metadata={"user_id": user_id, "plan_slug": req.plan_slug, "billing_interval": req.billing_interval},
                 subscription_data={"metadata": {"user_id": user_id, "plan_slug": req.plan_slug}}
             )
@@ -5536,8 +5552,8 @@ async def create_checkout_session(req: CheckoutSessionRequest, user: Dict = Depe
                 customer=customer_id,
                 mode="payment",
                 line_items=[{"price": price_id, "quantity": 1}],
-                success_url=f"https://mcleuker.com/billing?success=true&credits={pkg['credits']}",
-                cancel_url=f"https://mcleuker.com/billing?canceled=true",
+                success_url=f"https://mcleukerai.com/billing?success=true&credits={pkg['credits']}",
+                cancel_url=f"https://mcleukerai.com/billing?canceled=true",
                 metadata={"user_id": user_id, "package_slug": req.package_slug, "credits": str(pkg["credits"]), "type": "credit_purchase"}
             )
         else:
