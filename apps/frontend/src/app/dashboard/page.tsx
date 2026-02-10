@@ -1809,7 +1809,7 @@ function DashboardContent() {
 
   // Core state
   const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [searchMode, setSearchMode] = useState<'quick' | 'deep' | 'agent' | 'creative'>('quick');
   const [sidebarOpen, setSidebarOpen] = useState(true);
