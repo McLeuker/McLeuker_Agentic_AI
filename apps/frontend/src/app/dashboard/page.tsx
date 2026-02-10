@@ -1162,7 +1162,7 @@ function DomainTabs() {
       return;
     }
     setSector(sectorId);
-    router.push(`/domain/${sectorId}`);
+    // Stay on dashboard - don't navigate away
   };
 
   return (
