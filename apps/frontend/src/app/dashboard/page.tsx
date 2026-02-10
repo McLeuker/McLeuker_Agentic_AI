@@ -324,13 +324,13 @@ function CollapsibleTable({
   const hiddenCount = rows.length - 3;
   
   return (
-    <div ref={containerRef} className="my-3">
+    <div ref={containerRef} className="my-2">
       <div className="overflow-x-auto rounded-lg border border-white/[0.08]">
-        <table className="w-full text-[13px]">
+        <table className="w-full text-[12px] border-collapse">
           <thead>
             <tr className="bg-white/[0.06]">
               {headers.map((cell, ci) => (
-                <th key={ci} className="px-3 py-2.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap">
+                <th key={ci} className="px-2 py-1.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap text-[11px] uppercase tracking-wider">
                   {processInlineFormatting(cell)}
                 </th>
               ))}
@@ -338,9 +338,9 @@ function CollapsibleTable({
           </thead>
           <tbody>
             {visibleRows.map((row, ri) => (
-              <tr key={ri} className={ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'}>
+              <tr key={ri} className={`${ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'} hover:bg-white/[0.04] transition-colors`}>
                 {row.map((cell, ci) => (
-                  <td key={ci} className="px-3 py-2 text-white/65 border-b border-white/[0.04]">
+                  <td key={ci} className="px-2 py-1.5 text-white/65 border-b border-white/[0.04] leading-tight">
                     {processInlineFormatting(cell)}
                   </td>
                 ))}
@@ -497,6 +497,10 @@ function MessageContent({
     const skipLines = new Set<number>();
     
     const processInlineFormatting = (line: string) => {
+      // Strip citation markers like [1], [2], [1,2], [1, 2] etc.
+      line = line.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
+      line = line.replace(/\s{2,}/g, ' ').trim();
+      
       // Process markdown: links [text](url), bold **text**, italic *text*, inline code `code`, bold-italic ***text***
       const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`/g;
       const result: React.ReactNode[] = [];
@@ -2197,17 +2201,14 @@ function DashboardContent() {
                 // Connection established - capture conversation ID
                 // Nothing to display yet
               } else if (eventType === 'status') {
-                // Progress status from backend - show as task step
+                // Legacy status handler - convert to task_progress format
                 const statusMsg = eventData.message || 'Processing...';
-                const stepNum = eventData.step || currentTaskSteps.length + 1;
-                const totalSteps = eventData.total_steps || 5;
                 const stepData = {
-                  step: `step-${stepNum}`,
+                  step: `step-${currentTaskSteps.length + 1}`,
                   title: statusMsg,
                   status: 'active' as const,
-                  detail: `Step ${stepNum} of ${totalSteps}`,
+                  detail: '',
                 };
-                // Mark previous active steps as complete
                 currentTaskSteps = currentTaskSteps.map(s => 
                   s.status === 'active' ? { ...s, status: 'complete' as const } : s
                 );
@@ -2217,6 +2218,46 @@ function DashboardContent() {
                     ? { ...m, taskSteps: [...currentTaskSteps], toolStatus: statusMsg }
                     : m
                 ));
+              } else if (eventType === 'task_progress') {
+                // Real-time task progress (ChatGPT/Manus-style)
+                const progressId = eventData.id;
+                const progressTitle = eventData.title || 'Processing...';
+                const progressStatus = eventData.status || 'active';
+                const progressDetail = eventData.detail || '';
+                
+                // Update existing step or add new one
+                const existingIdx = currentTaskSteps.findIndex(s => s.step === progressId);
+                if (existingIdx >= 0) {
+                  currentTaskSteps[existingIdx] = {
+                    ...currentTaskSteps[existingIdx],
+                    title: progressTitle,
+                    status: progressStatus as 'active' | 'complete' | 'pending',
+                    detail: progressDetail,
+                  };
+                } else {
+                  currentTaskSteps.push({
+                    step: progressId,
+                    title: progressTitle,
+                    status: progressStatus as 'active' | 'complete' | 'pending',
+                    detail: progressDetail,
+                  });
+                }
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, taskSteps: [...currentTaskSteps], toolStatus: progressTitle }
+                    : m
+                ));
+              } else if (eventType === 'credits_exhausted') {
+                // Show credit purchase popup instead of error
+                setShowDashCreditsModal(true);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, isStreaming: false, content: '' }
+                    : m
+                ));
+                // Remove the empty assistant message
+                setMessages(prev => prev.filter(m => m.id !== assistantId || m.content.trim() !== ''));
+                break;
               } else if (eventType === 'conclusion') {
                 // Manus-style conclusion
                 const conclusionContent = eventData.content || '';
@@ -2238,8 +2279,14 @@ function DashboardContent() {
                     : m
                 ));
               } else if (eventType === 'error') {
-                // General error
+                // General error - check if it's a credit error
                 const errorMsg = eventData.message || 'An error occurred';
+                if (errorMsg.toLowerCase().includes('credit') || errorMsg.toLowerCase().includes('insufficient')) {
+                  // Show buy credits modal instead of error text
+                  setShowDashCreditsModal(true);
+                  setMessages(prev => prev.filter(m => m.id !== assistantId || m.content.trim() !== ''));
+                  break;
+                }
                 currentContent += `\n\n**Error:** ${errorMsg}`;
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
@@ -2810,9 +2857,7 @@ function DashboardContent() {
                     <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
                       Where is my mind?
                     </h1>
-                    <p className="text-white/30 text-sm mt-3 text-center">
-                      Powered by McLeuker AI
-                    </p>
+
                   </div>
                 )}
                 
@@ -3017,37 +3062,53 @@ function DashboardContent() {
                             </div>
                           )}
                           
-                          {/* ===== TASK PROGRESS STEPS (from status events) ===== */}
+                          {/* ===== TASK PROGRESS STEPS (ChatGPT/Manus-style) ===== */}
                           {message.taskSteps && message.taskSteps.length > 0 && (
-                            <div className="mb-3 space-y-1">
-                              {message.taskSteps.map((step, idx) => (
-                                <div key={idx} className="flex items-center gap-2 py-1">
-                                  {step.status === 'complete' ? (
-                                    <CheckCircle2 className="h-3.5 w-3.5 text-[#5c6652] flex-shrink-0" />
-                                  ) : step.status === 'active' ? (
-                                    <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0" />
-                                  ) : (
-                                    <Circle className="h-3.5 w-3.5 text-white/20 flex-shrink-0" />
-                                  )}
-                                  <span className={cn(
-                                    "text-xs",
-                                    step.status === 'active' ? "text-white/70" : step.status === 'complete' ? "text-white/40" : "text-white/20"
-                                  )}>
-                                    {step.title}
-                                  </span>
-                                  {step.detail && (
-                                    <span className="text-[10px] text-white/20 ml-auto">{step.detail}</span>
-                                  )}
+                            <div className="mb-3 pl-1">
+                              <div className="relative">
+                                {/* Vertical line connector */}
+                                <div className="absolute left-[7px] top-2 bottom-2 w-[1px] bg-white/[0.06]" />
+                                <div className="space-y-0.5">
+                                  {message.taskSteps.map((step, idx) => (
+                                    <div key={idx} className="flex items-start gap-2.5 py-1 relative">
+                                      <div className="relative z-10 mt-0.5">
+                                        {step.status === 'complete' ? (
+                                          <div className="h-[15px] w-[15px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
+                                            <CheckCircle2 className="h-3 w-3 text-[#7a8a6e]" />
+                                          </div>
+                                        ) : step.status === 'active' ? (
+                                          <div className="h-[15px] w-[15px] rounded-full bg-[#8a9a7e]/15 flex items-center justify-center">
+                                            <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
+                                          </div>
+                                        ) : (
+                                          <div className="h-[15px] w-[15px] rounded-full bg-white/[0.04] flex items-center justify-center">
+                                            <Circle className="h-2.5 w-2.5 text-white/15" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <span className={cn(
+                                          "text-[12px] leading-tight block",
+                                          step.status === 'active' ? "text-white/75 font-medium" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                        )}>
+                                          {step.title}
+                                        </span>
+                                        {step.detail && step.status === 'active' && (
+                                          <span className="text-[10px] text-white/25 block mt-0.5">{step.detail}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
+                              </div>
                             </div>
                           )}
 
-                          {/* Streaming content indicator when task steps are showing but content is being generated */}
+                          {/* Streaming content indicator */}
                           {message.isStreaming && message.content && (
                             <div className="flex items-center gap-1.5 mb-2">
                               <div className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-pulse" />
-                              <span className="text-[10px] text-white/30">Generating response...</span>
+                              <span className="text-[10px] text-white/30">Writing...</span>
                             </div>
                           )}
                           

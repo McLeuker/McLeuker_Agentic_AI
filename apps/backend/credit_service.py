@@ -154,21 +154,19 @@ class CreditService:
                 response = self.supabase.table("user_credit_summary")\
                     .select("*")\
                     .eq("user_id", user_id)\
-                    .single()\
                     .execute()
-                if response.data:
-                    return response.data
+                if response.data and len(response.data) > 0:
+                    return response.data[0]
             except Exception:
                 pass
 
             response = self.supabase.table("user_credits")\
                 .select("*")\
                 .eq("user_id", user_id)\
-                .single()\
                 .execute()
 
-            if response.data:
-                data = response.data
+            if response.data and len(response.data) > 0:
+                data = response.data[0]
                 return {
                     "user_id": user_id,
                     "balance": data.get("balance", 0),
@@ -188,9 +186,8 @@ class CreditService:
             response = self.supabase.table("user_credits")\
                 .select("balance")\
                 .eq("user_id", user_id)\
-                .single()\
                 .execute()
-            return response.data.get("balance", 0) if response.data else 0
+            return response.data[0].get("balance", 0) if response.data and len(response.data) > 0 else 0
         except Exception:
             try:
                 result = await self._ensure_user_credits(user_id)
@@ -213,10 +210,9 @@ class CreditService:
             response = self.supabase.table("user_credits")\
                 .select("*")\
                 .eq("user_id", user_id)\
-                .single()\
                 .execute()
-            if response.data:
-                return response.data
+            if response.data and len(response.data) > 0:
+                return response.data[0]
         except Exception:
             pass
 
@@ -427,9 +423,8 @@ class CreditService:
                     resp = self.supabase.table("user_credits")\
                         .select("lifetime_purchased")\
                         .eq("user_id", user_id)\
-                        .single()\
                         .execute()
-                    current_lifetime = resp.data.get("lifetime_purchased", 0) if resp.data else 0
+                    current_lifetime = resp.data[0].get("lifetime_purchased", 0) if resp.data and len(resp.data) > 0 else 0
                     update_data["lifetime_purchased"] = current_lifetime + amount
                 except Exception:
                     pass
@@ -491,10 +486,10 @@ class CreditService:
                 resp = self.supabase.table("user_credits")\
                     .select("last_daily_claim, balance")\
                     .eq("user_id", user_id)\
-                    .single()\
                     .execute()
 
-                if resp.data:
+                if resp.data and len(resp.data) > 0:
+                    resp.data = resp.data[0]
                     last_claim = resp.data.get("last_daily_claim")
                     current_balance = resp.data.get("balance", 0)
 
@@ -600,9 +595,8 @@ class CreditService:
             response = self.supabase.table("active_tasks")\
                 .select("*")\
                 .eq("id", task_id)\
-                .single()\
                 .execute()
-            return response.data
+            return response.data[0] if response.data and len(response.data) > 0 else None
         except Exception:
             return None
 

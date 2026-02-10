@@ -11,26 +11,49 @@ interface ModelOption {
   label: string;
   description: string;
   icon: React.ElementType;
+  capabilities: string[];
+  tier: string;
 }
 
 const MODEL_OPTIONS: ModelOption[] = [
   {
     id: "auto",
     label: "Auto",
-    description: "Smart routing, deep analysis",
+    description: "Smart routing with deep analysis",
     icon: Sparkles,
+    tier: "Standard+",
+    capabilities: [
+      "Web search & real-time data",
+      "Multi-source analysis",
+      "File generation (Excel, PDF, PPTX, Word)",
+      "Domain intelligence",
+    ],
   },
   {
     id: "instant",
     label: "Instant",
     description: "Fast, concise answers",
     icon: Zap,
+    tier: "Free",
+    capabilities: [
+      "Quick Q&A responses",
+      "Basic analysis",
+      "Conversational chat",
+    ],
   },
   {
     id: "agent",
     label: "Agent",
-    description: "Multi-step reasoning & tasks",
+    description: "Multi-step reasoning & complex tasks",
     icon: Bot,
+    tier: "Pro",
+    capabilities: [
+      "Deep multi-step reasoning",
+      "Complex research workflows",
+      "Advanced file generation with quality checks",
+      "Cross-domain analysis",
+      "Iterative refinement",
+    ],
   },
 ];
 
@@ -111,7 +134,7 @@ export function InlineModelPicker({
         <div
           className={cn(
             "absolute bottom-full left-0 mb-2 z-50",
-            "w-[220px] rounded-xl overflow-hidden",
+            "w-[280px] rounded-xl overflow-hidden",
             "bg-[#1a1a1a] border border-white/[0.10]",
             "shadow-xl shadow-black/50",
             "animate-in fade-in slide-in-from-bottom-2 duration-150"
@@ -120,7 +143,7 @@ export function InlineModelPicker({
           {/* Header */}
           <div className="px-3 py-2 border-b border-white/[0.06]">
             <span className="text-[10px] text-white/30 uppercase tracking-wider font-medium">
-              Search Mode
+              Select Mode
             </span>
           </div>
 
@@ -138,7 +161,7 @@ export function InlineModelPicker({
                     setIsOpen(false);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 transition-all text-left",
+                    "w-full flex items-start gap-3 px-3 py-2.5 transition-all text-left",
                     isSelected
                       ? "bg-[#2E3524]/40"
                       : "hover:bg-white/[0.04]"
@@ -146,7 +169,7 @@ export function InlineModelPicker({
                 >
                   <div
                     className={cn(
-                      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+                      "w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5",
                       isSelected
                         ? "bg-[#2E3524] text-white"
                         : "bg-white/[0.06] text-white/40"
@@ -164,13 +187,28 @@ export function InlineModelPicker({
                       >
                         {option.label}
                       </span>
+                      <span className="text-[9px] text-white/20 px-1.5 py-0.5 rounded bg-white/[0.04]">
+                        {option.tier}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-white/30 leading-tight">
+                    <div className="text-[10px] text-white/30 leading-tight mt-0.5">
                       {option.description}
+                    </div>
+                    {/* Capabilities list */}
+                    <div className="mt-1.5 space-y-0.5">
+                      {option.capabilities.map((cap, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <div className={cn(
+                            "w-1 h-1 rounded-full flex-shrink-0",
+                            isSelected ? "bg-[#7a8a6e]" : "bg-white/15"
+                          )} />
+                          <span className="text-[9px] text-white/25 leading-tight">{cap}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                   {isSelected && (
-                    <Check className="h-3.5 w-3.5 text-[#5a7a3a] flex-shrink-0" />
+                    <Check className="h-3.5 w-3.5 text-[#5a7a3a] flex-shrink-0 mt-1" />
                   )}
                 </button>
               );

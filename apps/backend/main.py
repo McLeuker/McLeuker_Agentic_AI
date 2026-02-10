@@ -103,7 +103,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="McLeuker AI V5.5",
     description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
-    version="5.7.0"
+    version="5.8.0"
 )
 
 # CORS
@@ -198,6 +198,27 @@ except Exception as e:
     logger.warning(f"Billing services not available: {e}")
     credit_service = None
     stripe_service = None
+
+# ============================================================================
+# ADMIN ACCOUNTS - Bypass credit limits and domain restrictions
+# ============================================================================
+ADMIN_EMAILS = [
+    "anja.simek@mcleuker.com",
+]
+
+async def is_admin_user(user_id: str) -> bool:
+    """Check if user_id belongs to an admin account."""
+    if not supabase or not user_id:
+        return False
+    try:
+        result = supabase.table("users").select("email, role").eq("id", user_id).execute()
+        if result.data and len(result.data) > 0:
+            email = result.data[0].get("email", "")
+            role = result.data[0].get("role", "")
+            return email.lower() in [e.lower() for e in ADMIN_EMAILS] or role == "admin"
+    except Exception:
+        pass
+    return False
 
 # Initialize LLM clients
 kimi_client = openai.OpenAI(
@@ -382,7 +403,8 @@ class PersistentFileStore:
         # Check DB
         if supabase:
             try:
-                result = supabase.table("generated_files").select("*").eq("file_id", file_id).single().execute()
+                result = supabase.table("generated_files").select("*").eq("file_id", file_id).execute()
+                result.data = result.data[0] if result.data else None
                 if result.data:
                     metadata = {
                         "file_id": result.data["file_id"],
@@ -2452,12 +2474,14 @@ class ChatHandler:
         # Credit billing - real-time usage-based deduction
         billing_session_id = None
         user_id = getattr(request, 'user_id', None)
-        if credit_service and user_id:
+        is_admin = await is_admin_user(user_id) if user_id else False
+        
+        if credit_service and user_id and not is_admin:
             try:
                 min_required = await credit_service.get_min_required_for_mode(request.mode.value)
                 has_credits = await credit_service.has_sufficient_credits(user_id, min_required=min_required)
                 if not has_credits:
-                    yield event("error", {"message": "Insufficient credits. Please purchase more credits or claim your daily free credits."})
+                    yield event("credits_exhausted", {"message": "You've run out of credits.", "redirect": "/billing"})
                     return
                 # Start billing session (deducts base cost immediately)
                 billing_session_id = await credit_service.start_billing_session(user_id, request.mode.value)
@@ -2479,8 +2503,8 @@ class ChatHandler:
         structured_data = {"data_points": [], "sources": []}
         
         if needs_search:
-            yield event("status", {"message": "Analyzing query and planning search strategy...", "step": 1, "total_steps": 5})
-            yield event("status", {"message": "Searching across multiple sources...", "step": 2, "total_steps": 5})
+            yield event("task_progress", {"id": "analyze", "title": "Understanding your request", "status": "complete", "detail": "Identified key topics and search strategy"})
+            yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "active", "detail": "Querying web, news, and social sources..."})
             
             search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
@@ -2504,14 +2528,15 @@ class ChatHandler:
             
             num_sources = len(structured_data.get("sources", []))
             num_data_points = len(structured_data.get("data_points", []))
-            yield event("status", {"message": f"Found {num_sources} sources with {num_data_points} data points. Processing results...", "step": 3, "total_steps": 5})
+            yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "complete", "detail": f"Found {num_sources} sources with {num_data_points} data points"})
+            yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "active", "detail": "Processing and verifying information..."})
             
             # Emit sources with REAL names (not API tool names)
             sources_for_ui = clean_sources_for_output(structured_data.get("sources", []))
             if sources_for_ui:
                 yield event("search_sources", {"sources": sources_for_ui})
         else:
-            yield event("status", {"message": "Processing your request...", "step": 1, "total_steps": 3})
+            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "active", "detail": "Analyzing your query..."})
         
         # Build context for LLM
         search_context = ""
@@ -2588,6 +2613,9 @@ CRITICAL RULES:
 18. INTENT ANALYSIS - CRITICAL: When a user mentions a file format (pdf, excel, ppt, presentation, spreadsheet, slides, word, csv), they WANT that file generated. 'pdf insights for X' means GENERATE a PDF about X. 'presentation about Y' means GENERATE a PPTX about Y. 'excel data on Z' means GENERATE an Excel about Z. The format keyword IS the intent. Do NOT just write text about the topic - GENERATE THE FILE.
 19. REASONING FIRST: Before responding, internally reason about: (a) What is the user's actual intent? (b) Do they want a file generated? (c) What topic are they referring to from conversation history? (d) What format do they want? Then provide the response that matches their intent.
 20. When the user's message contains BOTH a file format AND a topic (e.g., 'pdf insights for Paris fashion week'), your response should be focused on that topic AND a file of that format should be generated. Do NOT treat the format word as just a keyword - treat it as a file generation request.
+21. NEVER use numbered citations like [1], [2], [3], [4] etc. in your response. Do NOT add citation markers or reference numbers. Integrate information naturally without citation brackets.
+22. REASONING OUTPUT: Think step-by-step. Show your reasoning and logic. Explain WHY something matters, not just WHAT it is. Avoid unnecessary filler content or repetitive section headers. Every paragraph should add value.
+23. TABLES: Keep tables compact and well-formatted. Use concise column headers. Do not add excessive padding or empty columns.
 {conversation_summary}
 {f'{chr(10)}SEARCH DATA (integrate naturally into your response):{chr(10)}{search_context[:6000]}' if search_context else ''}
 {f'{chr(10)}UPLOADED FILE CONTENT (analyze this data thoroughly - provide reasoning, insights, and comprehensive analysis):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
@@ -2602,9 +2630,11 @@ CRITICAL RULES:
         
         # Stream LLM response
         if needs_search:
-            yield event("status", {"message": "Synthesizing research into response...", "step": 4, "total_steps": 5})
+            yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "complete"})
+            yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "active", "detail": "Generating comprehensive analysis..."})
         else:
-            yield event("status", {"message": "Generating response...", "step": 2, "total_steps": 3})
+            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "complete"})
+            yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "active"})
         
         full_response = ""
         async for evt in HybridLLMRouter.chat(llm_messages, request.mode):
@@ -2612,6 +2642,11 @@ CRITICAL RULES:
             evt_data = json.loads(evt.replace("data: ", "").strip())
             if evt_data.get("type") == "content":
                 full_response += evt_data.get("data", {}).get("chunk", "")
+        
+        # Post-process: strip citation markers [1], [2], etc.
+        full_response = re.sub(r'\[\d+\]', '', full_response)
+        full_response = re.sub(r'\[\d+,\s*\d+\]', '', full_response)
+        full_response = re.sub(r'\s{2,}', ' ', full_response)  # Clean up double spaces
         
         # Bill for LLM streaming call (real-time deduction)
         if billing_session_id and credit_service:
@@ -2629,11 +2664,16 @@ CRITICAL RULES:
         file_types_needed = ChatHandler._detect_file_needs(user_message, has_uploaded_files=has_uploaded_files)
         
         if file_types_needed:
-            yield event("status", {"message": f"Generating {', '.join(file_types_needed)} file(s)..."})
+            # Mark response generation as complete
+            if needs_search:
+                yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete"})
+            else:
+                yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete"})
+            yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "active", "detail": "Preparing high-quality document..."})
             
             # NEW: If no search data exists, do a search first to get real data for file generation
             if not search_context and not uploaded_file_context:
-                yield event("status", {"message": "Researching data for file generation..."})
+                yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data for comprehensive file..."})
                 try:
                     file_search_results = await SearchLayer.search(user_message, sources=["web", "news"], num_results=10)
                     file_structured_data = file_search_results.get("structured_data", {})
@@ -2713,7 +2753,7 @@ CRITICAL RULES:
                         # NEW: If quality check fails, re-generate with more data
                         if not quality_ok:
                             logger.warning(f"Quality check failed for {file_type}, re-generating...")
-                            yield event("status", {"message": f"Improving {file_type} quality..."})
+                            yield event("task_progress", {"id": "quality_fix", "title": f"Improving {file_type} quality", "status": "active", "detail": "Re-researching and enhancing content..."})
                             try:
                                 # Re-generate content with explicit quality instructions
                                 enhanced_content = await ChatHandler._generate_content(
@@ -2760,6 +2800,16 @@ CRITICAL RULES:
             except Exception:
                 pass
         
+        # Mark all progress as complete
+        if file_types_needed:
+            yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "complete", "detail": "Files ready for download"})
+        elif needs_search:
+            yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete"})
+        else:
+            yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete"})
+        
+        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "active", "detail": "Preparing conclusion and follow-ups..."})
+        
         # Generate Manus-style conclusion
         conclusion = await ChatHandler._generate_conclusion(user_message, full_response, file_types_needed, structured_data)
         if conclusion:
@@ -2785,6 +2835,8 @@ CRITICAL RULES:
                 yield event("credit_update", {"balance": balance, "operation": "complete", "total_used": credits_used})
             except Exception as e:
                 logger.warning(f"Billing session end failed (non-blocking): {e}")
+        
+        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "complete"})
         
         yield event("complete", {
             "content": full_response[:500],
@@ -3557,7 +3609,8 @@ async def get_conversation(conversation_id: str, user_id: str):
     try:
         if not supabase:
             return {"success": True, "conversation": None, "messages": []}
-        conv_result = supabase.table("conversations").select("*").eq("id", conversation_id).eq("user_id", user_id).single().execute()
+        conv_result = supabase.table("conversations").select("*").eq("id", conversation_id).eq("user_id", user_id).execute()
+        conv_result.data = conv_result.data[0] if conv_result.data else None
         messages = await MemoryManager.get_conversation_messages(conversation_id)
         return {"success": True, "conversation": conv_result.data, "messages": messages}
     except Exception as e:
@@ -3700,7 +3753,8 @@ async def login(request: LoginRequest):
         if not supabase:
             raise HTTPException(status_code=503, detail="Database not available")
         
-        result = supabase.table("users").select("*").eq("email", request.email).single().execute()
+        result = supabase.table("users").select("*").eq("email", request.email).execute()
+        result.data = result.data[0] if result.data else None
         if not result.data:
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
@@ -3726,7 +3780,8 @@ async def get_current_user_info(user: Dict = Depends(AuthManager.require_auth)):
     """Get current user info from token."""
     try:
         if supabase:
-            result = supabase.table("users").select("id, email, name, role, created_at, last_login").eq("id", user["user_id"]).single().execute()
+            result = supabase.table("users").select("id, email, name, role, created_at, last_login").eq("id", user["user_id"]).execute()
+            result.data = result.data[0] if result.data else None
             if result.data:
                 return {"success": True, "user": result.data}
         return {"success": True, "user": user}
@@ -4684,7 +4739,8 @@ Use ONLY real, verified data. NEVER use placeholder names.
         # Check DB (for tasks from previous server sessions)
         if supabase:
             try:
-                result = supabase.table("background_tasks").select("*").eq("task_id", task_id).single().execute()
+                result = supabase.table("background_tasks").select("*").eq("task_id", task_id).execute()
+                result.data = result.data[0] if result.data else None
                 if result.data:
                     data = result.data
                     # Parse JSON fields
@@ -5594,8 +5650,9 @@ async def get_current_subscription(user: Dict = Depends(AuthManager.require_auth
     if not supabase:
         return {"success": True, "subscription": {"plan": "free", "status": "active"}}
     try:
-        response = supabase.table("user_subscriptions").select("*, pricing_plans(*)").eq("user_id", user["user_id"]).single().execute()
-        return {"success": True, "subscription": response.data or {"plan": "free", "status": "active"}}
+        response = supabase.table("user_subscriptions").select("*, pricing_plans(*)").eq("user_id", user["user_id"]).execute()
+        sub_data = response.data[0] if response.data else None
+        return {"success": True, "subscription": sub_data or {"plan": "free", "status": "active"}}
     except Exception:
         return {"success": True, "subscription": {"plan": "free", "status": "active"}}
 
@@ -5671,7 +5728,8 @@ async def create_checkout_session(req: CheckoutSessionRequest, user: Dict = Depe
         
         if req.mode == "subscription" and req.plan_slug:
             # Get plan price ID from database
-            plan_response = supabase.table("pricing_plans").select("*").eq("slug", req.plan_slug).single().execute()
+            plan_response = supabase.table("pricing_plans").select("*").eq("slug", req.plan_slug).execute()
+            plan_response.data = plan_response.data[0] if plan_response.data else None
             if not plan_response.data:
                 raise HTTPException(status_code=404, detail="Plan not found")
             plan = plan_response.data
@@ -5690,7 +5748,18 @@ async def create_checkout_session(req: CheckoutSessionRequest, user: Dict = Depe
             )
         elif req.mode == "payment" and req.package_slug:
             # Get credit pack price ID from database
-            pkg_response = supabase.table("credit_packages").select("*").eq("slug", req.package_slug).single().execute()
+            slug_to_lookup = req.package_slug
+            is_annual = slug_to_lookup.endswith("-annual")
+            
+            pkg_response = supabase.table("credit_packages").select("*").eq("slug", slug_to_lookup).execute()
+            pkg_response.data = pkg_response.data[0] if pkg_response.data else None
+            
+            # Fallback: if annual slug not found, try base slug
+            if not pkg_response.data and is_annual:
+                base_slug = slug_to_lookup.replace("-annual", "")
+                pkg_response = supabase.table("credit_packages").select("*").eq("slug", base_slug).execute()
+                pkg_response.data = pkg_response.data[0] if pkg_response.data else None
+            
             if not pkg_response.data:
                 raise HTTPException(status_code=404, detail="Credit package not found")
             pkg = pkg_response.data

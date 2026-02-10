@@ -51,10 +51,7 @@ export function DomainStarterPanel({
             Where is my mind?
           </h1>
           
-          {/* Subtitle */}
-          <p className="text-white/60 text-sm mb-8 text-center">
-            Powered by McLeuker AI • All Domains Intelligence Mode
-          </p>
+
 
           {/* Mode Toggle - 3 modes: Auto / Instant / Agent */}
           <div className="flex items-center gap-1 bg-white/[0.05] rounded-lg p-1 mb-6">
