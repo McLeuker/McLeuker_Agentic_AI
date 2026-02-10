@@ -55,6 +55,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { InlineModelPicker } from "@/components/chat/InlineModelPicker";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { UpgradePlanModal } from "@/components/billing/UpgradePlanModal";
+import { BuyCreditsModal } from "@/components/billing/BuyCreditsModal";
 import { formatDistanceToNow } from "date-fns";
 
 // =============================================================================
@@ -1187,45 +1189,8 @@ function DomainTabs() {
         })}
       </div>
 
-      {/* Upgrade Modal */}
-      {showUpgradeModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}>
-          <div className="bg-[#141414] border border-white/[0.08] rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
-                <Lock className="h-5 w-5 text-white/50" />
-              </div>
-              <div>
-                <h3 className="text-lg font-medium text-white">Domain Locked</h3>
-                <p className="text-sm text-white/40">
-                  {blockedDomain && SECTORS.find(s => s.id === blockedDomain)?.label} requires a higher plan
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-white/50 mb-6">
-              {userPlan === 'free'
-                ? 'Upgrade to Standard ($19/mo) for 5 domains, or Pro ($99/mo) for all 10 domains.'
-                : 'Upgrade to Pro ($99/mo) to unlock all 10 research domains.'}
-            </p>
-            <div className="flex gap-3">
-              <Link
-                href="/pricing"
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-black text-sm font-medium hover:bg-white/90 transition-all"
-              >
-                <TrendingUp className="w-4 h-4" />
-                View Plans
-              </Link>
-              <Link
-                href="/billing"
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-white/[0.08] text-white/60 text-sm hover:bg-white/[0.04] transition-all"
-              >
-                <Coins className="w-4 h-4" />
-                Buy Credits
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Upgrade Modal - uses professional pop-up */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
     </>
   );
 }
@@ -1242,6 +1207,8 @@ function ProfileDropdown() {
   const [creditBalance, setCreditBalance] = useState(50);
   const [plan, setPlan] = useState('free');
   const menuRef = useRef<HTMLDivElement>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1357,19 +1324,25 @@ function ProfileDropdown() {
               </div>
             </div>
 
-            {/* Upgrade Button - shown for free and standard users */}
-            {(plan === 'free' || plan === 'standard') && (
-              <div className="px-3 py-2 border-b border-white/10">
-                <Link
-                  href="/pricing"
-                  onClick={() => setIsOpen(false)}
+            {/* Upgrade & Buy Credits Buttons */}
+            <div className="px-3 py-2 border-b border-white/10 space-y-1.5">
+              {(plan === 'free' || plan === 'standard') && (
+                <button
+                  onClick={() => { setIsOpen(false); setShowUpgradeModal(true); }}
                   className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90 transition-all"
                 >
                   <Crown className="h-3.5 w-3.5" />
                   {plan === 'free' ? 'Upgrade Plan' : 'Upgrade to Pro'}
-                </Link>
-              </div>
-            )}
+                </button>
+              )}
+              <button
+                onClick={() => { setIsOpen(false); setShowCreditsModal(true); }}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-white/[0.08] text-white/70 text-sm font-medium hover:bg-white/[0.05] transition-all"
+              >
+                <Coins className="h-3.5 w-3.5" />
+                Buy Credits
+              </button>
+            </div>
             
             {/* Menu Items */}
             <div className="py-1">
@@ -1422,6 +1395,9 @@ function ProfileDropdown() {
           </div>
         )}
       </div>
+      {/* Modals */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
+      <BuyCreditsModal open={showCreditsModal} onOpenChange={setShowCreditsModal} />
     </div>
   );
 }
@@ -1818,6 +1794,8 @@ function DashboardContent() {
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
+  const [showDashUpgradeModal, setShowDashUpgradeModal] = useState(false);
+  const [showDashCreditsModal, setShowDashCreditsModal] = useState(false);
   const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -2711,6 +2689,10 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-[#070707] flex w-full">
+      {/* Modals */}
+      <UpgradePlanModal open={showDashUpgradeModal} onOpenChange={setShowDashUpgradeModal} />
+      <BuyCreditsModal open={showDashCreditsModal} onOpenChange={setShowDashCreditsModal} />
+
       {/* Header - Fixed at top, full width */}
       <header className="h-[60px] border-b border-white/[0.08] flex items-center justify-between px-4 bg-[#0A0A0A] fixed top-0 left-0 right-0 z-40">
         {/* Left: McLeuker.ai Logo */}
@@ -2732,15 +2714,15 @@ function DashboardContent() {
         
         {/* Right: Credits & Profile */}
         <div className="w-48 flex items-center justify-end gap-3">
-          <Link
-            href="/billing"
+          <button
+            onClick={() => setShowDashCreditsModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-colors"
           >
             <Coins className="w-3.5 h-3.5 text-white/50" />
             <span className="text-sm text-white/70 font-medium">
               {creditBalance !== null ? creditBalance.toLocaleString() : '...'}
             </span>
-          </Link>
+          </button>
           <ProfileDropdown />
         </div>
       </header>

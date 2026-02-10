@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { UpgradePlanModal } from '@/components/billing/UpgradePlanModal';
+import { BuyCreditsModal } from '@/components/billing/BuyCreditsModal';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -22,9 +23,7 @@ import {
 import {
   CreditCard,
   Coins,
-  Calendar,
   TrendingUp,
-  ArrowUpRight,
   ArrowRight,
   Zap,
   Receipt,
@@ -32,17 +31,16 @@ import {
   LogOut,
   CheckCircle,
   Clock,
-  XCircle,
   Gift,
   ShoppingCart,
   ExternalLink,
   Flame,
   Crown,
-  Lock,
-  Globe,
   Search,
   Brain,
   Palette,
+  Plus,
+  Settings,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -53,29 +51,6 @@ const PLAN_DETAILS: Record<string, { name: string; dailyCredits: number; monthly
   pro: { name: 'Pro', dailyCredits: 300, monthlyCredits: 9000, maxDomains: 10, price: '$99/mo' },
   enterprise: { name: 'Enterprise', dailyCredits: 500, monthlyCredits: 25000, maxDomains: 10, price: 'Custom' },
 };
-
-const ANNUAL_DISCOUNT = 0.18;
-
-const creditTiers = [
-  { slug: 'credits-50', credits: 50, price: 5 },
-  { slug: 'credits-100', credits: 100, price: 10 },
-  { slug: 'credits-150', credits: 150, price: 15 },
-  { slug: 'credits-200', credits: 200, price: 20 },
-  { slug: 'credits-300', credits: 300, price: 30 },
-  { slug: 'credits-400', credits: 400, price: 40 },
-  { slug: 'credits-500', credits: 500, price: 50, popular: true },
-  { slug: 'credits-750', credits: 750, price: 75 },
-  { slug: 'credits-1000', credits: 1000, price: 100, bestValue: true },
-  { slug: 'credits-1500', credits: 1500, price: 150 },
-  { slug: 'credits-2000', credits: 2000, price: 200 },
-  { slug: 'credits-2500', credits: 2500, price: 250 },
-  { slug: 'credits-3000', credits: 3000, price: 300 },
-  { slug: 'credits-5000', credits: 5000, price: 500 },
-  { slug: 'credits-7500', credits: 7500, price: 750 },
-  { slug: 'credits-10000', credits: 10000, price: 1000 },
-  { slug: 'credits-15000', credits: 15000, price: 1500 },
-  { slug: 'credits-25000', credits: 25000, price: 2500 },
-];
 
 interface CreditSummary {
   balance: number;
@@ -89,6 +64,7 @@ interface CreditSummary {
   streak?: number;
   total_consumed?: number;
   max_domains?: number;
+  billing_interval?: string;
 }
 
 interface UsageItem {
@@ -108,7 +84,10 @@ function BillingContent() {
   const [loading, setLoading] = useState(true);
   const [claimingDaily, setClaimingDaily] = useState(false);
   const [dailyClaimed, setDailyClaimed] = useState(false);
-  const [purchasingPack, setPurchasingPack] = useState<string | null>(null);
+
+  // Modal states
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
     const token = session?.access_token;
@@ -156,31 +135,6 @@ function BillingContent() {
       console.error('Error claiming daily credits:', error);
     } finally {
       setClaimingDaily(false);
-    }
-  };
-
-  const handlePurchaseCredits = async (packSlug: string) => {
-    if (!session?.access_token) return;
-    setPurchasingPack(packSlug);
-    try {
-      const res = await fetch(`${API_URL}/api/v1/billing/checkout`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          package_slug: packSlug,
-          mode: 'payment',
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.url) {
-        window.location.href = data.url;
-      } else if (data.detail) {
-        alert(data.detail);
-      }
-    } catch (error) {
-      console.error('Error purchasing credits:', error);
-    } finally {
-      setPurchasingPack(null);
     }
   };
 
@@ -239,6 +193,10 @@ function BillingContent() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
+      {/* Modals */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
+      <BuyCreditsModal open={showCreditsModal} onOpenChange={setShowCreditsModal} />
+
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] border-b border-white/[0.08]">
         <div className="h-16 lg:h-[72px] flex items-center justify-between px-6 lg:px-8">
@@ -249,23 +207,50 @@ function BillingContent() {
           <Link href="/" className="flex items-center justify-center">
             <span className="font-editorial text-xl lg:text-[22px] text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
           </Link>
-          <button onClick={handleSignOut} className="flex items-center gap-2 text-white/60 hover:text-white transition-colors">
-            <LogOut className="h-5 w-5" />
-            <span className="hidden sm:inline">Sign Out</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <Link href="/settings" className="text-white/60 hover:text-white transition-colors">
+              <Settings className="h-5 w-5" />
+            </Link>
+            <button onClick={handleSignOut} className="flex items-center gap-2 text-white/60 hover:text-white transition-colors">
+              <LogOut className="h-5 w-5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="pt-24 lg:pt-28 pb-12 px-4 lg:px-8">
         <div className="max-w-5xl mx-auto">
-          <div className="mb-8 lg:mb-12">
-            <h1 className="text-3xl lg:text-4xl font-serif font-light tracking-tight text-white">Billing & Credits</h1>
-            <p className="text-white/60 mt-2">Manage your subscription, credits, and billing history</p>
+          <div className="mb-8 lg:mb-12 flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl lg:text-4xl font-serif font-light tracking-tight text-white">Billing & Credits</h1>
+              <p className="text-white/60 mt-2">Manage your subscription, credits, and billing history</p>
+            </div>
+            {/* Quick action buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setShowCreditsModal(true)}
+                className="bg-white text-black hover:bg-white/90 text-sm"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Buy Credits
+              </Button>
+              {(plan === 'free' || plan === 'standard') && (
+                <Button
+                  onClick={() => setShowUpgradeModal(true)}
+                  variant="outline"
+                  className="border-white/[0.12] text-white hover:bg-white/[0.08] text-sm"
+                >
+                  <TrendingUp className="h-4 w-4 mr-1.5" />
+                  Upgrade
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-8">
-            {/* Current Plan + Upgrade Banner */}
+            {/* Current Plan Card */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -327,23 +312,26 @@ function BillingContent() {
                           </p>
                         </div>
                       </div>
-                      <Link href="/pricing">
-                        <Button className="bg-white text-black hover:bg-white/90 text-sm">
-                          <TrendingUp className="h-4 w-4 mr-2" />
-                          Upgrade
-                        </Button>
-                      </Link>
+                      <Button
+                        onClick={() => setShowUpgradeModal(true)}
+                        className="bg-white text-black hover:bg-white/90 text-sm"
+                      >
+                        <TrendingUp className="h-4 w-4 mr-2" />
+                        Upgrade
+                      </Button>
                     </div>
                   </div>
                 )}
 
                 <div className="flex flex-wrap gap-3">
-                  <Link href="/pricing">
-                    <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]">
-                      <TrendingUp className="h-4 w-4 mr-2" />
-                      {plan === 'free' ? 'View Plans' : 'Change Plan'}
-                    </Button>
-                  </Link>
+                  <Button
+                    variant="outline"
+                    className="border-white/[0.08] text-white hover:bg-white/[0.08]"
+                    onClick={() => setShowUpgradeModal(true)}
+                  >
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    {plan === 'free' ? 'View Plans' : 'Change Plan'}
+                  </Button>
                   {plan !== 'free' && (
                     <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]" onClick={handleManageSubscription}>
                       <ExternalLink className="h-4 w-4 mr-2" />
@@ -357,10 +345,20 @@ function BillingContent() {
             {/* Credit Overview */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
-                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
-                  <Coins className="h-5 w-5" />
-                  Credit Balance
-                </CardTitle>
+                <div className="flex items-start justify-between">
+                  <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
+                    <Coins className="h-5 w-5" />
+                    Credit Balance
+                  </CardTitle>
+                  <Button
+                    onClick={() => setShowCreditsModal(true)}
+                    className="bg-white text-black hover:bg-white/90 text-sm"
+                    size="sm"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Buy Credits
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid gap-6 sm:grid-cols-3">
@@ -386,10 +384,19 @@ function BillingContent() {
                 </div>
 
                 {balance < 20 && (
-                  <p className="text-sm text-orange-400 flex items-center gap-1">
-                    <Zap className="h-4 w-4" />
-                    Low credits — claim daily credits or purchase more below
-                  </p>
+                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-between">
+                    <p className="text-sm text-orange-400 flex items-center gap-1">
+                      <Zap className="h-4 w-4" />
+                      Low credits — claim daily credits or purchase more
+                    </p>
+                    <Button
+                      onClick={() => setShowCreditsModal(true)}
+                      size="sm"
+                      className="bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/20 text-xs"
+                    >
+                      Buy Now
+                    </Button>
+                  </div>
                 )}
 
                 <Separator className="bg-white/[0.08]" />
@@ -459,66 +466,51 @@ function BillingContent() {
               </CardContent>
             </Card>
 
-            {/* Add Credits — Full 18-tier store */}
+            {/* Credit Cost Reference */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
-                      <ShoppingCart className="h-5 w-5" />
-                      Add Credits
-                    </CardTitle>
-                    <CardDescription>
-                      Flat rate of $0.10/credit for all users. Credits never expire and work for all task types.
-                      {(plan === 'standard' || plan === 'pro' || plan === 'enterprise') && (
-                        <span className="text-green-400 ml-1">Annual subscribers save 18%!</span>
-                      )}
-                    </CardDescription>
-                  </div>
-                </div>
+                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
+                  <Zap className="h-5 w-5" />
+                  Credit Usage Guide
+                </CardTitle>
+                <CardDescription>How many credits each task type costs</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-                  {creditTiers.map((tier) => {
-                    const isAnnual = false; // TODO: check actual billing cycle
-                    const displayPrice = isAnnual ? Math.round(tier.price * (1 - ANNUAL_DISCOUNT)) : tier.price;
-                    return (
-                      <button
-                        key={tier.slug}
-                        onClick={() => handlePurchaseCredits(tier.slug)}
-                        disabled={purchasingPack === tier.slug}
-                        className={cn(
-                          "relative p-3.5 rounded-xl border transition-all text-left hover:border-white/20 group",
-                          tier.popular ? "border-white/15 bg-white/[0.05] ring-1 ring-white/[0.08]" :
-                          tier.bestValue ? "border-white/12 bg-white/[0.04]" :
-                          "border-white/[0.06] bg-white/[0.02]",
-                          purchasingPack === tier.slug && "opacity-50 cursor-wait"
-                        )}
-                      >
-                        {tier.popular && (
-                          <div className="absolute -top-2 left-1/2 -translate-x-1/2">
-                            <span className="text-[8px] px-2 py-0.5 rounded-full bg-white/[0.10] text-white/70 border border-white/[0.10] uppercase tracking-wider whitespace-nowrap">Popular</span>
-                          </div>
-                        )}
-                        {tier.bestValue && (
-                          <div className="absolute -top-2 left-1/2 -translate-x-1/2">
-                            <span className="text-[8px] px-2 py-0.5 rounded-full bg-white/[0.10] text-white/70 border border-white/[0.10] uppercase tracking-wider whitespace-nowrap">Best Value</span>
-                          </div>
-                        )}
-                        <p className="text-lg font-editorial text-white/90 leading-tight">{tier.credits.toLocaleString()}</p>
-                        <p className="text-[10px] text-white/30 mb-2">credits</p>
-                        <p className="text-base font-medium text-white/80">${displayPrice.toLocaleString()}</p>
-                        {isAnnual && (
-                          <p className="text-[9px] text-green-400/70 line-through">${tier.price}</p>
-                        )}
-                        <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                          <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
-                            {purchasingPack === tier.slug ? 'Processing...' : 'Buy'} <ArrowRight className="w-2.5 h-2.5" />
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Search className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Instant Search</p>
+                    <p className="text-xs text-white/40 mt-1">1-3 credits</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Uses daily fresh credits</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Search className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Deep Search</p>
+                    <p className="text-xs text-white/40 mt-1">5-15 credits</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Purchased credits only</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Brain className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Agent Mode</p>
+                    <p className="text-xs text-white/40 mt-1">20-50 credits</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Pro plan & above</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Palette className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Creative & Export</p>
+                    <p className="text-xs text-white/40 mt-1">5-30 credits</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Standard plan & above</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 text-center">
+                  <Button
+                    onClick={() => setShowCreditsModal(true)}
+                    className="bg-white text-black hover:bg-white/90"
+                  >
+                    <ShoppingCart className="h-4 w-4 mr-2" />
+                    Purchase Credits
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -530,7 +522,7 @@ function BillingContent() {
                   <Receipt className="h-5 w-5" />
                   Recent Usage
                 </CardTitle>
-                <CardDescription>Your recent AI research activities (last 30 days)</CardDescription>
+                <CardDescription>Your recent AI research activities (last 30 days) &middot; {totalConsumed} credits consumed</CardDescription>
               </CardHeader>
               <CardContent>
                 {usageHistory.length === 0 ? (

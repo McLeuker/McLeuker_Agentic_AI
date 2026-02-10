@@ -8,6 +8,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { AccountOverview } from '@/components/profile/AccountOverview';
 import { Security } from '@/components/profile/Security';
+import { UpgradePlanModal } from '@/components/billing/UpgradePlanModal';
+import { BuyCreditsModal } from '@/components/billing/BuyCreditsModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,6 +30,8 @@ import {
   ExternalLink,
   Zap,
   Lock,
+  Plus,
+  ShoppingCart,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -52,6 +56,10 @@ function SettingsContent() {
   const [activeTab, setActiveTab] = useState('account');
   const [plan, setPlan] = useState('free');
   const [creditBalance, setCreditBalance] = useState(0);
+
+  // Modal states
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
 
   const getAuthHeaders = useCallback(() => {
     const token = session?.access_token;
@@ -98,6 +106,10 @@ function SettingsContent() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
+      {/* Modals */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
+      <BuyCreditsModal open={showCreditsModal} onOpenChange={setShowCreditsModal} />
+
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] border-b border-white/[0.08]">
         <div className="h-16 lg:h-[72px] flex items-center justify-between px-6 lg:px-8">
@@ -129,13 +141,26 @@ function SettingsContent() {
       <main className="pt-24 lg:pt-28 pb-12 px-4 lg:px-8">
         <div className="max-w-4xl mx-auto">
           {/* Page Title */}
-          <div className="mb-8 lg:mb-12">
-            <h1 className="text-3xl lg:text-4xl font-serif font-light tracking-tight text-white">
-              Account Settings
-            </h1>
-            <p className="text-white/60 mt-2">
-              Manage your account, security, and preferences
-            </p>
+          <div className="mb-8 lg:mb-12 flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl lg:text-4xl font-serif font-light tracking-tight text-white">
+                Account Settings
+              </h1>
+              <p className="text-white/60 mt-2">
+                Manage your account, security, and preferences
+              </p>
+            </div>
+            {/* Quick action buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setShowCreditsModal(true)}
+                size="sm"
+                className="bg-white text-black hover:bg-white/90 text-sm"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Buy Credits
+              </Button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -175,6 +200,8 @@ function SettingsContent() {
                 planInfo={planInfo}
                 creditBalance={creditBalance}
                 onManageSubscription={handleManageSubscription}
+                onUpgrade={() => setShowUpgradeModal(true)}
+                onBuyCredits={() => setShowCreditsModal(true)}
               />
             </TabsContent>
 
@@ -188,11 +215,13 @@ function SettingsContent() {
   );
 }
 
-function BillingTab({ plan, planInfo, creditBalance, onManageSubscription }: {
+function BillingTab({ plan, planInfo, creditBalance, onManageSubscription, onUpgrade, onBuyCredits }: {
   plan: string;
   planInfo: typeof PLAN_DETAILS['free'];
   creditBalance: number;
   onManageSubscription: () => void;
+  onUpgrade: () => void;
+  onBuyCredits: () => void;
 }) {
   return (
     <div className="space-y-6">
@@ -255,33 +284,44 @@ function BillingTab({ plan, planInfo, creditBalance, onManageSubscription }: {
                       </p>
                     </div>
                   </div>
-                  <Link href="/pricing">
-                    <Button className="bg-white text-black hover:bg-white/90 text-sm">
-                      Upgrade <ArrowRight className="h-4 w-4 ml-1" />
-                    </Button>
-                  </Link>
+                  <Button
+                    onClick={onUpgrade}
+                    className="bg-white text-black hover:bg-white/90 text-sm"
+                  >
+                    Upgrade <ArrowRight className="h-4 w-4 ml-1" />
+                  </Button>
                 </div>
               </div>
             </>
           )}
 
           <div className="flex flex-wrap gap-3">
-            <Link href="/billing">
-              <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]">
-                <Coins className="h-4 w-4 mr-2" />
-                Full Billing Dashboard
-              </Button>
-            </Link>
+            <Button
+              variant="outline"
+              className="border-white/[0.08] text-white hover:bg-white/[0.08]"
+              onClick={onUpgrade}
+            >
+              <TrendingUp className="h-4 w-4 mr-2" />
+              {plan === 'free' ? 'View Plans' : 'Change Plan'}
+            </Button>
+            <Button
+              variant="outline"
+              className="border-white/[0.08] text-white hover:bg-white/[0.08]"
+              onClick={onBuyCredits}
+            >
+              <ShoppingCart className="h-4 w-4 mr-2" />
+              Buy Credits
+            </Button>
             {plan !== 'free' && (
               <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]" onClick={onManageSubscription}>
                 <ExternalLink className="h-4 w-4 mr-2" />
                 Manage Subscription
               </Button>
             )}
-            <Link href="/pricing">
+            <Link href="/billing">
               <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]">
-                <CreditCard className="h-4 w-4 mr-2" />
-                View Plans
+                <Coins className="h-4 w-4 mr-2" />
+                Full Billing Dashboard
               </Button>
             </Link>
           </div>
@@ -325,6 +365,18 @@ function BillingTab({ plan, planInfo, creditBalance, onManageSubscription }: {
               </div>
             ))}
           </div>
+
+          {(plan === 'free' || plan === 'standard') && (
+            <div className="mt-4 pt-4 border-t border-white/[0.06]">
+              <Button
+                onClick={onUpgrade}
+                className="bg-white text-black hover:bg-white/90 text-sm w-full"
+              >
+                <TrendingUp className="h-4 w-4 mr-2" />
+                Unlock More Features
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
