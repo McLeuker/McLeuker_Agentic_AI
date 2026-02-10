@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
+# Cache bust: V5.5 - stripe + supabase billing
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
