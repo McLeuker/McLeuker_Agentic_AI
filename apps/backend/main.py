@@ -103,7 +103,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="McLeuker AI V5.5",
     description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
-    version="5.6.0"
+    version="5.7.0"
 )
 
 # CORS
@@ -5769,7 +5769,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "5.6.0",
+        "version": "5.7.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -5806,7 +5806,7 @@ async def root():
     """Root endpoint."""
     return {
         "name": "McLeuker AI V5.6",
-        "version": "5.6.0",
+        "version": "5.7.0",
         "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
         "endpoints": {
             "chat": ["/api/v1/chat", "/api/v1/chat/non-stream"],
