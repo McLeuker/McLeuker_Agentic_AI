@@ -1520,6 +1520,12 @@ Rules:
             
             # Build search context
             search_context = ""
+            
+            # CRITICAL: Include AI research context FIRST as primary data source
+            ai_research = structured_data.get("ai_research_context", "")
+            if ai_research and len(ai_research) > 100:
+                search_context += f"\n[AI RESEARCH ANALYSIS - USE THIS AS PRIMARY DATA SOURCE]:\n{ai_research[:5000]}\n\n"
+            
             raw_data_points = structured_data.get("data_points", [])
             for dp in raw_data_points[:20]:
                 search_context += f"- {dp.get('title', '')}: {dp.get('description', '')}\n"
@@ -2660,18 +2666,15 @@ CRITICAL CONTEXT: Today is {current_date}. The current year is {current_year}.
             }
             
             # Add Kimi built-in tools when requested
+            # NOTE: Only $web_search is valid as builtin_function type.
+            # moonshot/fetch:latest must use the formula API system, not builtin_function.
+            # We handle URL fetching ourselves via URLContentFetcher instead.
             if use_tools:
                 api_params["tools"] = [
                     {
                         "type": "builtin_function",
                         "function": {
                             "name": "$web_search",
-                        }
-                    },
-                    {
-                        "type": "builtin_function",
-                        "function": {
-                            "name": "moonshot/fetch:latest",
                         }
                     },
                 ]
@@ -2750,25 +2753,8 @@ CRITICAL CONTEXT: Today is {current_date}. The current year is {current_year}.
                         args = {}
                     
                     if fn_name == "$web_search":
-                        # Kimi handles web search internally
+                        # Kimi handles web search internally - return confirmation
                         tool_result = json.dumps({"status": "search_completed", "query": args.get("query", "")})
-                    elif fn_name == "moonshot/fetch:latest":
-                        # Fetch URL content using our own fetcher for reliability
-                        fetch_url = args.get("url", "")
-                        if fetch_url:
-                            try:
-                                fetched = await URLContentFetcher.fetch_url_content(fetch_url)
-                                if fetched.get("content"):
-                                    tool_result = json.dumps({
-                                        "title": fetched.get("title", ""),
-                                        "content": fetched.get("content", "")[:6000]
-                                    })
-                                else:
-                                    tool_result = json.dumps({"error": fetched.get("error", "Could not fetch URL")})
-                            except Exception as e:
-                                tool_result = json.dumps({"error": str(e)})
-                        else:
-                            tool_result = json.dumps({"error": "No URL provided"})
                     else:
                         tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
                     
@@ -3228,10 +3214,32 @@ FILE GENERATION:
             yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "active", "detail": "Preparing high-quality document..."})
             
             # NEW: If no search data exists, do a search first to get real data for file generation
+            # CRITICAL FIX: Resolve file_topic FIRST before searching, so we search for the right topic
+            file_topic = user_message
+            user_msg_lower = user_message.lower()
+            file_gen_words = ['generate', 'create', 'make', 'build', 'export', 'ppt', 'pptx', 'excel', 'word', 'pdf', 'presentation', 'slides', 'spreadsheet', 'document', 'sheet', 'file']
+            topic_reference_patterns = [r'about that', r'about this', r'that topic', r'this topic', r'same topic', r'about it', r'the same', r'summariz', r'about the', r'for that', r'for this']
+            implicit_reference_patterns = [
+                r'(so you can|can you|could you|yes|yeah|sure|please).*(generat|creat|mak|build|export)',
+                r'(the|that|this)\s+(excel|pdf|ppt|word|spreadsheet|document|file|sheet|presentation)',
+                r'^(generat|creat|mak|build|export|yes|yeah|sure|please|do it|go ahead)',
+            ]
+            is_topic_reference = any(re.search(p, user_msg_lower) for p in topic_reference_patterns)
+            is_implicit_reference = any(re.search(p, user_msg_lower) for p in implicit_reference_patterns)
+            words = user_msg_lower.split()
+            file_word_count = sum(1 for w in words if any(fw in w for fw in file_gen_words))
+            is_mostly_file_request = len(words) > 0 and (file_word_count / len(words)) > 0.3
+            non_file_words = [w for w in words if not any(fw in w for fw in file_gen_words + ['so', 'you', 'can', 'the', 'a', 'an', 'it', 'that', 'this', 'yes', 'yeah', 'sure', 'please', 'do', 'go', 'ahead', 'what', 'mean', 'by'])]
+            lacks_topic = len(non_file_words) < 3
+            if conversation_topic and (is_topic_reference or is_mostly_file_request or (is_implicit_reference and lacks_topic)):
+                file_topic = conversation_topic
+                logger.info(f"Resolved topic reference (early): '{user_message}' -> '{file_topic}'")
+            
             if not search_context and not uploaded_file_context:
                 yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data for comprehensive file..."})
                 try:
-                    file_search_results = await SearchLayer.search(user_message, sources=["web", "news"], num_results=10)
+                    # CRITICAL FIX: Search using the resolved file_topic, NOT the raw user_message
+                    file_search_results = await SearchLayer.search(file_topic, sources=["web", "news"], num_results=10)
                     file_structured_data = file_search_results.get("structured_data", {})
                     if file_structured_data.get("data_points"):
                         structured_data = file_structured_data
@@ -3247,28 +3255,14 @@ FILE GENERATION:
                 except Exception as e:
                     logger.warning(f"Pre-file-generation search failed: {e}")
             
-            # CRITICAL: Resolve the actual topic for file generation
-            # ANY file generation request that doesn't contain a clear topic should use conversation_topic
-            file_topic = user_message
-            user_msg_lower = user_message.lower()
-            
-            # Check if the message is JUST a file generation request without a clear topic
-            # e.g., "generate PPT summarizing trends", "create excel", "make a presentation"
-            file_gen_words = ['generate', 'create', 'make', 'build', 'export', 'ppt', 'pptx', 'excel', 'word', 'pdf', 'presentation', 'slides', 'spreadsheet', 'document']
-            topic_reference_patterns = [r'about that', r'about this', r'that topic', r'this topic', r'same topic', r'about it', r'the same', r'summariz', r'about the', r'for that', r'for this']
-            
-            is_topic_reference = any(re.search(p, user_msg_lower) for p in topic_reference_patterns)
-            
-            # Also detect if the message is PRIMARILY a file generation request
-            # (more than 50% of words are file-generation related)
-            words = user_msg_lower.split()
-            file_word_count = sum(1 for w in words if any(fw in w for fw in file_gen_words))
-            is_mostly_file_request = len(words) > 0 and (file_word_count / len(words)) > 0.3
-            
-            # If it's a file request without a clear standalone topic, use conversation topic
-            if conversation_topic and (is_topic_reference or is_mostly_file_request):
-                file_topic = conversation_topic
-                logger.info(f"Resolved topic reference: '{user_message}' -> '{file_topic}'")
+            # file_topic was already resolved above (before the search)
+            # CRITICAL: ALWAYS inject full_response as context for file generation
+            # This ensures Excel/PPT/Word generation has the actual research content
+            if full_response and len(full_response) > 200:
+                # ALWAYS prepend the AI response as context, even if search_context exists
+                ai_context = f"\n[PREVIOUS AI RESPONSE ON THIS TOPIC - USE THIS AS PRIMARY DATA SOURCE]:\n{full_response[:5000]}\n"
+                search_context = ai_context + search_context
+                logger.info(f"Injected full_response ({len(full_response)} chars) into file generation context")
             
             for file_type in file_types_needed:
                 try:
@@ -3288,7 +3282,9 @@ FILE GENERATION:
                     
                     full_data_for_excel = {
                         **structured_data,
-                        "results": search_results.get("results", {})
+                        "results": search_results.get("results", {}),
+                        # CRITICAL: Include the AI's full research response as a data source for Excel
+                        "ai_research_context": full_response[:5000] if full_response else ""
                     }
                     
                     if file_type == "excel":
