@@ -22,83 +22,64 @@ function ResetPasswordContent() {
   const [sessionError, setSessionError] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  // Handle the auth callback - detect session from multiple possible flows
   useEffect(() => {
     let mounted = true;
-    let unsubscribe: (() => void) | null = null;
 
-    const handleAuthCallback = async () => {
-      try {
-        // 1. Listen for auth state changes FIRST (catches PASSWORD_RECOVERY event)
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-          (event, session) => {
-            if (!mounted) return;
-            console.log('Auth event:', event, !!session);
-            if (event === 'PASSWORD_RECOVERY' && session) {
-              setSessionReady(true);
-              setChecking(false);
-            } else if (event === 'SIGNED_IN' && session) {
-              setSessionReady(true);
-              setChecking(false);
-            }
-          }
-        );
-        unsubscribe = () => subscription.unsubscribe();
+    const checkSession = async () => {
+      // Check if there's an error from the confirm endpoint
+      const urlError = searchParams.get('error');
+      if (urlError === 'invalid_token') {
+        if (mounted) {
+          setSessionError(true);
+          setChecking(false);
+        }
+        return;
+      }
 
-        // 2. Check for hash fragment with access_token (implicit flow)
-        const hash = window.location.hash;
-        if (hash && (hash.includes('access_token') || hash.includes('type=recovery'))) {
-          // Supabase client auto-processes the hash fragment
-          // Wait a moment for it to process
-          await new Promise(resolve => setTimeout(resolve, 500));
-          const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
-          if (mounted) {
-            if (session) {
-              setSessionReady(true);
-              setChecking(false);
-              return;
-            }
-            if (sessionErr) {
-              console.error('Hash session error:', sessionErr);
-            }
+      // Listen for PASSWORD_RECOVERY event (handles hash fragment flow)
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (event, session) => {
+          if (!mounted) return;
+          if (event === 'PASSWORD_RECOVERY' && session) {
+            setSessionReady(true);
+            setChecking(false);
+          } else if (event === 'SIGNED_IN' && session) {
+            setSessionReady(true);
+            setChecking(false);
           }
         }
+      );
 
-        // 3. Check for code parameter (PKCE flow - handled by auth/callback route)
-        const code = searchParams.get('code');
-        if (code) {
-          try {
-            const { error: codeErr } = await supabase.auth.exchangeCodeForSession(code);
-            if (mounted) {
-              if (codeErr) {
-                console.error('Code exchange error:', codeErr);
-                // Don't set error yet, the auth callback route may have already handled this
-              } else {
-                setSessionReady(true);
-                setChecking(false);
-                return;
-              }
-            }
-          } catch (e) {
-            console.error('Code exchange exception:', e);
-          }
-        }
-
-        // 4. Check if there's already an active session 
-        // (user arrived here after auth/callback route processed the code)
+      // Check for hash fragment (implicit flow fallback)
+      const hash = window.location.hash;
+      if (hash && (hash.includes('access_token') || hash.includes('type=recovery'))) {
+        // Wait for Supabase client to process the hash
+        await new Promise(resolve => setTimeout(resolve, 1000));
         const { data: { session } } = await supabase.auth.getSession();
         if (mounted && session) {
           setSessionReady(true);
           setChecking(false);
+          subscription.unsubscribe();
           return;
         }
+      }
 
-        // 5. Wait up to 5 seconds for the auth state change event
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        if (mounted && !sessionReady) {
-          // Final check
-          const { data: { session: finalSession } } = await supabase.auth.getSession();
+      // Check if session was already established by /auth/confirm route
+      const { data: { session } } = await supabase.auth.getSession();
+      if (mounted && session) {
+        setSessionReady(true);
+        setChecking(false);
+        subscription.unsubscribe();
+        return;
+      }
+
+      // Wait a bit more for any auth state change events
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      if (mounted && !sessionReady) {
+        // Final check
+        const { data: { session: finalSession } } = await supabase.auth.getSession();
+        if (mounted) {
           if (finalSession) {
             setSessionReady(true);
           } else {
@@ -106,20 +87,15 @@ function ResetPasswordContent() {
           }
           setChecking(false);
         }
-      } catch (e) {
-        console.error('Auth callback error:', e);
-        if (mounted) {
-          setSessionError(true);
-          setChecking(false);
-        }
       }
+
+      subscription.unsubscribe();
     };
 
-    handleAuthCallback();
+    checkSession();
 
     return () => {
       mounted = false;
-      if (unsubscribe) unsubscribe();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -150,7 +126,6 @@ function ResetPasswordContent() {
       } else {
         setSuccess(true);
         setIsLoading(false);
-        // Redirect to dashboard after a short delay
         setTimeout(() => {
           router.push("/dashboard");
         }, 2000);
@@ -274,14 +249,12 @@ function ResetPasswordContent() {
   return (
     <div className="min-h-screen bg-[#070707] flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-10">
           <Link href="/" className="inline-block">
             <span className="font-editorial text-2xl text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
           </Link>
         </div>
 
-        {/* Reset Password Card */}
         <div className={cn(
           "p-8 rounded-[20px]",
           "bg-gradient-to-b from-[#141414] to-[#0F0F0F]",
@@ -314,7 +287,7 @@ function ResetPasswordContent() {
                     "text-white placeholder:text-white/40",
                     "focus:outline-none focus:border-white/[0.18]"
                   )}
-                  placeholder="••••••••"
+                  placeholder="Minimum 8 characters"
                   required
                   minLength={8}
                 />
@@ -326,7 +299,6 @@ function ResetPasswordContent() {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-xs text-white/40 mt-1">Minimum 8 characters</p>
             </div>
 
             <div>
@@ -344,10 +316,10 @@ function ResetPasswordContent() {
                     confirmPassword && password !== confirmPassword
                       ? "border-red-500/30"
                       : confirmPassword && password === confirmPassword
-                        ? "border-green-500/30"
-                        : ""
+                      ? "border-[#5c6652]/30"
+                      : ""
                   )}
-                  placeholder="••••••••"
+                  placeholder="Re-enter your password"
                   required
                   minLength={8}
                 />
@@ -360,10 +332,10 @@ function ResetPasswordContent() {
                 </button>
               </div>
               {confirmPassword && password !== confirmPassword && (
-                <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
+                <p className="text-red-400 text-xs mt-1">Passwords do not match</p>
               )}
               {confirmPassword && password === confirmPassword && (
-                <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
+                <p className="text-[#5c6652] text-xs mt-1 flex items-center gap-1">
                   <Check className="w-3 h-3" /> Passwords match
                 </p>
               )}
@@ -371,7 +343,7 @@ function ResetPasswordContent() {
 
             <button
               type="submit"
-              disabled={isLoading || password !== confirmPassword || password.length < 8}
+              disabled={isLoading || password.length < 8 || password !== confirmPassword}
               className={cn(
                 "w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full",
                 "bg-gradient-to-r from-[#2E3524] to-[#21261A] text-white font-medium",
@@ -398,8 +370,24 @@ function ResetPasswordContent() {
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-[#070707] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-white/20 border-t-[#5c6652] rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-[#070707] flex items-center justify-center px-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-10">
+            <Link href="/" className="inline-block">
+              <span className="font-editorial text-2xl text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
+            </Link>
+          </div>
+          <div className={cn(
+            "p-8 rounded-[20px]",
+            "bg-gradient-to-b from-[#141414] to-[#0F0F0F]",
+            "border border-white/[0.08]"
+          )}>
+            <div className="text-center">
+              <div className="w-8 h-8 border-2 border-white/20 border-t-[#5c6652] rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-white/55">Loading...</p>
+            </div>
+          </div>
+        </div>
       </div>
     }>
       <ResetPasswordContent />
