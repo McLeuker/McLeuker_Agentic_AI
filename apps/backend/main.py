@@ -753,6 +753,190 @@ def clean_sources_for_output(sources: List[Dict]) -> List[Dict]:
 
 
 # ============================================================================
+# URL CONTENT FETCHER - Real link analysis engine
+# ============================================================================
+
+class URLContentFetcher:
+    """Detect URLs in user messages and fetch real webpage content for analysis.
+    
+    This enables the AI to actually READ links users paste, instead of
+    guessing or giving generic responses about URLs.
+    """
+    
+    # URL regex pattern
+    URL_PATTERN = re.compile(
+        r'https?://[^\s<>\[\](){}\'\'\"`,;]+[^\s<>\[\](){}\'\'\"`,;.\)]',
+        re.IGNORECASE
+    )
+    
+    # Skip patterns - don't fetch these
+    SKIP_DOMAINS = {
+        'localhost', '127.0.0.1', '0.0.0.0',
+        'mcleukerai.com', 'www.mcleukerai.com',
+    }
+    
+    MAX_CONTENT_LENGTH = 8000
+    FETCH_TIMEOUT = 15
+    
+    @classmethod
+    def extract_urls(cls, text: str) -> List[str]:
+        """Extract all URLs from a text string."""
+        urls = cls.URL_PATTERN.findall(text)
+        filtered = []
+        for url in urls:
+            try:
+                parsed = urlparse(url)
+                domain = parsed.netloc.lower().replace('www.', '')
+                if domain not in cls.SKIP_DOMAINS and parsed.scheme in ('http', 'https'):
+                    filtered.append(url)
+            except Exception:
+                continue
+        return filtered[:5]
+    
+    @classmethod
+    async def fetch_url_content(cls, url: str) -> Dict[str, str]:
+        """Fetch and extract readable content from a URL."""
+        result = {"url": url, "title": "", "content": "", "content_type": "", "error": None}
+        
+        try:
+            async with httpx.AsyncClient(
+                timeout=cls.FETCH_TIMEOUT,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; McLeukerAI/1.0; +https://mcleukerai.com)",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                }
+            ) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                
+                content_type = response.headers.get("content-type", "").lower()
+                result["content_type"] = content_type
+                
+                if "text/html" in content_type or "application/xhtml" in content_type:
+                    html = response.text
+                    result.update(cls._parse_html(html, url))
+                elif "application/json" in content_type:
+                    try:
+                        data = response.json()
+                        result["content"] = json.dumps(data, indent=2)[:cls.MAX_CONTENT_LENGTH]
+                        result["title"] = f"JSON data from {urlparse(url).netloc}"
+                    except Exception:
+                        result["content"] = response.text[:cls.MAX_CONTENT_LENGTH]
+                elif "text/" in content_type:
+                    result["content"] = response.text[:cls.MAX_CONTENT_LENGTH]
+                    result["title"] = f"Text content from {urlparse(url).netloc}"
+                elif "application/pdf" in content_type:
+                    result["content"] = f"[PDF document from {url} - {len(response.content)} bytes]"
+                    result["title"] = f"PDF from {urlparse(url).netloc}"
+                else:
+                    result["content"] = f"[Binary content: {content_type}, {len(response.content)} bytes]"
+                    result["title"] = f"File from {urlparse(url).netloc}"
+                    
+        except httpx.TimeoutException:
+            result["error"] = f"Timeout fetching {url}"
+        except httpx.HTTPStatusError as e:
+            result["error"] = f"HTTP {e.response.status_code} fetching {url}"
+        except Exception as e:
+            result["error"] = f"Error fetching {url}: {str(e)[:100]}"
+        
+        return result
+    
+    @classmethod
+    def _parse_html(cls, html: str, url: str) -> Dict[str, str]:
+        """Parse HTML and extract readable content."""
+        from bs4 import BeautifulSoup
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        title = ""
+        if soup.title and soup.title.string:
+            title = soup.title.string.strip()
+        
+        for tag in soup.find_all(['script', 'style', 'nav', 'footer', 'header',
+                                   'aside', 'iframe', 'noscript', 'svg', 'form']):
+            tag.decompose()
+        
+        main_content = None
+        for selector in ['article', 'main', '[role="main"]', '.post-content',
+                         '.article-body', '.entry-content', '#content', '.content']:
+            main_content = soup.select_one(selector)
+            if main_content:
+                break
+        
+        if not main_content:
+            main_content = soup.body if soup.body else soup
+        
+        content_parts = []
+        for element in main_content.find_all(['h1', 'h2', 'h3', 'h4', 'p', 'li', 'td', 'th',
+                                               'blockquote', 'pre', 'code', 'figcaption']):
+            text = element.get_text(strip=True)
+            if not text or len(text) < 3:
+                continue
+            tag_name = element.name
+            if tag_name in ('h1', 'h2', 'h3', 'h4'):
+                content_parts.append(f"\n{'#' * int(tag_name[1])} {text}\n")
+            elif tag_name == 'li':
+                content_parts.append(f"- {text}")
+            elif tag_name == 'blockquote':
+                content_parts.append(f"> {text}")
+            elif tag_name in ('pre', 'code'):
+                content_parts.append(f"```\n{text}\n```")
+            else:
+                content_parts.append(text)
+        
+        content = "\n".join(content_parts)
+        if len(content) < 100:
+            content = main_content.get_text(separator="\n", strip=True)
+        
+        content = content[:cls.MAX_CONTENT_LENGTH]
+        return {"title": title, "content": content}
+    
+    @classmethod
+    async def fetch_all_urls(cls, text: str) -> List[Dict[str, str]]:
+        """Extract all URLs from text and fetch their content in parallel."""
+        urls = cls.extract_urls(text)
+        if not urls:
+            return []
+        
+        tasks = [cls.fetch_url_content(url) for url in urls]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        fetched = []
+        for r in results:
+            if isinstance(r, Exception):
+                continue
+            if r.get("content") and not r.get("error"):
+                fetched.append(r)
+            elif r.get("error"):
+                fetched.append(r)
+        
+        return fetched
+    
+    @classmethod
+    def format_url_context(cls, fetched_urls: List[Dict]) -> str:
+        """Format fetched URL content for injection into LLM context."""
+        if not fetched_urls:
+            return ""
+        
+        parts = ["\nFETCHED URL CONTENT (the user shared these links — analyze this REAL content, do NOT guess or make assumptions about what these pages contain):"]
+        
+        for i, url_data in enumerate(fetched_urls, 1):
+            url = url_data.get("url", "")
+            title = url_data.get("title", "")
+            content = url_data.get("content", "")
+            error = url_data.get("error", "")
+            
+            if error:
+                parts.append(f"\n--- Link {i}: {url} ---\n[Could not fetch: {error}]")
+            else:
+                parts.append(f"\n--- Link {i}: {title or url} ({url}) ---\n{content}")
+        
+        return "\n".join(parts)
+
+
+# ============================================================================
 # SEARCH LAYER - All APIs in Parallel
 # ============================================================================
 
@@ -2224,8 +2408,8 @@ class HybridLLMRouter:
     """Route between Kimi and Grok based on mode and task."""
     
     @staticmethod
-    async def chat(messages: List[Dict], mode: ChatMode = ChatMode.THINKING) -> AsyncGenerator[str, None]:
-        """Route chat to appropriate LLM."""
+    async def chat(messages: List[Dict], mode: ChatMode = ChatMode.THINKING, use_tools: bool = False) -> AsyncGenerator[str, None]:
+        """Route chat to appropriate LLM with optional Kimi tool support."""
         config = MODE_CONFIGS.get(mode, MODE_CONFIGS[ChatMode.THINKING])
         
         # Build system message with real-time data enforcement
@@ -2265,44 +2449,193 @@ CRITICAL CONTEXT: Today is {current_date}. The current year is {current_year}.
             async for chunk in HybridLLMRouter._stream_grok(enhanced_messages, config):
                 yield chunk
         elif primary == "kimi" and kimi_client:
-            async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config):
+            async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config, use_tools=use_tools):
                 yield chunk
         elif primary == "hybrid":
-            # Use Grok for speed, then Kimi for depth
             if grok_client:
                 async for chunk in HybridLLMRouter._stream_grok(enhanced_messages, config):
                     yield chunk
             elif kimi_client:
-                async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config):
+                async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config, use_tools=use_tools):
                     yield chunk
         else:
-            # Fallback
             if kimi_client:
-                async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config):
+                async for chunk in HybridLLMRouter._stream_kimi(enhanced_messages, config, use_tools=use_tools):
                     yield chunk
             elif grok_client:
                 async for chunk in HybridLLMRouter._stream_grok(enhanced_messages, config):
                     yield chunk
     
     @staticmethod
-    async def _stream_kimi(messages: List[Dict], config: Dict) -> AsyncGenerator[str, None]:
-        """Stream from Kimi-2.5."""
+    async def _stream_kimi(messages: List[Dict], config: Dict, use_tools: bool = False) -> AsyncGenerator[str, None]:
+        """Stream from Kimi-2.5 with optional tool use (web_search, fetch).
+        
+        When use_tools=True, enables Kimi's built-in tools:
+        - $web_search: Real-time web search
+        - moonshot/fetch:latest: Fetch and parse URL content to markdown
+        
+        The tool call loop handles Kimi autonomously deciding to search or fetch URLs.
+        """
         try:
             import functools
             loop = asyncio.get_event_loop()
+            
+            # Build the API call parameters
+            api_params = {
+                "model": "kimi-k2.5",
+                "messages": messages,
+                "temperature": 1,  # Required for Kimi
+                "max_tokens": config.get("max_tokens", 16384),
+                "stream": True,
+            }
+            
+            # Add Kimi built-in tools when requested
+            if use_tools:
+                api_params["tools"] = [
+                    {
+                        "type": "builtin_function",
+                        "function": {
+                            "name": "$web_search",
+                        }
+                    },
+                    {
+                        "type": "builtin_function",
+                        "function": {
+                            "name": "moonshot/fetch:latest",
+                        }
+                    },
+                ]
+            
             response = await loop.run_in_executor(None, functools.partial(
                 kimi_client.chat.completions.create,
-                model="kimi-k2.5",
-                messages=messages,
-                temperature=1,  # Required for Kimi
-                max_tokens=config.get("max_tokens", 4096),
-                stream=True
+                **api_params
             ))
+            
+            # Track tool calls for the tool-call loop
+            collected_tool_calls = {}
+            current_content = ""
+            finish_reason = None
+            
             for chunk in response:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield event("content", {"chunk": chunk.choices[0].delta.content})
-                if hasattr(chunk.choices[0].delta, 'reasoning_content') and chunk.choices[0].delta.reasoning_content:
-                    yield event("reasoning", {"chunk": chunk.choices[0].delta.reasoning_content})
+                if not chunk.choices:
+                    continue
+                    
+                delta = chunk.choices[0].delta
+                finish_reason = chunk.choices[0].finish_reason
+                
+                # Stream content tokens
+                if delta.content:
+                    current_content += delta.content
+                    yield event("content", {"chunk": delta.content})
+                
+                # Stream reasoning tokens
+                if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                    yield event("reasoning", {"chunk": delta.reasoning_content})
+                
+                # Collect tool calls
+                if hasattr(delta, 'tool_calls') and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in collected_tool_calls:
+                            collected_tool_calls[idx] = {
+                                "id": tc.id or f"call_{idx}",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""}
+                            }
+                        if tc.id:
+                            collected_tool_calls[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                collected_tool_calls[idx]["function"]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+            
+            # If the model wants to use tools, execute them and continue
+            if finish_reason == "tool_calls" and collected_tool_calls and use_tools:
+                yield event("task_progress", {
+                    "id": "kimi_tools",
+                    "title": "AI is searching and analyzing",
+                    "status": "active",
+                    "detail": "Using web search and content analysis tools..."
+                })
+                
+                # Build the assistant message with tool calls
+                tool_calls_list = [collected_tool_calls[k] for k in sorted(collected_tool_calls.keys())]
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": current_content if current_content else None,
+                    "tool_calls": tool_calls_list
+                }
+                
+                # Execute each tool call
+                tool_results = []
+                for tc in tool_calls_list:
+                    fn_name = tc["function"]["name"]
+                    fn_args = tc["function"]["arguments"]
+                    tool_result = ""
+                    
+                    try:
+                        args = json.loads(fn_args) if fn_args else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    
+                    if fn_name == "$web_search":
+                        # Kimi handles web search internally
+                        tool_result = json.dumps({"status": "search_completed", "query": args.get("query", "")})
+                    elif fn_name == "moonshot/fetch:latest":
+                        # Fetch URL content using our own fetcher for reliability
+                        fetch_url = args.get("url", "")
+                        if fetch_url:
+                            try:
+                                fetched = await URLContentFetcher.fetch_url_content(fetch_url)
+                                if fetched.get("content"):
+                                    tool_result = json.dumps({
+                                        "title": fetched.get("title", ""),
+                                        "content": fetched.get("content", "")[:6000]
+                                    })
+                                else:
+                                    tool_result = json.dumps({"error": fetched.get("error", "Could not fetch URL")})
+                            except Exception as e:
+                                tool_result = json.dumps({"error": str(e)})
+                        else:
+                            tool_result = json.dumps({"error": "No URL provided"})
+                    else:
+                        tool_result = json.dumps({"error": f"Unknown tool: {fn_name}"})
+                    
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tool_result
+                    })
+                
+                # Continue the conversation with tool results
+                continued_messages = messages + [assistant_msg] + tool_results
+                
+                # Make a second streaming call with the tool results
+                response2 = await loop.run_in_executor(None, functools.partial(
+                    kimi_client.chat.completions.create,
+                    model="kimi-k2.5",
+                    messages=continued_messages,
+                    temperature=1,
+                    max_tokens=config.get("max_tokens", 16384),
+                    stream=True
+                ))
+                
+                yield event("task_progress", {
+                    "id": "kimi_tools",
+                    "title": "AI is searching and analyzing",
+                    "status": "complete"
+                })
+                
+                for chunk in response2:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        yield event("content", {"chunk": delta.content})
+                    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                        yield event("reasoning", {"chunk": delta.reasoning_content})
+                        
         except Exception as e:
             logger.error(f"Kimi streaming error: {e}")
             yield event("error", {"message": str(e)})
@@ -2475,6 +2808,29 @@ class ChatHandler:
             yield event("error", {"message": "No user message found"})
             return
         
+        # === URL CONTENT FETCHING: Detect and fetch real content from links ===
+        url_context = ""
+        fetched_urls = []
+        if user_message:
+            try:
+                fetched_urls = await URLContentFetcher.fetch_all_urls(user_message)
+                if fetched_urls:
+                    yield event("task_progress", {
+                        "id": "fetch_urls",
+                        "title": f"Reading {len(fetched_urls)} link(s)",
+                        "status": "active",
+                        "detail": "Fetching and analyzing linked content..."
+                    })
+                    url_context = URLContentFetcher.format_url_context(fetched_urls)
+                    yield event("task_progress", {
+                        "id": "fetch_urls",
+                        "title": f"Read {sum(1 for u in fetched_urls if not u.get('error'))} link(s)",
+                        "status": "complete",
+                        "detail": f"Extracted content from {sum(1 for u in fetched_urls if not u.get('error'))} link(s)"
+                    })
+            except Exception as e:
+                logger.warning(f"URL fetching failed (non-blocking): {e}")
+        
         # Credit billing - real-time usage-based deduction
         billing_session_id = None
         user_id = getattr(request, 'user_id', None)
@@ -2594,51 +2950,59 @@ class ChatHandler:
                 conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context, follow-ups, and what 'that topic', 'this', 'it' refers to):\n" + "\n".join(recent_exchanges)
                 conversation_summary += f"\n\nIDENTIFIED CONVERSATION TOPIC: {conversation_topic}"
         
-        system_msg = f"""You are McLeuker AI, an intelligent assistant. Today is {current_date}. The current year is {current_year}.
+        system_msg = f"""You are McLeuker AI — a sharp, reasoning-driven assistant. Today is {current_date} ({current_year}).
 
-CORE BEHAVIOR:
-- ADAPT your response style to the user's prompt. Not every question needs a research report.
-- For simple questions: give a direct, concise answer.
-- For analysis requests: reason through the problem step-by-step, then conclude.
-- For creative requests: be creative and engaging.
-- For follow-ups like "more", "continue", "go on", "elaborate": continue from where you left off in the conversation, expanding on the SAME topic with deeper detail.
-- For short messages that reference previous context ("what about X?", "and Y?", "more on that"): use the conversation history to understand what the user is referring to and continue the discussion.
-- NEVER introduce yourself. No "As McLeuker AI...", no "My analysis of...". Go straight to the answer.
+HOW TO THINK:
+1. First, understand what the user ACTUALLY wants. Read their message carefully. If it's short, check conversation history.
+2. Reason through the problem before writing your answer. Ask yourself: What's the core question? What matters here? What's the logical chain?
+3. Then write your response — leading with your reasoning and conclusions, not with a dump of information.
+
+HOW TO RESPOND:
+- Match the user's energy and intent. Casual question = casual answer. Deep analysis request = thorough reasoning.
+- Lead with the KEY INSIGHT or answer, then support it with reasoning.
+- Use emojis naturally when they add clarity or warmth (e.g. ✅ for confirmations, 🔍 for analysis, ⚠️ for warnings, 💡 for insights, 🎯 for key points) — but don't overdo it.
+- Use markdown formatting: **bold** for emphasis, headers for structure, tables ONLY when comparing data.
+- Write in flowing paragraphs for analysis. Use bullet points only for actual lists of items.
+- NEVER start with "As McLeuker AI..." or "Based on my analysis..." — just answer directly.
+- NEVER use numbered citations like [1], [2]. Integrate information naturally.
 - ALWAYS complete your full response. Never stop mid-sentence.
 
-REASONING OVER INFORMATION:
-- Lead with your reasoning and analysis, NOT with a dump of information.
-- Explain WHY something matters, not just WHAT it is.
-- When you have search data, synthesize it into insights — don't just restate facts.
-- Avoid excessive statistics and data points unless the user specifically asks for data.
-- Use specific examples and evidence to support your reasoning, but don't overwhelm with numbers.
-- Every paragraph must advance your argument or add a new insight. No filler.
-- Use markdown formatting naturally. Tables only when comparing structured data.
-- NEVER use numbered citations like [1], [2], [3]. Integrate information naturally.
-- NEVER fabricate specific statistics, percentages, or data points. If you don't have exact data, reason qualitatively.
+WHEN USER SHARES LINKS:
+- You will receive the ACTUAL CONTENT fetched from URLs the user shared.
+- Analyze this REAL content deeply. Reference specific details from the page.
+- Do NOT say "I can't access links" or "without direct access" — you HAVE the content.
+- If a link couldn't be fetched, acknowledge that honestly and work with what you have.
 
-FILE GENERATION BEHAVIOR:
-- You CAN generate real files: Excel (.xlsx), Word (.docx), PDF (.pdf), PowerPoint (.pptx), CSV.
-- When the user asks to generate/create/make a file, DO IT silently. The file will appear in the Generated Files section.
-- CRITICAL: Do NOT describe what you are about to generate. Provide the actual analysis content directly, and the file generation happens automatically.
-- Use ONLY real, verified data. NEVER use placeholder names like "Supplier A", "Company B".
-- File format keywords (pdf, excel, ppt, presentation, spreadsheet, slides, word, csv) in the user's message = file generation request.
+WHEN USER UPLOADS FILES:
+- You will receive the extracted text/data from uploaded files.
+- Analyze the ACTUAL content. Reference specific data points, sections, or findings.
+- For spreadsheets: analyze the data patterns, trends, anomalies.
+- For documents: summarize key points and provide insights.
+- For images: describe what you see and analyze it in context of the user's question.
+
+REASONING PRINCIPLES:
+- Explain WHY, not just WHAT. "This matters because..." is better than "This is..."
+- Connect the dots. Show how pieces of information relate to each other.
+- Be honest about uncertainty. "The data suggests..." when inferring, vs "The data shows..." when explicit.
+- Challenge assumptions when appropriate. If the user's premise seems off, gently point it out.
+- NEVER fabricate statistics, percentages, or specific data points. If you don't have exact numbers, reason qualitatively.
+- When you have search data, SYNTHESIZE it into insights — don't just restate what each source says.
 
 CONVERSATION MEMORY:
-- When the user says "more", "continue", "go on", "elaborate", "tell me more", "what else" — this means CONTINUE the previous topic with more depth. Do NOT start a new topic or give generic advice.
-- When the user says "that topic", "this", "it", "the same", "about that" - check CONVERSATION HISTORY to understand what they refer to.
-- STAY ON TOPIC. Never switch topics unless the user explicitly changes subject.
-- If the user's message is very short (1-3 words), it is almost certainly a follow-up to the previous conversation. Use the conversation history to determine what they want.
+- "more", "continue", "go on", "elaborate", "tell me more", "what else" = CONTINUE the previous topic with more depth. Do NOT start a new topic.
+- "that", "this", "it", "the same" = Check CONVERSATION HISTORY to understand the reference.
+- Short messages (1-3 words) are almost always follow-ups. Use conversation history.
+- STAY ON TOPIC unless the user explicitly changes subject.
 
-RESPONSE QUALITY:
-- Adapt structure to the query. Not every response needs the same template.
-- For analysis: lead with the key insight, then support with reasoning.
-- For file requests: provide a concise analysis summary, then the file generates automatically.
-- When user uploads a file: answer their question directly. Don't generate unnecessary files.
-- AVOID being overly informatic. Not every response needs bullet points, statistics, and structured sections. Sometimes a well-written paragraph is better.
+FILE GENERATION:
+- When asked to generate files (PDF, Excel, PPT, Word, CSV), do it silently. The file appears in Generated Files.
+- Do NOT describe what you're about to generate. Provide the analysis content directly.
+- Use ONLY real, verified data. NEVER use placeholders like "Company A", "Supplier B".
+- File format keywords (pdf, excel, ppt, presentation, spreadsheet, slides, word, csv) = file generation request.
 {conversation_summary}
-{f'{chr(10)}SEARCH DATA (integrate naturally):{chr(10)}{search_context[:6000]}' if search_context else ''}
-{f'{chr(10)}UPLOADED FILE CONTENT (analyze thoroughly):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
+{f'{chr(10)}SEARCH DATA (synthesize into insights, do not just restate):{chr(10)}{search_context[:6000]}' if search_context else ''}
+{f'{chr(10)}{url_context}' if url_context else ''}
+{f'{chr(10)}UPLOADED FILE CONTENT (analyze this actual content thoroughly):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
         
         llm_messages = [{"role": "system", "content": system_msg}]
         
@@ -2657,7 +3021,9 @@ RESPONSE QUALITY:
             yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "active"})
         
         full_response = ""
-        async for evt in HybridLLMRouter.chat(llm_messages, request.mode):
+        # Enable Kimi tools when the query involves URLs, search, or analysis needs
+        enable_tools = bool(fetched_urls) or needs_search or bool(url_context)
+        async for evt in HybridLLMRouter.chat(llm_messages, request.mode, use_tools=enable_tools):
             yield evt
             evt_data = json.loads(evt.replace("data: ", "").strip())
             if evt_data.get("type") == "content":
@@ -2874,6 +3240,17 @@ RESPONSE QUALITY:
         research questions should trigger search.
         """
         query_lower = query.lower().strip()
+        
+        # If the message is primarily a URL (user pasted a link for analysis) - NO SEARCH
+        # The URLContentFetcher will handle fetching the content
+        url_pattern = r'https?://[^\s]+'
+        urls_in_query = re.findall(url_pattern, query_lower)
+        if urls_in_query:
+            # Remove URLs from query to check if there's any substantive text left
+            text_without_urls = re.sub(url_pattern, '', query_lower).strip()
+            # If the message is mostly URLs (with optional short context like "analyze this" or "what is this")
+            if len(text_without_urls) < 50:
+                return False
         
         # Greetings and simple conversational messages - NO SEARCH
         no_search_patterns = [
