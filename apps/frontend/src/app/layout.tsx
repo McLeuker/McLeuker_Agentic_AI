@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://www.mcleukerai.com",
+    url: "https://mcleukerai.com",
     siteName: "McLeuker AI",
     title: "McLeuker AI - Fashion Intelligence Platform",
     description: "AI-powered fashion intelligence platform. From trend analysis to supplier sourcing — structured, professional, and ready to act on.",
@@ -53,7 +53,10 @@ export const metadata: Metadata = {
     images: ["https://www.mcleukerai.com/og-image-wide.jpg"],
     creator: "@mcleuker",
   },
-  metadataBase: new URL("https://www.mcleukerai.com"),
+  alternates: {
+    canonical: "https://mcleukerai.com",
+  },
+  metadataBase: new URL("https://mcleukerai.com"),
 };
 
 export default function RootLayout({
@@ -71,6 +74,7 @@ export default function RootLayout({
         <link rel="icon" href="/icon-96x96.png" type="image/png" sizes="96x96" />
         <link rel="icon" href="/icon-144x144.png" type="image/png" sizes="144x144" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+        <link rel="canonical" href="https://mcleukerai.com" />
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
         <AuthProvider>
