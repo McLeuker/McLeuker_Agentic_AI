@@ -28,12 +28,13 @@ const slugToSector: Record<string, Sector> = {
   lifestyle: "lifestyle",
 };
 
-// Domain access by plan — must match dashboard DOMAIN_ACCESS
+// Domain access by plan — all domains unlocked for all users
+const ALL_DOMAINS = ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'];
 const DOMAIN_ACCESS: Record<string, string[]> = {
-  free: ['all', 'fashion', 'beauty'],
-  standard: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech'],
-  pro: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'],
-  enterprise: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'],
+  free: ALL_DOMAINS,
+  standard: ALL_DOMAINS,
+  pro: ALL_DOMAINS,
+  enterprise: ALL_DOMAINS,
 };
 
 export default function DomainLandingPage() {

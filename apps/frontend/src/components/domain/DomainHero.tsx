@@ -160,73 +160,7 @@ export function DomainHero({
           {theme.subtitle}
         </p>
 
-        {/* Search Bar — with inline model picker */}
-        {onSubmit && (
-          <div className="max-w-3xl mx-auto">
-            <div className="flex items-end gap-2 p-2.5 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all mb-8">
-              <textarea
-                ref={textareaRef}
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  const el = e.target;
-                  el.style.height = 'auto';
-                  el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder={placeholder}
-                rows={1}
-                className="flex-1 bg-transparent text-white/[0.88] placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-[15px] min-h-[44px] max-h-[200px] py-2 px-1 leading-relaxed border-0"
-              />
-              <div className="flex items-center gap-2 flex-shrink-0 self-center">
-                <InlineModelPicker
-                  value={searchMode}
-                  onChange={setSearchMode}
-                />
-                <Button
-                  onClick={handleSubmit}
-                  disabled={!query.trim()}
-                  size="icon"
-                  className={cn(
-                    "h-10 w-10 rounded-xl flex-shrink-0",
-                    query.trim()
-                      ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                      : "bg-white/[0.06] text-white/30",
-                    "disabled:opacity-30"
-                  )}
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-
-            <p className="text-white/20 text-[11px] text-center -mt-4 mb-4">McLeukerAI can be wrong. Please verify important details.</p>
-
-            {/* Suggestion cards — matching the section card style */}
-            {starters.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {starters.slice(0, 4).map((starter, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleStarterClick(starter)}
-                    className={cn(
-                      "group flex items-center gap-3 text-left",
-                      "px-4 py-3.5 rounded-xl",
-                      "bg-white/[0.03] border border-white/[0.06]",
-                      "hover:bg-white/[0.06] hover:border-white/[0.12]",
-                      "transition-all duration-200"
-                    )}
-                  >
-                    <span className="text-[13px] text-white/55 leading-snug flex-1 line-clamp-2">
-                      {starter}
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 text-white/20 group-hover:text-white/50 flex-shrink-0 transition-colors" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {/* Search bar and research recommendations removed — AI search only available in Global domain on dashboard */}
       </div>
 
       {/* Bottom fade into page */}

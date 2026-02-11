@@ -1178,12 +1178,13 @@ function ChatSidebar({
 // Domain Tabs Component - Non-scrollable, centered with olive glow underline
 // =============================================================================
 
-// Domain access rules per plan tier
+// Domain access rules per plan tier — all domains unlocked for all users
+const ALL_DOMAINS: Sector[] = ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'];
 const DOMAIN_ACCESS: Record<string, Sector[]> = {
-  free: ['all', 'fashion'],
-  standard: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech'],
-  pro: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'],
-  enterprise: ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'],
+  free: ALL_DOMAINS,
+  standard: ALL_DOMAINS,
+  pro: ALL_DOMAINS,
+  enterprise: ALL_DOMAINS,
 };
 
 function DomainTabs() {
@@ -2898,7 +2899,7 @@ function DashboardContent() {
                 {/* Ambient glow */}
                 <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.04] blur-[120px] pointer-events-none" />
                 
-                {/* Domain Trends - Only shown for non-Global domains */}
+                {/* Domain Trends - Only shown for non-Global domains (no search box) */}
                 {currentSector !== 'all' && (
                   <>
                     {/* Title for domain */}
@@ -2916,72 +2917,73 @@ function DashboardContent() {
                   </>
                 )}
                 
-                {/* Global domain: "Where is my mind?" centered vertically */}
+                {/* Global domain: "Where is my mind?" centered vertically with search bar */}
                 {currentSector === 'all' && (
-                  <div className="flex-1 flex flex-col items-center justify-center">
-                    <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
-                      Where is my mind?
-                    </h1>
-
-                  </div>
-                )}
-                
-                {/* Search Bar - Pinned to bottom */}
-                <div className="w-full max-w-3xl mx-auto pb-8">
-                  <div className="relative">
-                    <div className="relative flex items-end gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all">
-                      <FileUploadButton
-                        onFileSelect={handleFileSelect}
-                        onOpenImageGenerator={() => setShowImageGenerator(true)}
-                        attachedFiles={attachedFiles}
-                        onRemoveFile={handleRemoveFile}
-                      />
-                      <textarea
-                        value={input}
-                        onChange={(e) => {
-                          setInput(e.target.value);
-                          const el = e.target;
-                          el.style.height = 'auto';
-                          el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-                        }}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Ask me anything..."
-                        rows={1}
-                        className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-sm px-1 min-h-[40px] max-h-[200px] py-2.5 leading-relaxed"
-                      />
-                      <div className="flex items-center gap-2 flex-shrink-0 self-center">
-                        <InlineModelPicker
-                          value={searchMode}
-                          onChange={setSearchMode}
-                          disabled={isStreaming}
-                        />
-                        {isStreaming ? (
-                          <button
-                            onClick={handleStopSearch}
-                            className="h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
-                            title="Stop search"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleSendMessage()}
-                            disabled={!input.trim()}
-                            className={cn(
-                              "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                              input.trim()
-                                ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                                : "bg-white/[0.05] text-white/30"
-                            )}
-                          >
-                            <Send className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
+                  <>
+                    <div className="flex-1 flex flex-col items-center justify-center">
+                      <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                        Where is my mind?
+                      </h1>
                     </div>
-                  </div>
-                  <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
-                </div>
+                
+                    {/* Search Bar - Only shown for Global domain */}
+                    <div className="w-full max-w-3xl mx-auto pb-8">
+                      <div className="relative">
+                        <div className="relative flex items-end gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all">
+                          <FileUploadButton
+                            onFileSelect={handleFileSelect}
+                            onOpenImageGenerator={() => setShowImageGenerator(true)}
+                            attachedFiles={attachedFiles}
+                            onRemoveFile={handleRemoveFile}
+                          />
+                          <textarea
+                            value={input}
+                            onChange={(e) => {
+                              setInput(e.target.value);
+                              const el = e.target;
+                              el.style.height = 'auto';
+                              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                            }}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Ask me anything..."
+                            rows={1}
+                            className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-sm px-1 min-h-[40px] max-h-[200px] py-2.5 leading-relaxed"
+                          />
+                          <div className="flex items-center gap-2 flex-shrink-0 self-center">
+                            <InlineModelPicker
+                              value={searchMode}
+                              onChange={setSearchMode}
+                              disabled={isStreaming}
+                            />
+                            {isStreaming ? (
+                              <button
+                                onClick={handleStopSearch}
+                                className="h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                                title="Stop search"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSendMessage()}
+                                disabled={!input.trim()}
+                                className={cn(
+                                  "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                                  input.trim()
+                                    ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                                    : "bg-white/[0.05] text-white/30"
+                                )}
+                              >
+                                <Send className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               /* STATE B: Chat Messages */
