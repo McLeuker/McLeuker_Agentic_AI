@@ -7,3 +7,4 @@ export { DownloadButton } from './DownloadButton';
 export { DownloadPanel } from './DownloadPanel';
 export { SearchResults } from './SearchResults';
 export { SearchSourcesPanel } from './SearchSourcesPanel';
+export { AgenticExecutionPanel } from './AgenticExecutionPanel';

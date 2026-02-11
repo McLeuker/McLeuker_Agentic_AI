@@ -64,6 +64,8 @@ import { UpgradePlanModal } from "@/components/billing/UpgradePlanModal";
 import { BuyCreditsModal } from "@/components/billing/BuyCreditsModal";
 import { DomainTrends } from "@/components/trends/DomainTrends";
 import { formatDistanceToNow } from "date-fns";
+import { AgenticExecutionPanel } from "@/components/chat/AgenticExecutionPanel";
+import type { ExecutionStep, ExecutionArtifact } from "@/lib/agenticAPI";
 
 // =============================================================================
 // Types - Multi-Layer Agentic Reasoning
@@ -1865,6 +1867,17 @@ function DashboardContent() {
   const [showDashCreditsModal, setShowDashCreditsModal] = useState(false);
   const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null);
   
+  // Agentic execution state
+  const [agentExecutionSteps, setAgentExecutionSteps] = useState<ExecutionStep[]>([]);
+  const [agentExecutionStatus, setAgentExecutionStatus] = useState<'idle' | 'planning' | 'executing' | 'paused' | 'completed' | 'error'>('idle');
+  const [agentProgress, setAgentProgress] = useState(0);
+  const [agentContent, setAgentContent] = useState('');
+  const [agentReasoning, setAgentReasoning] = useState('');
+  const [agentArtifacts, setAgentArtifacts] = useState<ExecutionArtifact[]>([]);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentExecutionId, setAgentExecutionId] = useState<string | null>(null);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentConversationIdRef = useRef<string | null>(null);
@@ -2220,17 +2233,48 @@ function DashboardContent() {
         chatHeaders['Authorization'] = `Bearer ${session.access_token}`;
       }
 
-      const response = await fetch(`${API_URL}/api/v1/chat/stream`, {
+      // Determine endpoint: agent mode uses v2 execution, others use v1 chat
+      const isAgentMode = backendMode === 'agent';
+      const endpoint = isAgentMode 
+        ? `${API_URL}/api/v2/execute/stream`
+        : `${API_URL}/api/v1/chat/stream`;
+      
+      const requestBody = isAgentMode
+        ? {
+            task: messageText,
+            user_id: user?.id || undefined,
+            conversation_id: currentConversation?.id || undefined,
+            mode: 'agent',
+            context: {
+              sector: currentSector !== 'all' ? currentSector : undefined,
+              history: chatMessages.slice(-10),
+            },
+          }
+        : {
+            messages: chatMessages,
+            mode: backendMode,
+            stream: true,
+            enable_tools: true,
+            user_id: user?.id || undefined,
+            conversation_id: currentConversation?.id || undefined,
+          };
+
+      // Show agent execution panel when in agent mode
+      if (isAgentMode) {
+        setShowAgentPanel(true);
+        setAgentExecutionStatus('planning');
+        setAgentExecutionSteps([]);
+        setAgentProgress(0);
+        setAgentContent('');
+        setAgentReasoning('');
+        setAgentArtifacts([]);
+        setAgentError(null);
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: chatHeaders,
-        body: JSON.stringify({
-          messages: chatMessages,
-          mode: backendMode,
-          stream: true,
-          enable_tools: true,
-          user_id: user?.id || undefined,
-          conversation_id: currentConversation?.id || undefined,
-        }),
+        body: JSON.stringify(requestBody),
         signal: currentAbortController.signal,
       });
 
@@ -2263,6 +2307,64 @@ function DashboardContent() {
               if (eventType === 'start') {
                 // Connection established - capture conversation ID
                 // Nothing to display yet
+              } else if (eventType === 'execution_start') {
+                // V2 Agent execution started
+                setAgentExecutionId(eventData.execution_id || null);
+                setAgentExecutionStatus('planning');
+              } else if (eventType === 'step_update') {
+                // V2 Agent step update - update the execution panel
+                const stepUpdate: ExecutionStep = {
+                  id: eventData.step_id || eventData.id || `step-${Date.now()}`,
+                  phase: eventData.phase || 'execution',
+                  title: eventData.title || 'Processing...',
+                  status: eventData.status || 'active',
+                  detail: eventData.detail || '',
+                  progress: eventData.progress,
+                  subSteps: eventData.sub_steps?.map((s: any) => ({ label: s.label || s.step || s, status: s.status || 'pending' })),
+                  artifacts: eventData.artifacts,
+                };
+                setAgentExecutionSteps(prev => {
+                  const idx = prev.findIndex(s => s.id === stepUpdate.id);
+                  if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = stepUpdate;
+                    return updated;
+                  }
+                  return [...prev, stepUpdate];
+                });
+                if (stepUpdate.status === 'active') {
+                  setAgentExecutionStatus('executing');
+                }
+              } else if (eventType === 'execution_progress') {
+                // V2 Agent overall progress update
+                setAgentProgress(eventData.progress || 0);
+                if (eventData.status) {
+                  setAgentExecutionStatus(eventData.status);
+                }
+              } else if (eventType === 'execution_reasoning') {
+                // V2 Agent reasoning output
+                const chunk = eventData.chunk || eventData.content || '';
+                setAgentReasoning(prev => prev + chunk);
+              } else if (eventType === 'execution_artifact') {
+                // V2 Agent produced an artifact
+                const artifact: ExecutionArtifact = {
+                  type: eventData.artifact_type || 'file',
+                  name: eventData.name || 'artifact',
+                  url: eventData.url,
+                  content: eventData.content,
+                  mimeType: eventData.mime_type,
+                };
+                setAgentArtifacts(prev => [...prev, artifact]);
+              } else if (eventType === 'execution_complete') {
+                // V2 Agent execution completed
+                setAgentExecutionStatus('completed');
+                setAgentProgress(100);
+                setAgentExecutionSteps(prev => prev.map(s => ({ ...s, status: s.status === 'active' ? 'complete' : s.status } as ExecutionStep)));
+                // The content/downloads from execution_complete are handled by the normal content/download events below
+              } else if (eventType === 'execution_error') {
+                // V2 Agent execution error
+                setAgentExecutionStatus('error');
+                setAgentError(eventData.message || eventData.error || 'Execution failed');
               } else if (eventType === 'status') {
                 // Legacy status handler - convert to task_progress format
                 const statusMsg = eventData.message || 'Processing...';
@@ -2676,6 +2778,12 @@ function DashboardContent() {
     }
     setIsStreaming(false);
     
+    // Reset agent panel if active
+    if (agentExecutionStatus !== 'idle' && agentExecutionStatus !== 'completed') {
+      setAgentExecutionStatus('idle');
+      setAgentExecutionSteps([]);
+    }
+    
     // Cancel any background tasks
     try {
       const activeTaskId = localStorage.getItem('mcleuker_active_bg_task');
@@ -2702,6 +2810,16 @@ function DashboardContent() {
     }
     setMessages([]);
     setIsStreaming(false);
+    // Reset agent panel
+    setShowAgentPanel(false);
+    setAgentExecutionStatus('idle');
+    setAgentExecutionSteps([]);
+    setAgentProgress(0);
+    setAgentContent('');
+    setAgentReasoning('');
+    setAgentArtifacts([]);
+    setAgentError(null);
+    setAgentExecutionId(null);
     startNewChat();
     try { localStorage.removeItem('mcleuker_last_conversation_id'); } catch (e) {}
   };
@@ -2885,7 +3003,8 @@ function DashboardContent() {
       {/* Main Content */}
       <main className={cn(
         "flex-1 flex flex-col min-h-screen transition-all duration-200 pt-[60px]",
-        sidebarOpen ? "lg:ml-64" : "lg:ml-14"
+        sidebarOpen ? "lg:ml-64" : "lg:ml-14",
+        showAgentPanel && agentExecutionSteps.length > 0 ? "lg:mr-[400px]" : ""
       )}>
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto">
@@ -3322,6 +3441,45 @@ function DashboardContent() {
           </div>
         )}
       </main>
+
+      {/* Agent Execution Panel - Right side panel */}
+      {showAgentPanel && (
+        <aside className={cn(
+          "fixed top-[60px] right-0 bottom-0 z-30 transition-all duration-300 ease-in-out",
+          "w-[360px] lg:w-[400px]",
+          agentExecutionStatus === 'idle' && agentExecutionSteps.length === 0 ? "translate-x-full" : "translate-x-0"
+        )}>
+          <AgenticExecutionPanel
+            steps={agentExecutionSteps}
+            status={agentExecutionStatus}
+            progress={agentProgress}
+            content={agentContent}
+            reasoning={agentReasoning}
+            artifacts={agentArtifacts}
+            error={agentError}
+            onPause={() => {
+              if (agentExecutionId) {
+                fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/pause`, { method: 'POST' }).catch(() => {});
+                setAgentExecutionStatus('paused');
+              }
+            }}
+            onResume={() => {
+              if (agentExecutionId) {
+                fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/resume`, { method: 'POST' }).catch(() => {});
+                setAgentExecutionStatus('executing');
+              }
+            }}
+            onCancel={() => {
+              if (agentExecutionId) {
+                fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/cancel`, { method: 'POST' }).catch(() => {});
+              }
+              handleStopSearch();
+              setShowAgentPanel(false);
+            }}
+            className="h-full"
+          />
+        </aside>
+      )}
 
       {/* Image Generation Modal */}
       <ImageGenerationModal
