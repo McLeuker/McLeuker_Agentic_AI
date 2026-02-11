@@ -212,10 +212,10 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
         <div className="px-6 pb-6 pt-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">
-              {purchaseType === 'annual' ? 'Select Monthly Credit Amount' : 'Select Credit Amount'}
+              {purchaseType === 'annual' ? 'Select Annual Credit Plan' : 'Select Credit Amount'}
             </h3>
             <p className="text-[10px] text-white/30">
-              {purchaseType === 'annual' ? '$0.082 per credit/mo' : '$0.10 per credit'}
+              {purchaseType === 'annual' ? 'Billed annually at 18% off' : '$0.10 per credit'}
             </p>
           </div>
 
@@ -269,26 +269,32 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
                       {tier.credits.toLocaleString()}
                     </p>
                     <p className="text-[10px] text-white/30 mb-1.5">
-                      {isAnnual ? 'credits / month' : 'credits'}
+                      {isAnnual ? 'credits / month × 12 months' : 'credits'}
                     </p>
 
                     <div className="flex items-baseline gap-1.5">
-                      <p className="text-base font-medium text-white/80">
-                        ${displayPrice.toLocaleString()}
-                        {isAnnual && <span className="text-[10px] text-white/40">/mo</span>}
-                      </p>
+                      {isAnnual ? (
+                        <p className="text-base font-medium text-white/80">
+                          ${annualTotalPrice.toLocaleString()}
+                          <span className="text-[10px] text-white/40">/year</span>
+                        </p>
+                      ) : (
+                        <p className="text-base font-medium text-white/80">
+                          ${displayPrice.toLocaleString()}
+                        </p>
+                      )}
                       {isAnnual && (
-                        <p className="text-[10px] text-white/30 line-through">${oneTimePrice}</p>
+                        <p className="text-[10px] text-white/30 line-through">${(oneTimePrice * 12).toLocaleString()}</p>
                       )}
                     </div>
 
                     {isAnnual && (
                       <div className="mt-0.5">
-                        <p className="text-[9px] text-white/30">
-                          ${annualTotalPrice.toLocaleString()}/yr
+                        <p className="text-[9px] text-white/40">
+                          ${annualMonthlyPrice}/mo × 12 = ${annualTotalPrice.toLocaleString()}
                         </p>
                         <p className="text-[9px] text-green-400/70">
-                          Save ${savings.toLocaleString()}/yr
+                          Save ${savings.toLocaleString()} vs monthly
                         </p>
                       </div>
                     )}
@@ -327,7 +333,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
             <div className="mt-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <div className="flex items-center gap-2 mb-2">
                 <Zap className="h-3.5 w-3.5 text-white/40" />
-                <p className="text-xs font-medium text-white/60">Annual Credit Plan Benefits</p>
+                <p className="text-xs font-medium text-white/60">Annual Credit Plan — Pay Upfront, Save 18%</p>
               </div>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div>
@@ -335,16 +341,16 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
                   <p className="text-sm font-medium text-green-400">18% off</p>
                 </div>
                 <div>
+                  <p className="text-[10px] text-white/30">Payment</p>
+                  <p className="text-sm font-medium text-white/70">Full year upfront</p>
+                </div>
+                <div>
                   <p className="text-[10px] text-white/30">Delivery</p>
                   <p className="text-sm font-medium text-white/70">Monthly</p>
                 </div>
-                <div>
-                  <p className="text-[10px] text-white/30">Billing</p>
-                  <p className="text-sm font-medium text-white/70">Annually</p>
-                </div>
               </div>
               <p className="text-[10px] text-white/30 mt-2 text-center">
-                Credits are delivered monthly. Billed once per year. Cancel anytime with remaining months refunded.
+                You pay the full year price upfront. Credits are delivered monthly. Cancel anytime with remaining months refunded.
               </p>
             </div>
           )}
@@ -353,7 +359,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between">
             <p className="text-[10px] text-white/30">
               {purchaseType === 'annual'
-                ? 'Annual subscription. Credits delivered monthly. Cancel anytime.'
+                ? 'Full year billed upfront. Credits delivered monthly. Cancel anytime.'
                 : 'Credits never expire. Secure payment via Stripe.'}
             </p>
             <div className="flex items-center gap-1 text-[10px] text-white/30">

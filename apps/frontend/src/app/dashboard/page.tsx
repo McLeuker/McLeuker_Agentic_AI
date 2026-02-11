@@ -849,48 +849,7 @@ function MessageContent({
           )}
         </div>
 
-        <div className="w-px h-4 bg-white/[0.06] mx-1" />
 
-        <div
-          className="relative"
-          onMouseLeave={() => setShowExportMenu(false)}
-        >
-          <button
-            onMouseEnter={() => setShowExportMenu(true)}
-            onClick={() => setShowExportMenu(!showExportMenu)}
-            className="flex items-center gap-1 p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
-            title="Export"
-          >
-            <FileDown className="h-4 w-4" />
-            <ChevronDown className="h-3 w-3" />
-          </button>
-          
-          {showExportMenu && (
-            <div 
-              className="absolute left-0 bottom-full mb-1 bg-[#161616] border border-white/[0.10] rounded-xl shadow-2xl z-50 min-w-[160px] py-1 backdrop-blur-xl"
-              onMouseLeave={() => setShowExportMenu(false)}
-            >
-              {[
-                { format: 'pdf', icon: <FileText className="h-3.5 w-3.5 text-red-400" />, label: 'PDF' },
-                { format: 'docx', icon: <FileText className="h-3.5 w-3.5 text-blue-400" />, label: 'Word' },
-                { format: 'xlsx', icon: <FileSpreadsheet className="h-3.5 w-3.5 text-[#5c6652]" />, label: 'Excel' },
-                { format: 'pptx', icon: <Presentation className="h-3.5 w-3.5 text-orange-400" />, label: 'PowerPoint' },
-                { format: 'markdown', icon: <FileText className="h-3.5 w-3.5 text-white/40" />, label: 'Markdown' },
-                { format: 'csv', icon: <FileSpreadsheet className="h-3.5 w-3.5 text-yellow-400" />, label: 'CSV' },
-              ].map(({ format, icon, label }) => (
-                <button
-                  key={format}
-                  onClick={() => handleExport(format)}
-                  disabled={!!exporting}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] text-white/60 hover:text-white hover:bg-white/[0.05] transition-colors disabled:opacity-40"
-                >
-                  {exporting === format ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Sources */}
@@ -2219,13 +2178,29 @@ function DashboardContent() {
       const modeMap: Record<string, string> = { 'auto': 'research', 'instant': 'instant', 'agent': 'agent' };
       const backendMode = modeMap[searchMode] || 'research';
       
-      // Build messages array with optional sector context
+      // Build messages array with FULL conversation history for context continuity
+      // This is CRITICAL: without history, the AI cannot understand follow-ups like "more", "continue", "about that"
       const chatMessages: Array<{role: string; content: string | Array<Record<string, unknown>>}> = [];
       if (currentSector !== 'all') {
         chatMessages.push({ role: 'system', content: `Focus on the ${currentSector} sector.` });
       }
       
-      // Handle multimodal content (files)
+      // Include previous messages for context (last 10 exchanges = 20 messages max)
+      const previousMessages = messages.filter(m => !m.isStreaming);
+      const recentHistory = previousMessages.slice(-20); // Last 20 messages for context
+      for (const msg of recentHistory) {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          // Truncate very long assistant messages to save tokens but keep enough for context
+          const content = msg.role === 'assistant' && msg.content.length > 3000
+            ? msg.content.slice(0, 3000) + '...'
+            : msg.content;
+          if (content && content.trim()) {
+            chatMessages.push({ role: msg.role, content });
+          }
+        }
+      }
+      
+      // Handle multimodal content (files) for the CURRENT message
       if (currentFiles.length > 0) {
         const contentParts: Array<Record<string, unknown>> = [
           { type: 'text', text: messageText }

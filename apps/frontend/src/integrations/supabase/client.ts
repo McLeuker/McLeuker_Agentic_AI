@@ -1,6 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-const SUPABASE_URL = 'https://cvnpoarfgkzswwjkhoes.supabase.co';
+const SUPABASE_URL = 'https://auth.mcleukerai.com';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2bnBvYXJmZ2t6c3d3amtob2VzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEwNTEzNTYsImV4cCI6MjA3NjYyNzM1Nn0.BH49KtjHLlwAjTDO4eGYwnb3D2meFQ-ffl63XDbRtYQ';
 
 // Create Supabase client - let @supabase/ssr handle all cookie management automatically
