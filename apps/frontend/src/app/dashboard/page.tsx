@@ -2522,6 +2522,10 @@ function DashboardContent() {
                     ? { ...m, content: currentContent }
                     : m
                 ));
+                // Also update agent panel content when in agent mode
+                if (isAgentMode) {
+                  setAgentContent(currentContent);
+                }
               } else if (eventType === 'download') {
                 // Handle file download events from tool execution
                 const downloadInfo: DownloadFile = {
@@ -3470,15 +3474,45 @@ function DashboardContent() {
               }
             }}
             onCancel={() => {
+              // Cancel the execution but DON'T kill the conversation or messages
               if (agentExecutionId) {
                 fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/cancel`, { method: 'POST' }).catch(() => {});
               }
-              handleStopSearch();
+              // Only abort the stream, don't clear messages
+              if (globalAbortController) {
+                globalAbortController.abort();
+                globalAbortController = null;
+              }
+              setIsStreaming(false);
+              setAgentExecutionStatus('idle');
+              setAgentExecutionSteps(prev => prev.map(s => ({ ...s, status: s.status === 'active' ? 'complete' : s.status } as any)));
+              // Mark the last assistant message as done
+              setMessages(prev => prev.map(m =>
+                m.isStreaming ? { ...m, isStreaming: false, content: m.content || 'Execution cancelled by user.' } : m
+              ));
+            }}
+            onClose={() => {
+              // Just hide the panel - DON'T cancel or stop anything
               setShowAgentPanel(false);
             }}
             className="h-full"
           />
         </aside>
+      )}
+
+      {/* Reopen Agent Panel Button - shown when panel is hidden but execution data exists */}
+      {!showAgentPanel && agentExecutionSteps.length > 0 && (
+        <button
+          onClick={() => setShowAgentPanel(true)}
+          className="fixed bottom-24 right-4 z-30 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1a1a1a] border border-white/[0.08] hover:border-white/[0.15] hover:bg-[#222] transition-all shadow-lg"
+          title="Show execution panel"
+        >
+          <Sparkles className="h-4 w-4 text-[#5c6652]" />
+          <span className="text-xs text-white/60">Agent Panel</span>
+          {agentExecutionStatus === 'executing' && (
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+          )}
+        </button>
       )}
 
       {/* Image Generation Modal */}

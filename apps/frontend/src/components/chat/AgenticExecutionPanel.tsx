@@ -38,6 +38,7 @@ interface AgenticExecutionPanelProps {
   onPause?: () => void;
   onResume?: () => void;
   onCancel?: () => void;
+  onClose?: () => void;
   className?: string;
 }
 
@@ -219,6 +220,7 @@ export function AgenticExecutionPanel({
   onPause,
   onResume,
   onCancel,
+  onClose,
   className,
 }: AgenticExecutionPanelProps) {
   const [showReasoning, setShowReasoning] = useState(false);
@@ -288,9 +290,19 @@ export function AgenticExecutionPanel({
             <button
               onClick={onCancel}
               className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/40 hover:text-red-400 transition"
-              title="Cancel"
+              title="Cancel execution"
             >
               <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {/* Close button - just hides the panel, does NOT cancel */}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition ml-1"
+              title="Close panel"
+            >
+              <ChevronDown className="h-3.5 w-3.5 rotate-[-90deg]" />
             </button>
           )}
         </div>
