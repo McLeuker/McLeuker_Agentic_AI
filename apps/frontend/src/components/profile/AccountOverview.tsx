@@ -246,23 +246,7 @@ export function AccountOverview() {
         }
       }
 
-      // Also update profiles table for backward compatibility
-      if (updates.name) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert({
-            user_id: user.id,
-            full_name: updates.name,
-            email: user.email,
-            updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'user_id',
-          });
-
-        if (profileError) {
-          console.log('Profiles table update failed (non-critical):', profileError);
-        }
-      }
+      // profiles table removed during database restructure - users table is the single source of truth
 
       // Update local state using the confirmed data from Supabase
       const confirmedImage = updatedData?.profile_image ?? pendingImage ?? originalData.profile_image;

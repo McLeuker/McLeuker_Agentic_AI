@@ -400,11 +400,8 @@ function MessageContent({
     setFeedback(newFeedback);
     try {
       if (messageId) {
-        await supabase.from('message_feedback').upsert({
-          message_id: messageId,
-          feedback_type: newFeedback,
-          created_at: new Date().toISOString()
-        }, { onConflict: 'message_id' });
+        // Feedback stored locally only (message_feedback table removed during database restructure)
+        console.log('Feedback:', messageId, newFeedback);
       }
     } catch (e) { console.error('Feedback error:', e); }
   };

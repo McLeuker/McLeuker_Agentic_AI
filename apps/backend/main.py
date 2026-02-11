@@ -2190,7 +2190,7 @@ class MemoryManager:
         """Save a message to conversation history."""
         if supabase and conversation_id:
             try:
-                supabase.table("messages").insert({
+                supabase.table("chat_messages").insert({
                     "conversation_id": conversation_id,
                     "role": role,
                     "content": content[:10000],
@@ -2207,7 +2207,7 @@ class MemoryManager:
         """Get conversation messages."""
         if supabase:
             try:
-                result = supabase.table("messages").select("*").eq(
+                result = supabase.table("chat_messages").select("*").eq(
                     "conversation_id", conversation_id
                 ).order("created_at").limit(limit).execute()
                 return result.data or []
@@ -3881,7 +3881,7 @@ class TokenTracker:
             return
         try:
             buf = cls._usage_buffer[user_id]
-            supabase.table("token_usage").insert({
+            supabase.table("usage_logs").insert({
                 "user_id": user_id,
                 "total_tokens": buf["total_tokens"],
                 "total_cost_usd": round(buf["total_cost"], 6),
@@ -3916,7 +3916,7 @@ async def get_usage(user_id: str = None, user: Dict = Depends(AuthManager.get_cu
     db_usage = None
     if supabase and uid != "anonymous":
         try:
-            result = supabase.table("token_usage").select("*").eq("user_id", uid).order("period_end", desc=True).limit(30).execute()
+            result = supabase.table("usage_logs").select("*").eq("user_id", uid).order("created_at", desc=True).limit(30).execute()
             db_usage = result.data
         except Exception:
             pass
@@ -4012,7 +4012,7 @@ class FileUploadManager:
                 db_record = {k: v for k, v in file_record.items() if k not in ("base64", "extracted_text")}
                 if extracted_text:
                     db_record["extracted_text_preview"] = extracted_text[:1000]
-                supabase.table("uploaded_files").insert(db_record).execute()
+                supabase.table("file_uploads").insert(db_record).execute()
             except Exception as e:
                 logger.error(f"File DB persist error: {e}")
         
@@ -4527,7 +4527,7 @@ class BackgroundSearchManager:
                 db_record["sources"] = json.dumps(db_record["sources"])
                 db_record["follow_ups"] = json.dumps(db_record["follow_ups"])
                 db_record["file_types_requested"] = json.dumps(db_record["file_types_requested"])
-                supabase.table("background_tasks").insert(db_record).execute()
+                supabase.table("active_tasks").insert(db_record).execute()
             except Exception as e:
                 logger.error(f"Background task DB insert error: {e}")
         
@@ -4708,7 +4708,7 @@ Use ONLY real, verified data. NEVER use placeholder names.
                 if "error" in kwargs:
                     update_data["error"] = kwargs["error"]
                 
-                supabase.table("background_tasks").update(update_data).eq("task_id", task_id).execute()
+                supabase.table("active_tasks").update(update_data).eq("task_id", task_id).execute()
             except Exception as e:
                 logger.error(f"Background task DB update error: {e}")
     
@@ -4724,7 +4724,7 @@ Use ONLY real, verified data. NEVER use placeholder names.
                 # Persist to DB
                 if supabase:
                     try:
-                        supabase.table("background_tasks").update({
+                        supabase.table("active_tasks").update({
                             "status": "cancelled",
                             "progress_message": "Cancelled by user",
                             "updated_at": datetime.now().isoformat()
@@ -4735,7 +4735,7 @@ Use ONLY real, verified data. NEVER use placeholder names.
         # Also try DB for tasks from previous sessions
         if supabase:
             try:
-                supabase.table("background_tasks").update({
+                supabase.table("active_tasks").update({
                     "status": "cancelled",
                     "progress_message": "Cancelled by user",
                     "updated_at": datetime.now().isoformat()
@@ -4771,7 +4771,7 @@ Use ONLY real, verified data. NEVER use placeholder names.
         # Check DB (for tasks from previous server sessions)
         if supabase:
             try:
-                result = supabase.table("background_tasks").select("*").eq("task_id", task_id).execute()
+                result = supabase.table("active_tasks").select("*").eq("task_id", task_id).execute()
                 result.data = result.data[0] if result.data else None
                 if result.data:
                     data = result.data
@@ -4808,7 +4808,7 @@ Use ONLY real, verified data. NEVER use placeholder names.
         # From DB (for tasks from previous sessions)
         if supabase:
             try:
-                result = supabase.table("background_tasks").select(
+                result = supabase.table("active_tasks").select(
                     "task_id, query, status, progress, created_at, updated_at"
                 ).eq("user_id", user_id).order("created_at", desc=True).limit(50).execute()
                 if result.data:

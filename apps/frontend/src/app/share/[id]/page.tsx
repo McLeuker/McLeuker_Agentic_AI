@@ -24,9 +24,9 @@ export default function SharePage() {
     async function loadSharedMessage() {
       try {
         const { data, error: fetchError } = await supabase
-          .from('shared_messages')
+          .from('chat_messages')
           .select('*')
-          .eq('share_id', shareId)
+          .eq('id', shareId)
           .limit(1);
 
         if (fetchError) throw fetchError;

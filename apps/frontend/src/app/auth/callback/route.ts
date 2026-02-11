@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   const next = searchParams.get('next') ?? '/dashboard';
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
+  const type = searchParams.get('type');
 
   // Handle OAuth errors from provider
   if (error) {
@@ -66,6 +67,15 @@ export async function GET(request: Request) {
     }
 
     if (data?.session) {
+      // Check if this is a password recovery flow
+      // Supabase sets type=recovery in the redirect URL for password reset
+      const isRecovery = type === 'recovery' || next === '/reset-password';
+      
+      if (isRecovery) {
+        // Redirect to reset-password page with the session established
+        return NextResponse.redirect(`${origin}/reset-password`);
+      }
+
       // Upsert user record in database
       try {
         const user = data.session.user;

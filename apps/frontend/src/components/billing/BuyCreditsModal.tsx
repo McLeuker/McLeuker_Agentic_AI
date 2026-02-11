@@ -183,7 +183,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
             <div className="mt-3 p-2.5 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center gap-2">
               <Calendar className="h-4 w-4 text-green-400 flex-shrink-0" />
               <p className="text-xs text-green-400">
-                Subscribe to receive credits <strong>every month</strong> at <strong>18% off</strong>. Billed annually. Cancel anytime.
+                Pay for a full year upfront at <strong>18% off</strong>. All credits are delivered <strong>immediately</strong> to your balance.
               </p>
             </div>
           )}
@@ -215,7 +215,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
               {purchaseType === 'annual' ? 'Select Annual Credit Plan' : 'Select Credit Amount'}
             </h3>
             <p className="text-[10px] text-white/30">
-              {purchaseType === 'annual' ? 'Billed annually at 18% off' : '$0.10 per credit'}
+              {purchaseType === 'annual' ? 'Full year credits delivered immediately' : '$0.10 per credit'}
             </p>
           </div>
 
@@ -224,10 +224,11 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
               {creditTiers.map((tier) => {
                 const isAnnual = purchaseType === 'annual';
                 const oneTimePrice = tier.price;
-                const annualMonthlyPrice = Math.round(tier.price * (1 - ANNUAL_DISCOUNT));
-                const annualTotalPrice = annualMonthlyPrice * 12;
-                const displayPrice = isAnnual ? annualMonthlyPrice : oneTimePrice;
-                const savings = isAnnual ? (oneTimePrice * 12) - annualTotalPrice : 0;
+                // Annual: total credits = tier credits × 12, total price = tier price × 12 × (1 - discount)
+                const annualTotalCredits = tier.credits * 12;
+                const annualTotalPrice = Math.round(tier.price * 12 * (1 - ANNUAL_DISCOUNT));
+                const fullYearPrice = tier.price * 12;
+                const savings = fullYearPrice - annualTotalPrice;
                 const isSelected = selectedTier === tier.slug;
 
                 return (
@@ -259,17 +260,17 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
                     )}
                     {tier.bestValue && (
                       <div className="absolute -top-2 left-1/2 -translate-x-1/2">
-                        <span className="text-[8px] px-2 py-0.5 rounded-full bg-white/[0.10] text-white/70 border border-white/[0.10] uppercase tracking-wider whitespace-nowrap flex items-center gap-0.5">
+                        <span className="text-[8px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/20 uppercase tracking-wider flex items-center gap-0.5 whitespace-nowrap">
                           <Star className="h-2 w-2" /> Best Value
                         </span>
                       </div>
                     )}
 
                     <p className="text-lg font-editorial text-white/90 leading-tight">
-                      {tier.credits.toLocaleString()}
+                      {isAnnual ? annualTotalCredits.toLocaleString() : tier.credits.toLocaleString()}
                     </p>
                     <p className="text-[10px] text-white/30 mb-1.5">
-                      {isAnnual ? 'credits / month × 12 months' : 'credits'}
+                      {isAnnual ? `credits (${tier.credits.toLocaleString()} × 12 months)` : 'credits'}
                     </p>
 
                     <div className="flex items-baseline gap-1.5">
@@ -280,48 +281,31 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
                         </p>
                       ) : (
                         <p className="text-base font-medium text-white/80">
-                          ${displayPrice.toLocaleString()}
+                          ${oneTimePrice.toLocaleString()}
                         </p>
                       )}
                       {isAnnual && (
-                        <p className="text-[10px] text-white/30 line-through">${(oneTimePrice * 12).toLocaleString()}</p>
+                        <p className="text-[10px] text-white/30 line-through">${fullYearPrice.toLocaleString()}</p>
                       )}
                     </div>
 
                     {isAnnual && (
                       <div className="mt-0.5">
-                        <p className="text-[9px] text-white/40">
-                          ${annualMonthlyPrice}/mo × 12 = ${annualTotalPrice.toLocaleString()}
-                        </p>
                         <p className="text-[9px] text-green-400/70">
-                          Save ${savings.toLocaleString()} vs monthly
+                          Save ${savings.toLocaleString()} — all credits delivered now
                         </p>
                       </div>
                     )}
 
-                    {!isAnnual && (
-                      <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                        <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
-                          {purchasingPack === tier.slug ? (
-                            <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing...</>
-                          ) : (
-                            <>Buy now <ArrowRight className="w-2.5 h-2.5" /></>
-                          )}
-                        </span>
-                      </div>
-                    )}
-
-                    {isAnnual && (
-                      <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                        <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
-                          {purchasingPack === tier.slug ? (
-                            <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing...</>
-                          ) : (
-                            <>Subscribe <ArrowRight className="w-2.5 h-2.5" /></>
-                          )}
-                        </span>
-                      </div>
-                    )}
+                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                      <span className="text-[10px] text-white/30 group-hover:text-white/50 transition-colors flex items-center gap-1">
+                        {purchasingPack === tier.slug ? (
+                          <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Processing...</>
+                        ) : (
+                          <>{isAnnual ? 'Buy annual plan' : 'Buy now'} <ArrowRight className="w-2.5 h-2.5" /></>
+                        )}
+                      </span>
+                    </div>
                   </button>
                 );
               })}
@@ -333,7 +317,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
             <div className="mt-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
               <div className="flex items-center gap-2 mb-2">
                 <Zap className="h-3.5 w-3.5 text-white/40" />
-                <p className="text-xs font-medium text-white/60">Annual Credit Plan — Pay Upfront, Save 18%</p>
+                <p className="text-xs font-medium text-white/60">Annual Credit Plan — Pay Once, Get Everything</p>
               </div>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div>
@@ -342,15 +326,15 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
                 </div>
                 <div>
                   <p className="text-[10px] text-white/30">Payment</p>
-                  <p className="text-sm font-medium text-white/70">Full year upfront</p>
+                  <p className="text-sm font-medium text-white/70">One-time</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-white/30">Delivery</p>
-                  <p className="text-sm font-medium text-white/70">Monthly</p>
+                  <p className="text-[10px] text-white/30">Credits</p>
+                  <p className="text-sm font-medium text-white/70">All upfront</p>
                 </div>
               </div>
               <p className="text-[10px] text-white/30 mt-2 text-center">
-                You pay the full year price upfront. Credits are delivered monthly. Cancel anytime with remaining months refunded.
+                You pay the full year price once. All credits are added to your balance immediately.
               </p>
             </div>
           )}
@@ -359,7 +343,7 @@ export function BuyCreditsModal({ open, onOpenChange }: BuyCreditsModalProps) {
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between">
             <p className="text-[10px] text-white/30">
               {purchaseType === 'annual'
-                ? 'Full year billed upfront. Credits delivered monthly. Cancel anytime.'
+                ? 'One-time payment. All credits delivered immediately. Credits never expire.'
                 : 'Credits never expire. Secure payment via Stripe.'}
             </p>
             <div className="flex items-center gap-1 text-[10px] text-white/30">

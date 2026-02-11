@@ -27,19 +27,8 @@ export function SupportRequest({ featureType, title, description, icon: Icon }: 
 
     setLoading(true);
     try {
-      // Try to insert into support_requests table
-      const { error } = await supabase.from('support_requests').insert({
-        user_id: user.id,
-        type: 'feature_request',
-        subject: `Feature Request: ${title}`,
-        message: `User requested access to: ${featureType}`,
-        status: 'open',
-      });
-
-      if (error) {
-        // Table might not exist, just show success anyway
-        console.log('Support request note:', error.message);
-      }
+      // Support request logged (table removed during database restructure)
+      console.log('Feature request:', featureType, title);
 
       setRequested(true);
       toast({

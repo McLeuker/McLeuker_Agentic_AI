@@ -20,78 +20,108 @@ function ResetPasswordContent() {
   const [success, setSuccess] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionError, setSessionError] = useState(false);
+  const [checking, setChecking] = useState(true);
 
-  // Handle the auth callback - Supabase will set the session from the URL hash
+  // Handle the auth callback - detect session from multiple possible flows
   useEffect(() => {
+    let mounted = true;
+    let unsubscribe: (() => void) | null = null;
+
     const handleAuthCallback = async () => {
       try {
-        // Check if there's a hash fragment with access_token (Supabase recovery flow)
-        const hash = window.location.hash;
-        if (hash && hash.includes('access_token')) {
-          // Supabase client will automatically pick up the session from the URL
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (error) {
-            console.error('Session error:', error);
-            setSessionError(true);
-            return;
-          }
-          if (session) {
-            setSessionReady(true);
-            return;
-          }
-        }
-
-        // Also check for code parameter (PKCE flow)
-        const code = searchParams.get('code');
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) {
-            console.error('Code exchange error:', error);
-            setSessionError(true);
-            return;
-          }
-          setSessionReady(true);
-          return;
-        }
-
-        // Check if there's already an active session (user might have clicked the link)
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          setSessionReady(true);
-          return;
-        }
-
-        // Listen for auth state changes (recovery event)
+        // 1. Listen for auth state changes FIRST (catches PASSWORD_RECOVERY event)
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
           (event, session) => {
-            if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
+            if (!mounted) return;
+            console.log('Auth event:', event, !!session);
+            if (event === 'PASSWORD_RECOVERY' && session) {
               setSessionReady(true);
+              setChecking(false);
+            } else if (event === 'SIGNED_IN' && session) {
+              setSessionReady(true);
+              setChecking(false);
             }
           }
         );
+        unsubscribe = () => subscription.unsubscribe();
 
-        // Give it a few seconds to process
-        setTimeout(() => {
-          if (!sessionReady) {
-            // Check one more time
-            supabase.auth.getSession().then(({ data: { session } }) => {
-              if (session) {
-                setSessionReady(true);
-              } else {
-                setSessionError(true);
-              }
-            });
+        // 2. Check for hash fragment with access_token (implicit flow)
+        const hash = window.location.hash;
+        if (hash && (hash.includes('access_token') || hash.includes('type=recovery'))) {
+          // Supabase client auto-processes the hash fragment
+          // Wait a moment for it to process
+          await new Promise(resolve => setTimeout(resolve, 500));
+          const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+          if (mounted) {
+            if (session) {
+              setSessionReady(true);
+              setChecking(false);
+              return;
+            }
+            if (sessionErr) {
+              console.error('Hash session error:', sessionErr);
+            }
           }
-        }, 3000);
+        }
 
-        return () => subscription.unsubscribe();
-      } catch {
-        setSessionError(true);
+        // 3. Check for code parameter (PKCE flow - handled by auth/callback route)
+        const code = searchParams.get('code');
+        if (code) {
+          try {
+            const { error: codeErr } = await supabase.auth.exchangeCodeForSession(code);
+            if (mounted) {
+              if (codeErr) {
+                console.error('Code exchange error:', codeErr);
+                // Don't set error yet, the auth callback route may have already handled this
+              } else {
+                setSessionReady(true);
+                setChecking(false);
+                return;
+              }
+            }
+          } catch (e) {
+            console.error('Code exchange exception:', e);
+          }
+        }
+
+        // 4. Check if there's already an active session 
+        // (user arrived here after auth/callback route processed the code)
+        const { data: { session } } = await supabase.auth.getSession();
+        if (mounted && session) {
+          setSessionReady(true);
+          setChecking(false);
+          return;
+        }
+
+        // 5. Wait up to 5 seconds for the auth state change event
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        if (mounted && !sessionReady) {
+          // Final check
+          const { data: { session: finalSession } } = await supabase.auth.getSession();
+          if (finalSession) {
+            setSessionReady(true);
+          } else {
+            setSessionError(true);
+          }
+          setChecking(false);
+        }
+      } catch (e) {
+        console.error('Auth callback error:', e);
+        if (mounted) {
+          setSessionError(true);
+          setChecking(false);
+        }
       }
     };
 
     handleAuthCallback();
-  }, [searchParams, sessionReady]);
+
+    return () => {
+      mounted = false;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,7 +195,7 @@ function ResetPasswordContent() {
   }
 
   // Session error - invalid or expired link
-  if (sessionError) {
+  if (sessionError && !checking) {
     return (
       <div className="min-h-screen bg-[#070707] flex items-center justify-center px-4">
         <div className="w-full max-w-md">
@@ -215,7 +245,7 @@ function ResetPasswordContent() {
   }
 
   // Loading state - waiting for session
-  if (!sessionReady) {
+  if (!sessionReady || checking) {
     return (
       <div className="min-h-screen bg-[#070707] flex items-center justify-center px-4">
         <div className="w-full max-w-md">
@@ -314,8 +344,8 @@ function ResetPasswordContent() {
                     confirmPassword && password !== confirmPassword
                       ? "border-red-500/30"
                       : confirmPassword && password === confirmPassword
-                      ? "border-[#2E3524]/50"
-                      : ""
+                        ? "border-green-500/30"
+                        : ""
                   )}
                   placeholder="••••••••"
                   required
@@ -333,16 +363,15 @@ function ResetPasswordContent() {
                 <p className="text-xs text-red-400 mt-1">Passwords do not match</p>
               )}
               {confirmPassword && password === confirmPassword && (
-                <p className="text-xs text-[#5c6652] mt-1 flex items-center gap-1">
-                  <Check className="w-3 h-3" />
-                  Passwords match
+                <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Passwords match
                 </p>
               )}
             </div>
 
             <button
               type="submit"
-              disabled={isLoading || !password || !confirmPassword || password !== confirmPassword}
+              disabled={isLoading || password !== confirmPassword || password.length < 8}
               className={cn(
                 "w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full",
                 "bg-gradient-to-r from-[#2E3524] to-[#21261A] text-white font-medium",
@@ -356,7 +385,6 @@ function ResetPasswordContent() {
           </form>
         </div>
 
-        {/* Back to login */}
         <div className="text-center mt-8">
           <Link href="/login" className="text-sm text-white/40 hover:text-white/70 transition-colors">
             ← Back to sign in
@@ -371,7 +399,7 @@ export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-[#070707] flex items-center justify-center">
-        <div className="text-white/40">Loading...</div>
+        <div className="w-8 h-8 border-2 border-white/20 border-t-[#5c6652] rounded-full animate-spin"></div>
       </div>
     }>
       <ResetPasswordContent />
