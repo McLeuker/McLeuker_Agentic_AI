@@ -56,6 +56,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+# WebSocket support
+from fastapi import WebSocket, WebSocketDisconnect
+
 # Data processing
 import pandas as pd
 import numpy as np
@@ -101,9 +104,9 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 app = FastAPI(
-    title="McLeuker AI V5.5",
-    description="Production AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
-    version="5.8.1"
+    title="McLeuker AI V6.0",
+    description="Production AI platform with Kimi-2.5 multimodal, agentic execution, file analysis, background search, auth & billing",
+    version="6.0.0"
 )
 
 # CORS
@@ -230,6 +233,74 @@ grok_client = openai.OpenAI(
     api_key=GROK_API_KEY,
     base_url="https://api.x.ai/v1"
 ) if GROK_API_KEY else None
+
+# ============================================================================
+# AGENTIC AI MODULE INITIALIZATION
+# ============================================================================
+
+# Import agentic modules (graceful fallback if not available)
+try:
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+    from agentic.execution_orchestrator import ExecutionOrchestrator, ExecutionStatus
+    from agentic.e2b_integration import E2BManager, init_e2b
+    from agentic.browserless_integration import BrowserlessClient, init_browserless
+    from agentic.grok_client import GrokClient
+    from agentic.kimi25_client import Kimi25Client
+    from agentic.websocket_handler import ExecutionWebSocketManager, get_websocket_manager
+    AGENTIC_AVAILABLE = True
+    logger.info("Agentic AI modules loaded successfully")
+except ImportError as e:
+    AGENTIC_AVAILABLE = False
+    logger.warning(f"Agentic AI modules not available: {e}")
+
+# Initialize agentic components
+e2b_manager = None
+browserless_client = None
+execution_orchestrator = None
+ws_manager = None
+kimi25_client_instance = None
+grok_client_instance = None
+
+if AGENTIC_AVAILABLE:
+    try:
+        # E2B Code Execution
+        if E2B_API_KEY:
+            e2b_manager = init_e2b(E2B_API_KEY)
+            logger.info("E2B code execution initialized")
+
+        # Browserless Web Automation
+        if BROWSERLESS_API_KEY:
+            browserless_client = init_browserless(BROWSERLESS_API_KEY)
+            logger.info("Browserless web automation initialized")
+
+        # Kimi 2.5 Client (wraps kimi_client)
+        if kimi_client:
+            kimi25_client_instance = Kimi25Client(client=kimi_client)
+            logger.info("Kimi 2.5 agentic client initialized")
+
+        # Grok Client (wraps grok_client)
+        if grok_client:
+            grok_client_instance = GrokClient(client=grok_client)
+            logger.info("Grok agentic client initialized")
+
+        # WebSocket Manager
+        ws_manager = get_websocket_manager()
+
+        # Execution Orchestrator
+        execution_orchestrator = ExecutionOrchestrator(
+            kimi_client=kimi_client,
+            grok_client=grok_client,
+            search_layer=None,  # Will be set after SearchLayer is defined
+            e2b_manager=e2b_manager,
+            browserless_client=browserless_client,
+            max_steps=15,
+            enable_auto_correct=True,
+        )
+        logger.info("Execution orchestrator initialized")
+    except Exception as e:
+        logger.error(f"Error initializing agentic components: {e}")
+        AGENTIC_AVAILABLE = False
 
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
@@ -1001,6 +1072,18 @@ class SearchLayer:
             source_map[idx] = "firecrawl"
             idx += 1
         
+        # Pinterest - visual and trend data
+        if PINTEREST_API_KEY:
+            tasks.append(SearchLayer._pinterest_search(query))
+            source_map[idx] = "pinterest"
+            idx += 1
+        
+        # Browserless - deep web scraping with headless browser
+        if BROWSERLESS_API_KEY:
+            tasks.append(SearchLayer._browserless_deep_search(query))
+            source_map[idx] = "browserless"
+            idx += 1
+        
         if not tasks:
             return {"query": query, "results": {}, "structured_data": {"data_points": [], "sources": []}}
         
@@ -1274,6 +1357,93 @@ class SearchLayer:
         except Exception as e:
             logger.error(f"Firecrawl search error: {e}")
             return {"error": str(e), "source": "firecrawl", "data_points": [], "sources": []}
+
+    @staticmethod
+    async def _pinterest_search(query: str, num_results: int = 10) -> Dict:
+        """Search Pinterest for visual and trend data."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://api.pinterest.com/v5/search/pins",
+                    headers={
+                        "Authorization": f"Bearer {PINTEREST_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    params={"query": query, "page_size": min(num_results, 25)}
+                )
+                data = response.json()
+                data_points = []
+                sources = []
+                for pin in data.get("items", []):
+                    pin_id = pin.get("id", "")
+                    title = pin.get("title", pin.get("description", ""))[:200]
+                    url = f"https://www.pinterest.com/pin/{pin_id}/" if pin_id else ""
+                    board = pin.get("board_owner", {}).get("username", "Pinterest")
+                    dp = {
+                        "title": title or f"Pinterest Pin {pin_id}",
+                        "description": pin.get("description", "")[:300],
+                        "url": url,
+                        "source": f"Pinterest ({board})",
+                        "image_url": pin.get("media", {}).get("images", {}).get("600x", {}).get("url", "")
+                    }
+                    data_points.append(dp)
+                    if url:
+                        sources.append({"title": title or f"Pinterest Pin", "url": url, "source": f"Pinterest ({board})"})
+                return {"source": "pinterest", "results": data.get("items", []), "data_points": data_points, "sources": sources}
+        except Exception as e:
+            logger.error(f"Pinterest search error: {e}")
+            return {"error": str(e), "source": "pinterest", "data_points": [], "sources": []}
+
+    @staticmethod
+    async def _browserless_deep_search(query: str, num_results: int = 5) -> Dict:
+        """Deep web scraping via Browserless for richer content extraction."""
+        try:
+            if not BROWSERLESS_API_KEY:
+                return {"error": "Browserless not configured", "source": "browserless", "data_points": [], "sources": []}
+
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                # Use Browserless to render and extract content from Google results
+                search_url = f"https://www.google.com/search?q={query}&num={num_results}"
+                response = await client.post(
+                    "https://production-sfo.browserless.io/content",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Basic {BROWSERLESS_API_KEY}"
+                    },
+                    json={
+                        "url": search_url,
+                        "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30000}
+                    }
+                )
+
+                if response.status_code != 200:
+                    return {"error": f"Browserless HTTP {response.status_code}", "source": "browserless", "data_points": [], "sources": []}
+
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, "html.parser")
+                for tag in soup(["script", "style", "nav", "footer"]):
+                    tag.decompose()
+
+                text = soup.get_text(separator="\n", strip=True)[:5000]
+                data_points = [{"title": "Deep Web Extraction", "description": text[:500], "source": "Browserless"}]
+
+                links = []
+                for a in soup.find_all("a", href=True)[:20]:
+                    href = a["href"]
+                    if href.startswith("http") and "google" not in href:
+                        link_title = a.get_text(strip=True)[:100]
+                        real_name = extract_source_name(href, link_title)
+                        links.append({"title": link_title, "url": href, "source": real_name})
+
+                return {
+                    "source": "browserless",
+                    "text": text,
+                    "data_points": data_points,
+                    "sources": links[:num_results]
+                }
+        except Exception as e:
+            logger.error(f"Browserless deep search error: {e}")
+            return {"error": str(e), "source": "browserless", "data_points": [], "sources": []}
 
 
 # ============================================================================
@@ -6247,13 +6417,17 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "5.8.1",
+        "version": "6.0.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
             "file_upload_analysis": True,
             "background_search": True,
             "agentic_workflows": True,
+            "agentic_execution": AGENTIC_AVAILABLE,
+            "code_execution": e2b_manager is not None and e2b_manager.available if e2b_manager else False,
+            "web_automation": browserless_client is not None and browserless_client.available if browserless_client else False,
+            "websocket_streaming": ws_manager is not None,
             "jwt_auth": True,
             "token_tracking": True
         },
@@ -6267,9 +6441,12 @@ async def health_check():
             "firecrawl": bool(FIRECRAWL_API_KEY),
             "google_custom_search": bool(GOOGLE_CUSTOM_SEARCH_KEY),
             "youtube": bool(YOUTUBE_API_KEY),
+            "pinterest": bool(PINTEREST_API_KEY),
+            "browserless": bool(BROWSERLESS_API_KEY),
             "e2b": bool(E2B_API_KEY),
             "s3_storage": bool(S3_BUCKET and S3_ACCESS_KEY),
-            "supabase": supabase is not None
+            "supabase": supabase is not None,
+            "execution_orchestrator": execution_orchestrator is not None
         },
         "upload_config": {
             "max_size_mb": MAX_UPLOAD_SIZE_MB,
@@ -6283,9 +6460,9 @@ async def health_check():
 async def root():
     """Root endpoint."""
     return {
-        "name": "McLeuker AI V5.8",
-        "version": "5.8.1",
-        "description": "AI platform with Kimi-2.5 multimodal, file analysis, background search, auth & billing",
+        "name": "McLeuker AI V6.0",
+        "version": "6.0.0",
+        "description": "AI platform with Kimi-2.5 multimodal, agentic execution, file analysis, background search, auth & billing",
         "endpoints": {
             "chat": ["/api/v1/chat", "/api/v1/chat/non-stream"],
             "multimodal": ["/api/v1/multimodal", "/api/v1/multimodal/stream"],
@@ -6293,12 +6470,314 @@ async def root():
             "files": ["/api/v1/upload", "/api/v1/upload/multiple", "/api/v1/uploads/{file_id}", "/api/v1/files/{file_id}/analyze", "/api/v1/files/generate", "/api/v1/files/{id}/download"],
             "auth": ["/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/me"],
             "workflows": ["/api/v1/workflow/execute", "/api/v1/agent/execute", "/api/v1/swarm/execute"],
+            "agentic_v2": ["/api/v2/execute", "/api/v2/execute/stream", "/api/v2/execute/{id}/status", "/api/v2/execute/{id}/cancel", "/api/v2/executions", "/api/v2/code/execute", "/api/v2/browser/navigate", "/api/v2/browser/screenshot", "/api/v2/realtime/context", "/api/v2/facts/verify"],
             "conversations": ["/api/v1/conversations", "/api/v1/conversations/{id}"],
             "usage": ["/api/v1/usage", "/api/v1/usage/{user_id}"],
             "intelligence": ["/api/v1/weekly-insights", "/api/v1/live-signals", "/api/v1/domain-modules"],
             "health": ["/health"]
         }
     }
+
+# ============================================================================
+# V2 AGENTIC AI ENDPOINTS - Manus-style execution
+# ============================================================================
+
+class ExecutionRequest(BaseModel):
+    """Request model for agentic execution."""
+    task: str
+    context: Optional[Dict[str, Any]] = None
+    execution_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+class CodeExecutionRequest(BaseModel):
+    """Request model for code execution."""
+    code: str
+    language: str = "python"
+    session_id: Optional[str] = None
+    timeout: int = 30
+
+class BrowserNavigateRequest(BaseModel):
+    """Request model for browser navigation."""
+    url: str
+    wait_for: Optional[str] = None
+    timeout: Optional[int] = None
+
+class FactVerifyRequest(BaseModel):
+    """Request model for fact verification."""
+    claims: List[str]
+    include_explanations: bool = True
+
+class RealtimeContextRequest(BaseModel):
+    """Request model for real-time context."""
+    query: str
+    include_x_posts: bool = True
+    include_web: bool = True
+    max_sources: int = 10
+
+
+@app.post("/api/v2/execute")
+async def v2_execute(request: ExecutionRequest):
+    """Execute an agentic task (non-streaming). Returns full result."""
+    if not execution_orchestrator:
+        raise HTTPException(status_code=503, detail="Agentic execution not available")
+
+    try:
+        result = await execution_orchestrator.execute(
+            user_request=request.task,
+            context=request.context,
+            execution_id=request.execution_id,
+        )
+        return {
+            "success": True,
+            "execution_id": result.execution_id,
+            "status": result.status.value,
+            "output": result.final_output,
+            "execution_time_seconds": result.execution_time_seconds,
+            "steps_completed": len([s for s in result.steps if s.status == ExecutionStatus.COMPLETED]),
+            "steps_total": len(result.steps),
+            "artifacts": [{"id": a.artifact_id, "name": a.name, "type": a.type} for a in result.artifacts],
+            "metadata": result.metadata,
+        }
+    except Exception as e:
+        logger.error(f"V2 execute error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v2/execute/stream")
+async def v2_execute_stream(request: ExecutionRequest):
+    """Execute an agentic task with SSE streaming for real-time progress."""
+    if not execution_orchestrator:
+        raise HTTPException(status_code=503, detail="Agentic execution not available")
+
+    try:
+        async def event_generator():
+            async for event_data in execution_orchestrator.execute_stream(
+                user_request=request.task,
+                context=request.context,
+                execution_id=request.execution_id,
+            ):
+                yield event_data
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+    except Exception as e:
+        logger.error(f"V2 execute stream error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v2/execute/{execution_id}/status")
+async def v2_execution_status(execution_id: str):
+    """Get execution status."""
+    if not execution_orchestrator:
+        raise HTTPException(status_code=503, detail="Agentic execution not available")
+
+    status = execution_orchestrator.get_execution_status(execution_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return {"success": True, **status}
+
+
+@app.post("/api/v2/execute/{execution_id}/cancel")
+async def v2_cancel_execution(execution_id: str):
+    """Cancel a running execution."""
+    if not execution_orchestrator:
+        raise HTTPException(status_code=503, detail="Agentic execution not available")
+
+    await execution_orchestrator.cancel_execution(execution_id)
+    return {"success": True, "message": f"Execution {execution_id} cancelled"}
+
+
+@app.post("/api/v2/execute/{execution_id}/pause")
+async def v2_pause_execution(execution_id: str):
+    """Pause a running execution."""
+    if not execution_orchestrator:
+        raise HTTPException(status_code=503, detail="Agentic execution not available")
+
+    await execution_orchestrator.pause_execution(execution_id)
+    return {"success": True, "message": f"Execution {execution_id} paused"}
+
+
+@app.post("/api/v2/execute/{execution_id}/resume")
+async def v2_resume_execution(execution_id: str):
+    """Resume a paused execution."""
+    if not execution_orchestrator:
+        raise HTTPException(status_code=503, detail="Agentic execution not available")
+
+    await execution_orchestrator.resume_execution(execution_id)
+    return {"success": True, "message": f"Execution {execution_id} resumed"}
+
+
+@app.get("/api/v2/executions")
+async def v2_list_executions():
+    """List all active executions."""
+    if not execution_orchestrator:
+        return {"success": True, "executions": []}
+    return {"success": True, "executions": execution_orchestrator.list_executions()}
+
+
+@app.post("/api/v2/code/execute")
+async def v2_code_execute(request: CodeExecutionRequest):
+    """Execute code in E2B sandbox."""
+    if not e2b_manager or not e2b_manager.available:
+        raise HTTPException(status_code=503, detail="Code execution (E2B) not available")
+
+    try:
+        result = await e2b_manager.execute_code(
+            code=request.code,
+            language=request.language,
+            session_id=request.session_id,
+            timeout=request.timeout,
+        )
+        return {
+            "success": result.success,
+            "output": result.output,
+            "error": result.error,
+            "execution_time_ms": result.execution_time_ms,
+            "language": result.language,
+            "sandbox_id": result.sandbox_id,
+        }
+    except Exception as e:
+        logger.error(f"Code execution error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v2/browser/navigate")
+async def v2_browser_navigate(request: BrowserNavigateRequest):
+    """Navigate to a URL and extract content via Browserless."""
+    if not browserless_client or not browserless_client.available:
+        raise HTTPException(status_code=503, detail="Browser automation (Browserless) not available")
+
+    try:
+        result = await browserless_client.deep_extract(request.url)
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"Browser navigate error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v2/browser/screenshot")
+async def v2_browser_screenshot(url: str = Query(...), full_page: bool = True):
+    """Capture screenshot of a URL."""
+    if not browserless_client or not browserless_client.available:
+        raise HTTPException(status_code=503, detail="Browser automation (Browserless) not available")
+
+    try:
+        result = await browserless_client.screenshot(url, full_page=full_page)
+        if result.success and result.screenshot:
+            return StreamingResponse(
+                io.BytesIO(result.screenshot),
+                media_type="image/png",
+                headers={"Content-Disposition": f'attachment; filename="screenshot.png"'}
+            )
+        raise HTTPException(status_code=500, detail=result.error or "Screenshot failed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Browser screenshot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v2/realtime/context")
+async def v2_realtime_context(request: RealtimeContextRequest):
+    """Get real-time context from X/Twitter and web via Grok."""
+    if not grok_client_instance:
+        raise HTTPException(status_code=503, detail="Grok real-time client not available")
+
+    try:
+        result = await grok_client_instance.get_realtime_context(
+            query=request.query,
+            include_x_posts=request.include_x_posts,
+            include_web=request.include_web,
+            max_sources=request.max_sources,
+        )
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"Realtime context error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v2/facts/verify")
+async def v2_verify_facts(request: FactVerifyRequest):
+    """Verify claims against real-time data."""
+    if not grok_client_instance:
+        raise HTTPException(status_code=503, detail="Grok fact verification not available")
+
+    try:
+        results = await grok_client_instance.verify_facts(
+            claims=request.claims,
+            include_explanations=request.include_explanations,
+        )
+        return {
+            "success": True,
+            "results": [
+                {
+                    "claim": r.claim,
+                    "verdict": r.verdict,
+                    "confidence": r.confidence,
+                    "explanation": r.explanation,
+                    "sources": r.sources,
+                    "checked_at": r.checked_at.isoformat(),
+                }
+                for r in results
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Fact verification error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v2/trending")
+async def v2_trending(category: Optional[str] = None, location: Optional[str] = None, limit: int = 10):
+    """Get trending topics from X/Twitter."""
+    if not grok_client_instance:
+        raise HTTPException(status_code=503, detail="Grok trending not available")
+
+    try:
+        result = await grok_client_instance.get_trending_topics(
+            category=category, location=location, limit=limit
+        )
+        return {"success": True, **result}
+    except Exception as e:
+        logger.error(f"Trending topics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# WebSocket endpoint for real-time execution streaming
+@app.websocket("/ws/execution/{execution_id}")
+async def websocket_execution(websocket: WebSocket, execution_id: str):
+    """WebSocket endpoint for real-time execution progress."""
+    if not ws_manager:
+        await websocket.close(code=1003, reason="WebSocket manager not available")
+        return
+
+    await ws_manager.connect(websocket, execution_id)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type", "")
+
+                if msg_type == "cancel" and execution_orchestrator:
+                    await execution_orchestrator.cancel_execution(execution_id)
+                    await ws_manager.broadcast(execution_id, "execution.cancelled", {"execution_id": execution_id})
+                elif msg_type == "pause" and execution_orchestrator:
+                    await execution_orchestrator.pause_execution(execution_id)
+                elif msg_type == "resume" and execution_orchestrator:
+                    await execution_orchestrator.resume_execution(execution_id)
+                elif msg_type == "status" and execution_orchestrator:
+                    status = execution_orchestrator.get_execution_status(execution_id)
+                    await ws_manager.broadcast(execution_id, "execution.status", status or {})
+                elif msg_type == "ping":
+                    await ws_manager.broadcast(execution_id, "pong", {"timestamp": datetime.now().isoformat()})
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, execution_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await ws_manager.disconnect(websocket, execution_id)
+
 
 # ============================================================================
 # DOMAIN TRENDS - Real-time trending tags & brand rankings per domain
@@ -6698,11 +7177,18 @@ async def refresh_domain_trends(domain: str, user: Dict = Depends(AuthManager.ge
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize persistent file store on server boot."""
-    logger.info("McLeuker AI V5.5 starting up...")
+    """Initialize persistent file store and agentic components on server boot."""
+    logger.info("McLeuker AI V6.0 starting up...")
     await PersistentFileStore.initialize()
     logger.info(f"Persistent file store loaded: {len(PersistentFileStore._file_cache)} files cached")
-    logger.info("Startup complete.")
+
+    # Wire up SearchLayer to the execution orchestrator
+    global execution_orchestrator
+    if execution_orchestrator:
+        execution_orchestrator.search_layer = SearchLayer
+        logger.info("SearchLayer wired to execution orchestrator")
+
+    logger.info("Startup complete – McLeuker AI V6.0 with Agentic AI ready.")
 
 
 # ============================================================================
