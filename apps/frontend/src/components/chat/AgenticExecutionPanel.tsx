@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCircle2,
@@ -20,6 +20,9 @@ import {
   X,
   Download,
   ExternalLink,
+  Eye,
+  EyeOff,
+  PanelRightClose,
 } from 'lucide-react';
 import type { ExecutionStep, ExecutionArtifact } from '@/lib/agenticAPI';
 
@@ -206,6 +209,59 @@ function StepItem({ step }: { step: ExecutionStep }) {
 }
 
 // ============================================================================
+// LIVE CONTENT PREVIEW
+// ============================================================================
+
+function LiveContentPreview({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [content, autoScroll]);
+
+  if (!content) return null;
+
+  // Show last ~500 chars for preview
+  const previewContent = content.length > 800 ? '...' + content.slice(-800) : content;
+
+  return (
+    <div className="border-t border-white/[0.06]">
+      <div className="flex items-center justify-between px-4 py-2">
+        <span className="text-[10px] text-white/30 uppercase tracking-wider flex items-center gap-1.5">
+          <Eye className="h-3 w-3" />
+          Live Preview
+          {isStreaming && (
+            <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+          )}
+        </span>
+        <span className="text-[10px] text-white/20 font-mono">
+          {content.length.toLocaleString()} chars
+        </span>
+      </div>
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+          setAutoScroll(atBottom);
+        }}
+        className="px-4 pb-3 max-h-48 overflow-y-auto"
+      >
+        <div className="text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap break-words font-mono">
+          {previewContent}
+          {isStreaming && (
+            <span className="inline-block w-1 h-3 bg-blue-400 animate-pulse ml-0.5" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // MAIN PANEL COMPONENT
 // ============================================================================
 
@@ -224,6 +280,7 @@ export function AgenticExecutionPanel({
   className,
 }: AgenticExecutionPanelProps) {
   const [showReasoning, setShowReasoning] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
 
   // Group steps by phase
   const groupedSteps = useMemo(() => {
@@ -238,6 +295,11 @@ export function AgenticExecutionPanel({
   const phaseOrder = ['planning', 'research', 'execution', 'verification', 'delivery'];
   const isRunning = status === 'planning' || status === 'executing';
   const isPaused = status === 'paused';
+
+  // Get active step for status display
+  const activeStep = useMemo(() => {
+    return steps.find(s => s.status === 'active');
+  }, [steps]);
 
   if (status === 'idle' && steps.length === 0) return null;
 
@@ -257,17 +319,32 @@ export function AgenticExecutionPanel({
             status === 'error' ? 'bg-red-400' :
             'bg-white/30'
           )} />
-          <span className="text-sm font-medium text-white/80">
-            {status === 'planning' ? 'Planning...' :
-             status === 'executing' ? 'Executing...' :
-             status === 'paused' ? 'Paused' :
-             status === 'completed' ? 'Completed' :
-             status === 'error' ? 'Error' :
-             'Agent Execution'}
-          </span>
+          <div>
+            <span className="text-sm font-medium text-white/80">
+              {status === 'planning' ? 'Planning...' :
+               status === 'executing' ? 'Executing...' :
+               status === 'paused' ? 'Paused' :
+               status === 'completed' ? 'Completed' :
+               status === 'error' ? 'Error' :
+               'Agent Execution'}
+            </span>
+            {activeStep && isRunning && (
+              <div className="text-[10px] text-white/30 truncate max-w-[200px]">
+                {activeStep.title}
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
+          {/* Toggle live preview */}
+          <button
+            onClick={() => setShowPreview(!showPreview)}
+            className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition"
+            title={showPreview ? 'Hide preview' : 'Show preview'}
+          >
+            {showPreview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
           {isRunning && onPause && (
             <button
               onClick={onPause}
@@ -299,10 +376,10 @@ export function AgenticExecutionPanel({
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition ml-1"
+              className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition ml-0.5"
               title="Close panel"
             >
-              <ChevronDown className="h-3.5 w-3.5 rotate-[-90deg]" />
+              <PanelRightClose className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
@@ -321,6 +398,13 @@ export function AgenticExecutionPanel({
         </div>
       )}
 
+      {/* Completed progress bar */}
+      {status === 'completed' && (
+        <div className="h-1 bg-white/[0.04]">
+          <div className="h-full w-full bg-gradient-to-r from-emerald-500 to-[#5c6652] rounded-r" />
+        </div>
+      )}
+
       {/* Steps list */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {phaseOrder.map((phase) => {
@@ -334,6 +418,9 @@ export function AgenticExecutionPanel({
                 <span className={cn('text-[10px] font-semibold uppercase tracking-wider', phaseColor(phase))}>
                   {phase}
                 </span>
+                <span className="text-[9px] text-white/20">
+                  {phaseSteps.filter(s => s.status === 'complete').length}/{phaseSteps.length}
+                </span>
               </div>
               {phaseSteps.map((step) => (
                 <StepItem key={step.id} step={step} />
@@ -341,6 +428,14 @@ export function AgenticExecutionPanel({
             </div>
           );
         })}
+
+        {/* Empty state while planning */}
+        {steps.length === 0 && isRunning && (
+          <div className="flex flex-col items-center justify-center py-8 text-white/30">
+            <Loader2 className="h-6 w-6 animate-spin mb-3" />
+            <span className="text-sm">Analyzing your request...</span>
+          </div>
+        )}
 
         {/* Error display */}
         {error && (
@@ -352,7 +447,26 @@ export function AgenticExecutionPanel({
             <p className="text-xs text-red-300/70 pl-6">{error}</p>
           </div>
         )}
+
+        {/* Completion summary */}
+        {status === 'completed' && (
+          <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              <span className="text-sm font-medium text-emerald-400">Execution Complete</span>
+            </div>
+            <p className="text-xs text-white/40 pl-6 mt-1">
+              {steps.filter(s => s.status === 'complete').length} steps completed
+              {artifacts.length > 0 && ` · ${artifacts.length} artifact${artifacts.length > 1 ? 's' : ''} generated`}
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* Live content preview */}
+      {showPreview && content && (
+        <LiveContentPreview content={content} isStreaming={isRunning} />
+      )}
 
       {/* Reasoning toggle */}
       {reasoning && (

@@ -6541,200 +6541,229 @@ async def v2_execute(request: ExecutionRequest):
 
 @app.post("/api/v2/execute/stream")
 async def v2_execute_stream(request: ExecutionRequest):
-    """Execute an agentic task with SSE streaming for real-time progress.
+    """Execute an agentic task with SSE streaming.
     
-    Translates orchestrator internal events to frontend-expected SSE format:
-    - execution.started -> execution_start
-    - planning.started/completed -> step_update (planning phase)
-    - execution.step_started/completed -> step_update (execution phase)
-    - verification.started/completed -> step_update (verification phase)
-    - delivery.started/completed -> step_update (delivery phase)
-    - execution.completed -> execution_complete + content + complete
-    - execution.failed -> execution_error + error
+    ARCHITECTURE: Wraps the existing ChatHandler.handle_chat() and adds
+    execution panel events on top. This ensures ALL v1 capabilities
+    (URL fetching, file generation, search, quality checks) work in agent mode.
+    The execution panel shows real-time progress of what ChatHandler is doing.
     """
-    # If orchestrator not available, fall back to regular chat endpoint
-    if not execution_orchestrator:
-        logger.warning("Execution orchestrator not available, falling back to chat")
-        # Fall back: use the regular chat handler to answer
-        try:
-            async def fallback_generator():
-                yield f"data: {json.dumps({'type': 'execution_start', 'data': {'execution_id': 'fallback'}})}\n\n"
-                yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-1', 'phase': 'execution', 'title': 'Processing your request...', 'status': 'active'}})}\n\n"
-                
-                # Use the existing chat handler logic
-                messages = [{"role": "user", "content": request.task}]
-                if request.context and request.context.get("sector"):
-                    messages.insert(0, {"role": "system", "content": f"Focus on the {request.context['sector']} sector."})
-                if request.context and request.context.get("history"):
-                    for h in request.context["history"][-6:]:
-                        if isinstance(h, dict) and h.get("role") and h.get("content"):
-                            content = h["content"]
-                            if isinstance(content, str) and len(content) > 2000:
-                                content = content[:2000] + "..."
-                            messages.insert(-1, {"role": h["role"], "content": content})
-                
-                # Search first
-                search_context = ""
-                if search_layer:
-                    try:
-                        results = await search_layer.search(request.task, num_results=10)
-                        if results:
-                            search_context = "\n".join([f"- {r.get('title','')}: {r.get('snippet','')}" for r in results[:8]])
-                            yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-search', 'phase': 'research', 'title': f'Found {len(results)} sources', 'status': 'complete'}})}\n\n"
-                    except Exception as se:
-                        logger.warning(f"Agent search failed: {se}")
-                
-                if search_context:
-                    messages.insert(-1, {"role": "system", "content": f"Use these search results:\n{search_context[:4000]}"})
-                
-                yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-1', 'phase': 'execution', 'title': 'Generating response...', 'status': 'active'}})}\n\n"
-                
-                # Stream the LLM response
-                import functools
-                loop = asyncio.get_event_loop()
-                try:
-                    client = kimi_client or grok_client
-                    model = "kimi-k2.5" if client == kimi_client else "grok-4-1-fast-reasoning"
-                    response = await loop.run_in_executor(
-                        None,
-                        functools.partial(
-                            client.chat.completions.create,
-                            model=model,
-                            messages=messages,
-                            temperature=1 if client == kimi_client else 0.7,
-                            max_tokens=16384,
-                            stream=True,
-                        ),
-                    )
-                    
-                    full_content = ""
-                    for chunk in response:
-                        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                            text = chunk.choices[0].delta.content
-                            full_content += text
-                            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': text}})}\n\n"
-                    
-                    yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-1', 'phase': 'delivery', 'title': 'Response complete', 'status': 'complete'}})}\n\n"
-                    yield f"data: {json.dumps({'type': 'execution_complete', 'data': {'status': 'completed'}})}\n\n"
-                    yield f"data: {json.dumps({'type': 'complete', 'data': {'content': full_content, 'credits_used': 3}})}\n\n"
-                except Exception as llm_err:
-                    logger.error(f"Agent fallback LLM error: {llm_err}")
-                    yield f"data: {json.dumps({'type': 'execution_error', 'data': {'message': str(llm_err)}})}\n\n"
-                    yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(llm_err)}})}\n\n"
-            
-            return StreamingResponse(fallback_generator(), media_type="text/event-stream")
-        except Exception as e:
-            logger.error(f"V2 fallback error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     try:
-        async def event_generator():
-            """Translate orchestrator events to frontend-expected SSE format."""
-            step_counter = 0
-            final_output = ""
+        async def agent_event_generator():
+            execution_id = request.execution_id or str(uuid.uuid4())[:12]
             
-            async for raw_event in execution_orchestrator.execute_stream(
-                user_request=request.task,
-                context=request.context,
-                execution_id=request.execution_id,
-            ):
+            # Emit execution start
+            yield event("execution_start", {"execution_id": execution_id})
+            yield event("step_update", {"id": "step-init", "phase": "planning", "title": "Analyzing your request...", "status": "active"})
+            yield event("execution_progress", {"progress": 5, "status": "planning"})
+            
+            # Build a ChatRequest from the ExecutionRequest so we can reuse ChatHandler
+            chat_messages = []
+            
+            # Add conversation history from context
+            if request.context and request.context.get("history"):
+                for h in request.context["history"][-10:]:
+                    if isinstance(h, dict) and h.get("role") and h.get("content"):
+                        content = h["content"]
+                        if isinstance(content, str) and len(content) > 3000:
+                            content = content[:3000] + "..."
+                        chat_messages.append(ChatMessage(role=h["role"], content=content))
+            
+            # Add the current user message
+            chat_messages.append(ChatMessage(role="user", content=request.task))
+            
+            # Add sector context as system message
+            if request.context and request.context.get("sector") and request.context["sector"] != "all":
+                chat_messages.insert(0, ChatMessage(role="system", content=f"Focus on the {request.context['sector']} sector."))
+            
+            chat_request = ChatRequest(
+                messages=chat_messages,
+                mode=ChatMode.AGENT,
+                stream=True,
+                enable_tools=True,
+                user_id=request.user_id,
+                conversation_id=request.context.get("conversation_id") if request.context else None,
+            )
+            
+            yield event("step_update", {"id": "step-init", "phase": "planning", "title": "Request analyzed, starting execution", "status": "complete"})
+            yield event("execution_progress", {"progress": 10, "status": "executing"})
+            
+            # Track what phase we're in based on v1 events
+            current_phase = "research"
+            has_search = False
+            has_urls = False
+            has_files = False
+            content_started = False
+            step_counter = 0
+            
+            # Stream from ChatHandler and intercept events to add execution panel updates
+            async for raw_event in ChatHandler.handle_chat(chat_request):
                 try:
-                    # Parse the raw SSE event from orchestrator
-                    if raw_event.startswith("data: "):
-                        event_json = json.loads(raw_event[6:].strip())
-                    else:
+                    # Parse the v1 event
+                    if not raw_event.startswith("data: "):
                         yield raw_event
                         continue
                     
-                    etype = event_json.get("type", "")
-                    edata = event_json.get("data", {})
+                    evt_json = json.loads(raw_event[6:].strip())
+                    evt_type = evt_json.get("type", "")
+                    evt_data = evt_json.get("data", {})
                     
-                    # Map orchestrator events to frontend events
-                    if etype == "execution.started":
-                        yield f"data: {json.dumps({'type': 'execution_start', 'data': {'execution_id': edata.get('execution_id', '')}})}\n\n"
+                    # === Map v1 events to execution panel updates ===
                     
-                    elif etype == "planning.started":
+                    if evt_type == "start":
+                        # Chat started - pass through
+                        yield raw_event
+                    
+                    elif evt_type == "task_progress":
+                        # v1 task progress -> execution panel step_update
+                        step_id = evt_data.get("id", f"step-{step_counter}")
+                        title = evt_data.get("title", "Processing...")
+                        status = evt_data.get("status", "active")
+                        detail = evt_data.get("detail", "")
+                        
+                        # Determine phase from the step content
+                        phase = "execution"
+                        title_lower = title.lower()
+                        if any(w in title_lower for w in ["search", "research", "reading", "fetching", "gathering", "found"]):
+                            phase = "research"
+                            if not has_search and status == "active":
+                                has_search = True
+                        elif any(w in title_lower for w in ["generat", "creat", "build", "file", "excel", "pdf", "ppt", "word"]):
+                            phase = "execution"
+                            has_files = True
+                        elif any(w in title_lower for w in ["synthesiz", "analyz", "process"]):
+                            phase = "execution"
+                        elif any(w in title_lower for w in ["finaliz", "conclusion", "complete", "ready"]):
+                            phase = "delivery"
+                        elif any(w in title_lower for w in ["quality", "verify", "check", "improv"]):
+                            phase = "verification"
+                        
                         step_counter += 1
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': f'step-plan', 'phase': 'planning', 'title': 'Creating execution plan...', 'status': 'active'}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'execution_progress', 'data': {'progress': 10, 'status': 'planning'}})}\n\n"
+                        
+                        # Calculate progress based on phase
+                        if phase == "research":
+                            progress = min(40, 10 + step_counter * 5)
+                        elif phase == "execution":
+                            progress = min(70, 40 + step_counter * 3)
+                        elif phase == "verification":
+                            progress = 80
+                        elif phase == "delivery":
+                            progress = 90
+                        else:
+                            progress = min(85, 15 + step_counter * 4)
+                        
+                        yield event("step_update", {
+                            "id": step_id,
+                            "phase": phase,
+                            "title": title,
+                            "status": status,
+                            "detail": detail
+                        })
+                        yield event("execution_progress", {"progress": progress, "status": "executing"})
+                        
+                        # Also pass through the original task_progress for the main chat view
+                        yield raw_event
                     
-                    elif etype == "planning.completed":
-                        total = edata.get('steps', 1)
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': f'step-plan', 'phase': 'planning', 'title': f'Plan created: {total} steps', 'status': 'complete', 'detail': edata.get('reasoning', '')[:200]}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'execution_progress', 'data': {'progress': 20, 'status': 'executing'}})}\n\n"
+                    elif evt_type == "search_sources":
+                        # Search sources found - emit as research step
+                        sources = evt_data.get("sources", [])
+                        if isinstance(evt_data, list):
+                            sources = evt_data
+                        num_sources = len(sources) if isinstance(sources, list) else 0
+                        yield event("step_update", {
+                            "id": "step-sources",
+                            "phase": "research",
+                            "title": f"Found {num_sources} sources across search engines",
+                            "status": "complete",
+                            "detail": ", ".join([s.get("source", s.get("title", ""))[:30] for s in sources[:5]]) if isinstance(sources, list) else ""
+                        })
+                        yield raw_event
                     
-                    elif etype == "execution.plan_created":
-                        pass  # Already handled by planning.completed
+                    elif evt_type == "content":
+                        # Content streaming - pass through and track
+                        if not content_started:
+                            content_started = True
+                            yield event("step_update", {
+                                "id": "step-generate",
+                                "phase": "execution",
+                                "title": "Generating response...",
+                                "status": "active"
+                            })
+                            yield event("execution_progress", {"progress": 55, "status": "executing"})
+                        yield raw_event
                     
-                    elif etype == "execution.step_started":
-                        step_num = edata.get('step_number', step_counter)
-                        step_counter = max(step_counter, step_num)
-                        step_type = edata.get('step_type', 'think')
-                        phase_map = {'research': 'research', 'code': 'execution', 'browser': 'execution', 'think': 'execution', 'plan': 'planning'}
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': f'step-{step_num}', 'phase': phase_map.get(step_type, 'execution'), 'title': edata.get('instruction', 'Processing...')[:100], 'status': 'active'}})}\n\n"
-                        # Calculate progress based on step number
-                        total_steps = edata.get('total_steps', step_counter + 2)
-                        progress = min(85, 20 + int(60 * step_num / max(total_steps, 1)))
-                        yield f"data: {json.dumps({'type': 'execution_progress', 'data': {'progress': progress, 'status': 'executing'}})}\n\n"
+                    elif evt_type == "reasoning":
+                        # Reasoning output - forward as execution_reasoning for the panel
+                        yield event("execution_reasoning", {"chunk": evt_data.get("chunk", evt_data.get("content", ""))})
+                        yield raw_event
                     
-                    elif etype == "execution.step_completed":
-                        step_num = edata.get('step_number', step_counter)
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': f'step-{step_num}', 'phase': 'execution', 'title': edata.get('instruction', f'Step {step_num} complete')[:100], 'status': 'complete', 'detail': edata.get('result_summary', '')[:200]}})}\n\n"
+                    elif evt_type == "download":
+                        # File download ready - emit as artifact AND pass through
+                        filename = evt_data.get("filename", "file")
+                        yield event("step_update", {
+                            "id": f"step-file-{filename}",
+                            "phase": "delivery",
+                            "title": f"Generated: {filename}",
+                            "status": "complete",
+                            "detail": f"File ready for download"
+                        })
+                        yield event("execution_artifact", {
+                            "artifact_type": "file",
+                            "name": filename,
+                            "url": evt_data.get("download_url", ""),
+                            "mime_type": evt_data.get("file_type", "unknown")
+                        })
+                        yield event("execution_progress", {"progress": 85, "status": "executing"})
+                        yield raw_event
                     
-                    elif etype == "execution.step_failed":
-                        step_num = edata.get('step_number', step_counter)
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': f'step-{step_num}', 'phase': 'execution', 'title': f'Step {step_num} failed', 'status': 'error', 'detail': edata.get('error', '')[:200]}})}\n\n"
+                    elif evt_type == "conclusion":
+                        # Conclusion generated
+                        yield event("step_update", {
+                            "id": "step-conclude",
+                            "phase": "delivery",
+                            "title": "Analysis complete",
+                            "status": "complete"
+                        })
+                        yield raw_event
                     
-                    elif etype == "execution.retrying":
-                        attempt_num = edata.get('attempt', 0)
-                        retry_data = {'type': 'step_update', 'data': {'id': f'step-retry-{attempt_num}', 'phase': 'execution', 'title': f'Retrying (attempt {attempt_num})...', 'status': 'active'}}
-                        yield f"data: {json.dumps(retry_data)}\n\n"
+                    elif evt_type == "complete":
+                        # Chat complete - emit execution_complete
+                        if content_started:
+                            yield event("step_update", {
+                                "id": "step-generate",
+                                "phase": "execution",
+                                "title": "Response generated",
+                                "status": "complete"
+                            })
+                        yield event("execution_complete", {"status": "completed"})
+                        yield event("execution_progress", {"progress": 100, "status": "completed"})
+                        yield raw_event
                     
-                    elif etype == "verification.started":
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-verify', 'phase': 'verification', 'title': 'Verifying results...', 'status': 'active'}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'execution_progress', 'data': {'progress': 85, 'status': 'executing'}})}\n\n"
+                    elif evt_type == "error":
+                        # Error - emit execution_error
+                        yield event("execution_error", {"message": evt_data.get("message", "An error occurred")})
+                        yield raw_event
                     
-                    elif etype == "verification.completed":
-                        confidence = edata.get('confidence', 0.5)
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-verify', 'phase': 'verification', 'title': f'Verified (confidence: {int(confidence*100)}%)', 'status': 'complete'}})}\n\n"
-                    
-                    elif etype == "delivery.started":
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-deliver', 'phase': 'delivery', 'title': 'Preparing final output...', 'status': 'active'}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'execution_progress', 'data': {'progress': 90, 'status': 'executing'}})}\n\n"
-                    
-                    elif etype == "delivery.completed":
-                        yield f"data: {json.dumps({'type': 'step_update', 'data': {'id': 'step-deliver', 'phase': 'delivery', 'title': 'Output ready', 'status': 'complete'}})}\n\n"
-                    
-                    elif etype == "execution.completed":
-                        yield f"data: {json.dumps({'type': 'execution_complete', 'data': {'status': 'completed'}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'execution_progress', 'data': {'progress': 100, 'status': 'completed'}})}\n\n"
-                    
-                    elif etype == "execution.failed":
-                        yield f"data: {json.dumps({'type': 'execution_error', 'data': {'message': edata.get('error', 'Execution failed')}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'error', 'data': {'message': edata.get('error', 'Execution failed')}})}\n\n"
-                    
-                    elif etype == "execution.result":
-                        # Stream the final output as content chunks
-                        output = edata.get('output', '')
-                        final_output = output
-                        # Stream in chunks for smooth rendering
-                        chunk_size = 50
-                        for i in range(0, len(output), chunk_size):
-                            yield f"data: {json.dumps({'type': 'content', 'data': {'chunk': output[i:i+chunk_size]}})}\n\n"
-                        yield f"data: {json.dumps({'type': 'complete', 'data': {'content': output, 'credits_used': 5}})}\n\n"
-                    
-                    elif etype == "heartbeat":
-                        yield f"data: {json.dumps({'type': 'heartbeat', 'data': {}})}\n\n"
+                    elif evt_type == "credits_exhausted":
+                        yield event("execution_error", {"message": "Credits exhausted"})
+                        yield raw_event
                     
                     else:
-                        # Pass through unknown events
+                        # Pass through all other events (source, credit_update, etc.)
                         yield raw_event
-                        
-                except (json.JSONDecodeError, KeyError) as parse_err:
+                
+                except (json.JSONDecodeError, KeyError, Exception) as parse_err:
                     # Pass through unparseable events
                     yield raw_event
-
-        return StreamingResponse(event_generator(), media_type="text/event-stream")
+            
+            # Ensure execution is marked complete
+            yield event("execution_progress", {"progress": 100, "status": "completed"})
+        
+        return StreamingResponse(
+            agent_event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+        )
     except Exception as e:
         logger.error(f"V2 execute stream error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
