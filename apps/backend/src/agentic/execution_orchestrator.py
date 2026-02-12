@@ -699,20 +699,22 @@ class ExecutionOrchestrator:
 AVAILABLE STEP TYPES:
 - research: Search the web for information using multiple search engines
 - think: Analyze and reason about collected data, synthesize findings
-{f'- code: Generate and execute code in a secure sandbox' if 'code' in available_tools else ''}
-{f'- browser: Navigate to a URL and extract its full content' if 'browser' in available_tools else ''}
-{f'- github: Perform GitHub repository operations (read files, create/update files, create branches, create PRs)' if 'github' in available_tools else ''}
+{f'- code: Generate and execute Python/JavaScript code in a secure sandbox (data analysis, file generation, calculations, automation scripts)' if 'code' in available_tools else ''}
+{f'- browser: Open a live browser with real-time screen capture. Can navigate URLs, click buttons, fill forms, scroll pages, interact with any website. Use for: visiting URLs, web scraping, interactive web tasks, logging into platforms, filling forms, searching on websites' if 'browser' in available_tools else ''}
+{f'- github: Perform GitHub repository operations (read files, create/update files, create branches, create PRs, list issues, push code changes)' if 'github' in available_tools else ''}
 
 Decompose this user request into 2-8 executable steps.
 
 RULES:
-- If the user provides URLs, include a "browser" step to fetch content FIRST
+- If the user provides URLs, include a "browser" step to visit and extract content FIRST
 - If the user mentions GitHub/repos, include "github" steps for repo operations
-- For data analysis, include a "code" step
+- For data analysis, calculations, or file generation, include a "code" step
+- Use "browser" for ANY task that requires visiting a website, clicking, filling forms, or interacting with web pages
 - Always include at least one "research" step for information gathering
 - End with a "think" step to synthesize all findings
 - Keep instructions specific and actionable
 - For GitHub write operations (push, edit, create PR), the instruction must specify: owner, repo, file path, and what to change
+- For browser steps, specify the target URL and what actions to perform (navigate, click, type, extract)
 
 For each step provide:
 - step_number (integer starting from 1)
@@ -975,17 +977,21 @@ User Request: {user_request}
             "chunk": "- Generating code for the task\n"
         }})
 
-        code_prompt = f"""Write clean, executable Python code for this task. Return ONLY the code, no explanations.
+        code_prompt = f"""Write clean, executable Python code for this task.
 
 Task: {step.instruction}
 
-{f"Previous data: {prev_context[:3000]}" if prev_context else ""}
+{f"Previous data/context from earlier steps: {prev_context[:3000]}" if prev_context else ""}
 
-Requirements:
-- Print all results to stdout
-- Handle errors gracefully
-- If creating visualizations, save to /tmp/output.png
-- If processing data, print a summary"""
+IMPORTANT REQUIREMENTS:
+- Return ONLY raw Python code, no markdown, no ```python fences, no explanations
+- The code must be directly executable with python3
+- Print all results to stdout using print()
+- Handle errors gracefully with try/except
+- If creating visualizations, save to /tmp/output.png and print the file path
+- If processing data, print a clear summary of results
+- Start with import statements if needed
+- The code must produce meaningful output"""
 
         code_content = await self._llm_call([
             {"role": "system", "content": "Return ONLY executable Python code, no markdown fences, no explanations."},
@@ -1001,6 +1007,16 @@ Requirements:
         if code_content.endswith("```"):
             code_content = code_content[:-3]
         code_content = code_content.strip()
+
+        # Fallback if code is empty or too short
+        if len(code_content.strip()) < 10:
+            code_content = f"""# Auto-generated code for: {step.instruction[:100]}
+import json
+
+# Task: {step.instruction[:200]}
+result = "Code generation produced minimal output. Task: {step.instruction[:100]}"
+print(result)
+"""
 
         sub_events.append({"event": "execution_reasoning", "data": {
             "chunk": f"- Generated {len(code_content.splitlines())} lines of Python code\n"
