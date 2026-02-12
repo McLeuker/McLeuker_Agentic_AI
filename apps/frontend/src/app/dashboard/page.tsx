@@ -1877,6 +1877,12 @@ function DashboardContent() {
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentExecutionId, setAgentExecutionId] = useState<string | null>(null);
   const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [credentialRequest, setCredentialRequest] = useState<{
+    type: string;
+    message: string;
+    execution_id: string;
+    field_label: string;
+  } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2365,6 +2371,14 @@ function DashboardContent() {
                 // V2 Agent execution error
                 setAgentExecutionStatus('error');
                 setAgentError(eventData.message || eventData.error || 'Execution failed');
+              } else if (eventType === 'credential_request') {
+                // Agent needs credentials from the user (e.g., GitHub token)
+                setCredentialRequest({
+                  type: eventData.credential_type || 'github_token',
+                  message: eventData.message || 'The agent needs access credentials to perform this action.',
+                  execution_id: eventData.execution_id || '',
+                  field_label: eventData.field_label || 'Access Token',
+                });
               } else if (eventType === 'status') {
                 // Legacy status handler - convert to task_progress format
                 const statusMsg = eventData.message || 'Processing...';
@@ -3513,6 +3527,72 @@ function DashboardContent() {
             <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
           )}
         </button>
+      )}
+
+      {/* Credential Request Dialog */}
+      {credentialRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1a1a1a] border border-white/[0.1] rounded-2xl p-6 w-[420px] max-w-[90vw] shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white/90">Credentials Required</h3>
+                <p className="text-xs text-white/40">The agent needs access to perform this action</p>
+              </div>
+            </div>
+            <p className="text-xs text-white/50 mb-4 leading-relaxed">{credentialRequest.message}</p>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const input = (e.currentTarget.elements.namedItem('credential') as HTMLInputElement);
+              if (!input?.value) return;
+              try {
+                await fetch(`${API_URL}/api/v2/execute/credential`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    execution_id: credentialRequest.execution_id,
+                    type: credentialRequest.type,
+                    value: input.value,
+                  }),
+                });
+                setCredentialRequest(null);
+              } catch (err) {
+                console.error('Failed to send credential:', err);
+              }
+            }}>
+              <label className="block text-[10px] text-white/30 uppercase tracking-wider mb-1.5">
+                {credentialRequest.field_label}
+              </label>
+              <input
+                name="credential"
+                type="password"
+                autoFocus
+                placeholder="Paste your token here..."
+                className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/[0.1] rounded-xl text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-white/[0.2] focus:ring-1 focus:ring-white/[0.1] font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1.5 mb-4">Your token is sent securely and used only for this execution session.</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCredentialRequest(null)}
+                  className="flex-1 px-4 py-2 rounded-xl border border-white/[0.08] text-xs text-white/50 hover:bg-white/[0.04] transition"
+                >
+                  Skip
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 rounded-xl bg-[#5c6652] hover:bg-[#6b7760] text-white text-xs font-medium transition"
+                >
+                  Authorize
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Image Generation Modal */}

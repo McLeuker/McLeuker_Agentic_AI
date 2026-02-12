@@ -248,6 +248,7 @@ try:
     from agentic.grok_client import GrokClient
     from agentic.kimi25_client import Kimi25Client
     from agentic.websocket_handler import ExecutionWebSocketManager, get_websocket_manager
+    from agentic.github_integration import GitHubClient
     AGENTIC_AVAILABLE = True
     logger.info("Agentic AI modules loaded successfully")
 except ImportError as e:
@@ -257,6 +258,7 @@ except ImportError as e:
 # Initialize agentic components
 e2b_manager = None
 browserless_client = None
+github_client = None
 execution_orchestrator = None
 ws_manager = None
 kimi25_client_instance = None
@@ -284,6 +286,10 @@ if AGENTIC_AVAILABLE:
             grok_client_instance = GrokClient(client=grok_client)
             logger.info("Grok agentic client initialized")
 
+        # GitHub Client
+        github_client = GitHubClient()
+        logger.info("GitHub API client initialized")
+
         # WebSocket Manager
         ws_manager = get_websocket_manager()
 
@@ -294,6 +300,7 @@ if AGENTIC_AVAILABLE:
             search_layer=None,  # Will be set after SearchLayer is defined
             e2b_manager=e2b_manager,
             browserless_client=browserless_client,
+            github_client=github_client,
             max_steps=15,
             enable_auto_correct=True,
         )
@@ -6423,6 +6430,7 @@ async def health_check():
             "agentic_execution": AGENTIC_AVAILABLE,
             "code_execution": e2b_manager is not None and e2b_manager.available if e2b_manager else False,
             "web_automation": browserless_client is not None and browserless_client.available if browserless_client else False,
+            "github_operations": github_client is not None,
             "websocket_streaming": ws_manager is not None,
             "jwt_auth": True,
             "token_tracking": True
@@ -6442,6 +6450,7 @@ async def health_check():
             "e2b": bool(E2B_API_KEY),
             "s3_storage": bool(S3_BUCKET and S3_ACCESS_KEY),
             "supabase": supabase is not None,
+            "github": github_client is not None,
             "execution_orchestrator": execution_orchestrator is not None
         },
         "upload_config": {
@@ -6717,6 +6726,45 @@ async def v2_list_executions():
     if not execution_orchestrator:
         return {"success": True, "executions": []}
     return {"success": True, "executions": execution_orchestrator.list_executions()}
+
+
+@app.post("/api/v2/execute/credential")
+async def v2_provide_credential(request: Request):
+    """Provide credentials for an active execution (e.g., GitHub token).
+    
+    When the agent needs to perform actions on behalf of the user (GitHub push, etc.),
+    it emits a credential_request event. The frontend shows a secure input dialog,
+    and the user's token is sent here. The token is used for that execution only.
+    """
+    try:
+        body = await request.json()
+        execution_id = body.get("execution_id")
+        credential_type = body.get("type", "github_token")
+        credential_value = body.get("value")
+        
+        if not execution_id or not credential_value:
+            raise HTTPException(status_code=400, detail="execution_id and value are required")
+        
+        # Set the credential on the appropriate client
+        if credential_type == "github_token":
+            # Set on global github client
+            if github_client:
+                github_client.set_token(credential_value)
+            # Set on orchestrator's github client
+            if execution_orchestrator and hasattr(execution_orchestrator, 'github') and execution_orchestrator.github:
+                execution_orchestrator.github.set_token(credential_value)
+            # Signal the waiting execution via provide_credential (unblocks asyncio.Event)
+            if execution_orchestrator and hasattr(execution_orchestrator, 'provide_credential'):
+                execution_orchestrator.provide_credential(execution_id, "github_token", credential_value)
+            logger.info(f"GitHub token set for execution {execution_id}")
+            return {"success": True, "message": "GitHub token configured", "execution_id": execution_id}
+        
+        return {"success": False, "message": f"Unknown credential type: {credential_type}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting credential: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/v2/code/execute")

@@ -1,22 +1,20 @@
 """
-Manus-Style Execution Orchestrator V3
-=======================================
+Execution Orchestrator V4
+==========================
 
 Real agentic task execution with:
 - LLM-powered planning that decomposes tasks into executable steps
-- SearchLayer integration for multi-source research (10+ APIs)
+- Multi-source research (search APIs queried in parallel)
 - E2B sandbox for code execution (Python, JS, Bash)
 - Browserless for web automation and content extraction
-- Firecrawl for deep URL content fetching
+- GitHub API for real repository operations (read, edit, push, PR)
+- Credential request system — agent asks user for tokens when needed
 - Self-correction with retry logic
-- Real-time SSE streaming with granular step updates
-- Manus-style reasoning: clean structured bullets
-- Content streaming during delivery phase
+- Real-time SSE streaming with clean, user-friendly reasoning
+- No internal API names exposed to users
 
 Architecture:
-  User Request → Planner → [Research | Code | Browser | Think] → Verifier → Delivery → Stream
-
-All LLM calls use sync OpenAI clients via run_in_executor (matching main.py pattern).
+  User Request → Planner → [Research | Code | Browser | GitHub | Think] → Verifier → Delivery → Stream
 """
 
 import asyncio
@@ -57,6 +55,7 @@ class StepType(Enum):
     RESEARCH = "research"
     CODE = "code"
     BROWSER = "browser"
+    GITHUB = "github"
     VERIFY = "verify"
     DELIVER = "deliver"
     THINK = "think"
@@ -67,6 +66,7 @@ STEP_TYPE_TO_PHASE = {
     StepType.RESEARCH: "research",
     StepType.CODE: "execution",
     StepType.BROWSER: "research",
+    StepType.GITHUB: "execution",
     StepType.THINK: "execution",
     StepType.VERIFY: "verification",
     StepType.DELIVER: "delivery",
@@ -133,17 +133,49 @@ class ExecutionResult:
 
 
 # ============================================================================
-# EXECUTION ORCHESTRATOR
+# HELPER: Queue-based sub-event proxy for streaming step execution
+# ============================================================================
+
+class _SubEventQueue:
+    """A list-like proxy that puts appended items into an asyncio.Queue.
+    
+    Allows _exec_github (and others) to keep using sub_events.append()
+    while the events are immediately available to the streaming consumer.
+    """
+    def __init__(self, queue: asyncio.Queue):
+        self._queue = queue
+        self._items: List[Dict] = []
+
+    def append(self, item: Dict):
+        self._items.append(item)
+        try:
+            self._queue.put_nowait(item)
+        except Exception:
+            pass
+
+    def __iter__(self):
+        return iter(self._items)
+
+    def __len__(self):
+        return len(self._items)
+
+
+# ============================================================================
+# EXECUTION ORCHESTRATOR V4
 # ============================================================================
 
 class ExecutionOrchestrator:
     """
-    Real agentic execution orchestrator V3.
-    
-    Plans tasks, executes them with real tools (search, code, browser),
+    Real agentic execution orchestrator V4.
+
+    Plans tasks, executes them with real tools (search, code, browser, GitHub),
     verifies results, and delivers output — all with real-time SSE streaming.
-    
-    Key fix in V3: Proper SearchLayer data extraction from structured_data format.
+
+    V4 changes:
+    - GitHub API integration for real repo operations
+    - Clean user-facing reasoning (no internal API names)
+    - Credential request events
+    - Better step descriptions
     """
 
     def __init__(
@@ -153,6 +185,7 @@ class ExecutionOrchestrator:
         search_layer=None,
         e2b_manager=None,
         browserless_client=None,
+        github_client=None,
         max_steps: int = 15,
         enable_auto_correct: bool = True,
     ):
@@ -161,10 +194,50 @@ class ExecutionOrchestrator:
         self.search_layer = search_layer
         self.e2b = e2b_manager
         self.browserless = browserless_client
+        self.github = github_client
         self.max_steps = max_steps
         self.enable_auto_correct = enable_auto_correct
         self._executions: Dict[str, Dict[str, Any]] = {}
-        logger.info("ExecutionOrchestrator V3 initialized")
+        # User-provided credentials stored per execution
+        self._credentials: Dict[str, Dict[str, str]] = {}
+        # Async events for credential waiting
+        self._credential_events: Dict[str, asyncio.Event] = {}
+        logger.info("ExecutionOrchestrator V4 initialized")
+
+    # ------------------------------------------------------------------
+    # Credential management
+    # ------------------------------------------------------------------
+
+    def set_credentials(self, execution_id: str, creds: Dict[str, str]):
+        """Store user-provided credentials for an execution."""
+        self._credentials[execution_id] = creds
+
+    def provide_credential(self, execution_id: str, key: str, value: str):
+        """Provide a credential and signal the waiting execution."""
+        if execution_id not in self._credentials:
+            self._credentials[execution_id] = {}
+        self._credentials[execution_id][key] = value
+        # Signal the waiting coroutine
+        evt = self._credential_events.get(execution_id)
+        if evt:
+            evt.set()
+            logger.info(f"Credential provided for execution {execution_id}, signaling wait")
+
+    def get_credential(self, execution_id: str, key: str) -> Optional[str]:
+        return self._credentials.get(execution_id, {}).get(key)
+
+    async def _wait_for_credential(self, execution_id: str, timeout: float = 120.0) -> bool:
+        """Wait for a credential to be provided via the API. Returns True if received."""
+        evt = asyncio.Event()
+        self._credential_events[execution_id] = evt
+        try:
+            await asyncio.wait_for(evt.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Credential wait timed out for execution {execution_id}")
+            return False
+        finally:
+            self._credential_events.pop(execution_id, None)
 
     # ------------------------------------------------------------------
     # LLM helpers
@@ -194,7 +267,6 @@ class ExecutionOrchestrator:
             )
             return response.choices[0].message.content or ""
         except Exception as e:
-            # Try fallback
             fallback = self.grok if client == self.kimi else self.kimi
             if fallback:
                 try:
@@ -269,13 +341,11 @@ class ExecutionOrchestrator:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Execute a task and yield SSE events in real-time.
-        
-        Yields dicts with 'event' and 'data' keys.
-        
+
         Event types:
           start, execution_start, step_update, execution_progress,
           execution_reasoning, content, execution_artifact,
-          execution_complete, complete, execution_error
+          credential_request, execution_complete, complete, execution_error
         """
         execution_id = execution_id or f"exec_{uuid.uuid4().hex[:8]}"
         start_time = datetime.now()
@@ -295,29 +365,35 @@ class ExecutionOrchestrator:
             # === PHASE 2: PLANNING ===
             yield {"event": "step_update", "data": {
                 "id": "plan-1", "phase": "planning",
-                "title": "Analyzing request and creating execution plan",
+                "title": "Understanding your request",
                 "status": "active",
-                "detail": user_request[:120]
+                "detail": "Analyzing what needs to be done and creating an execution plan"
             }}
             yield {"event": "execution_reasoning", "data": {
-                "chunk": "**Planning Phase**\n- Analyzing user request to determine required tools\n- Detecting URLs, code requirements, and research needs\n"
+                "chunk": "**Understanding Request**\n- Reading and analyzing the task requirements\n- Determining which tools and actions are needed\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 5, "status": "planning"}}
 
             plan = await self._create_plan(execution_id, user_request, context)
 
-            # Format plan reasoning as clean bullets
-            plan_reasoning = f"**Plan Created — {len(plan.steps)} steps**\n"
+            # Format plan reasoning — clean, no API names
+            plan_reasoning = f"**Execution Plan — {len(plan.steps)} steps**\n"
             for s in plan.steps:
-                tool_icon = {"research": "🔍", "code": "💻", "browser": "🌐", "think": "🧠"}.get(s.get("step_type", ""), "📋")
-                plan_reasoning += f"- {tool_icon} Step {s.get('step_number', '?')}: {s.get('instruction', '')[:100]}\n"
-            plan_reasoning += f"\n*Reasoning:* {plan.reasoning[:200]}\n\n"
+                step_label = {
+                    "research": "Search & gather information",
+                    "code": "Write & run code",
+                    "browser": "Visit & extract web content",
+                    "github": "Repository operation",
+                    "think": "Analyze & synthesize findings",
+                }.get(s.get("step_type", ""), "Process task")
+                plan_reasoning += f"- Step {s.get('step_number', '?')}: {step_label} — {s.get('instruction', '')[:100]}\n"
+            plan_reasoning += "\n"
 
             yield {"event": "step_update", "data": {
                 "id": "plan-1", "phase": "planning",
-                "title": f"Execution plan ready — {len(plan.steps)} steps",
+                "title": f"Plan ready — {len(plan.steps)} steps to execute",
                 "status": "complete",
-                "detail": f"Tools: {', '.join(set(s.get('step_type', 'think') for s in plan.steps))}"
+                "detail": plan.reasoning[:150] if plan.reasoning else "Execution plan created"
             }}
             yield {"event": "execution_reasoning", "data": {"chunk": plan_reasoning}}
             yield {"event": "execution_progress", "data": {"progress": 10, "status": "executing"}}
@@ -338,25 +414,26 @@ class ExecutionOrchestrator:
                 step_type_str = step_data.get("step_type", "think")
                 instruction = step_data.get("instruction", "")
                 step_id = f"step-{step_num}"
-                phase = STEP_TYPE_TO_PHASE.get(
-                    StepType(step_type_str) if step_type_str in [st.value for st in StepType] else StepType.THINK,
-                    "execution"
-                )
+
+                valid_types = {st.value for st in StepType}
+                actual_type = step_type_str if step_type_str in valid_types else "think"
+                phase = STEP_TYPE_TO_PHASE.get(StepType(actual_type), "execution")
 
                 base_progress = 10
                 step_progress = base_progress + int(((i + 0.5) / max(total_steps, 1)) * 70)
 
-                tool_icon = {"research": "🔍", "code": "💻", "browser": "🌐", "think": "🧠"}.get(step_type_str, "📋")
+                # Clean step title — no API names
+                step_title = self._clean_step_title(actual_type, instruction)
 
                 # Emit step started
                 yield {"event": "step_update", "data": {
                     "id": step_id, "phase": phase,
-                    "title": f"{tool_icon} {instruction[:120]}",
+                    "title": step_title,
                     "status": "active",
-                    "detail": f"Step {step_num}/{total_steps} — {step_type_str}"
+                    "detail": f"Step {step_num} of {total_steps}"
                 }}
                 yield {"event": "execution_reasoning", "data": {
-                    "chunk": f"**Step {step_num}/{total_steps} — {step_type_str.upper()}**\n- Executing: {instruction[:150]}\n"
+                    "chunk": f"**Step {step_num}/{total_steps}**\n- {step_title}\n"
                 }}
                 yield {"event": "execution_progress", "data": {"progress": step_progress, "status": "executing"}}
 
@@ -365,7 +442,7 @@ class ExecutionOrchestrator:
                     step_id=step_id,
                     execution_id=execution_id,
                     step_number=step_num,
-                    step_type=StepType(step_type_str) if step_type_str in [st.value for st in StepType] else StepType.THINK,
+                    step_type=StepType(actual_type),
                     status=ExecutionStatus.EXECUTING,
                     agent=step_data.get("agent", "kimi"),
                     instruction=instruction,
@@ -374,28 +451,58 @@ class ExecutionOrchestrator:
                 step.started_at = datetime.now()
 
                 try:
-                    result, sub_events = await self._execute_step_with_events(step, context, all_step_results)
+                    if actual_type == "github":
+                        # GitHub steps use streaming execution so credential_request
+                        # events reach the frontend before the async wait for user input.
+                        event_queue: asyncio.Queue = asyncio.Queue()
+                        result_holder: Dict[str, Any] = {"result": None, "error": None}
+
+                        async def _run_github_step(_step, _ctx, _prev, _queue, _eid):
+                            proxy = _SubEventQueue(_queue)
+                            try:
+                                r = await self._exec_github(_step, _ctx, _prev, proxy, _eid)
+                                result_holder["result"] = r
+                            except Exception as exc:
+                                result_holder["error"] = exc
+                            finally:
+                                await _queue.put(None)  # sentinel
+
+                        github_task = asyncio.create_task(
+                            _run_github_step(step, context, all_step_results, event_queue, execution_id)
+                        )
+
+                        # Yield sub-events in real-time as they're produced
+                        while True:
+                            sub_evt = await event_queue.get()
+                            if sub_evt is None:
+                                break
+                            yield sub_evt
+
+                        await github_task
+                        if result_holder["error"]:
+                            raise result_holder["error"]
+                        result = result_holder["result"]
+                    else:
+                        result, sub_events_list = await self._execute_step_with_events(step, context, all_step_results, execution_id)
+                        for sub_evt in sub_events_list:
+                            yield sub_evt
+
                     step.output_data = result
                     step.status = ExecutionStatus.COMPLETED
                     step.completed_at = datetime.now()
                     elapsed = (step.completed_at - step.started_at).total_seconds()
 
-                    # Yield sub-events (granular progress from within the step)
-                    for sub_evt in sub_events:
-                        yield sub_evt
-
-                    # Emit step completed with clean summary
-                    result_summary = self._summarize_result(result)
+                    # Clean result summary
+                    result_summary = self._clean_result_summary(result)
                     yield {"event": "step_update", "data": {
                         "id": step_id, "phase": phase,
-                        "title": f"{tool_icon} {instruction[:80]}",
+                        "title": step_title,
                         "status": "complete",
-                        "detail": result_summary[:200]
+                        "detail": result_summary
                     }}
-
-                    # Emit clean reasoning for this step
-                    reasoning_text = f"- ✅ Completed in {elapsed:.1f}s: {result_summary[:250]}\n\n"
-                    yield {"event": "execution_reasoning", "data": {"chunk": reasoning_text}}
+                    yield {"event": "execution_reasoning", "data": {
+                        "chunk": f"- Done ({elapsed:.1f}s): {result_summary}\n\n"
+                    }}
 
                 except Exception as e:
                     step.status = ExecutionStatus.FAILED
@@ -405,12 +512,12 @@ class ExecutionOrchestrator:
 
                     yield {"event": "step_update", "data": {
                         "id": step_id, "phase": phase,
-                        "title": f"{tool_icon} {instruction[:80]}",
+                        "title": step_title,
                         "status": "error",
-                        "detail": f"Error: {str(e)[:150]}"
+                        "detail": f"Failed: {str(e)[:100]}"
                     }}
                     yield {"event": "execution_reasoning", "data": {
-                        "chunk": f"- ❌ Step failed: {str(e)[:200]}\n\n"
+                        "chunk": f"- Failed: {str(e)[:150]}\n\n"
                     }}
 
                 all_step_results.append(step)
@@ -422,11 +529,11 @@ class ExecutionOrchestrator:
             # === PHASE 4: VERIFICATION ===
             yield {"event": "step_update", "data": {
                 "id": "verify-1", "phase": "verification",
-                "title": "Verifying execution results",
+                "title": "Checking results quality",
                 "status": "active"
             }}
             yield {"event": "execution_reasoning", "data": {
-                "chunk": "**Verification Phase**\n- Checking step completion status\n- Evaluating data quality and coverage\n"
+                "chunk": "**Checking Results**\n- Verifying data quality and completeness\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 82, "status": "verifying"}}
 
@@ -436,31 +543,30 @@ class ExecutionOrchestrator:
             failed_count = verification.get("failed_steps", 0)
             confidence = verification.get("confidence", 0)
 
-            verify_reasoning = f"- Results: {completed_count} steps completed, {failed_count} failed\n"
-            verify_reasoning += f"- Confidence: {confidence:.0%}\n"
-            if verification.get("issues"):
-                verify_reasoning += f"- Issues: {', '.join(verification['issues'])}\n"
-            else:
-                verify_reasoning += "- All checks passed ✅\n"
-            verify_reasoning += "\n"
+            verify_detail = f"{completed_count} of {completed_count + failed_count} steps completed"
+            if confidence >= 0.8:
+                verify_detail += " — high confidence"
+            elif confidence >= 0.5:
+                verify_detail += " — moderate confidence"
 
             yield {"event": "step_update", "data": {
                 "id": "verify-1", "phase": "verification",
-                "title": f"Verified — {confidence:.0%} confidence",
+                "title": "Results verified",
                 "status": "complete",
-                "detail": f"{completed_count}/{completed_count + failed_count} steps successful"
+                "detail": verify_detail
             }}
-            yield {"event": "execution_reasoning", "data": {"chunk": verify_reasoning}}
-            yield {"event": "execution_progress", "data": {"progress": 88, "status": "delivering"}}
+            yield {"event": "execution_reasoning", "data": {
+                "chunk": f"- {verify_detail}\n\n"
+            }}
 
             # === PHASE 5: DELIVERY ===
             yield {"event": "step_update", "data": {
                 "id": "deliver-1", "phase": "delivery",
-                "title": "Synthesizing comprehensive response",
+                "title": "Writing comprehensive response",
                 "status": "active"
             }}
             yield {"event": "execution_reasoning", "data": {
-                "chunk": "**Delivery Phase**\n- Synthesizing all research findings and execution results\n- Generating structured response with citations\n"
+                "chunk": "**Preparing Response**\n- Synthesizing all findings into a clear answer\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 90, "status": "delivering"}}
 
@@ -473,7 +579,7 @@ class ExecutionOrchestrator:
                 "id": "deliver-1", "phase": "delivery",
                 "title": "Response delivered",
                 "status": "complete",
-                "detail": f"{len(full_content)} characters"
+                "detail": f"{len(full_content):,} characters"
             }}
 
             # === COMPLETE ===
@@ -497,6 +603,7 @@ class ExecutionOrchestrator:
 
         finally:
             self._executions.pop(execution_id, None)
+            self._credentials.pop(execution_id, None)
 
     # ------------------------------------------------------------------
     # Planning
@@ -508,57 +615,60 @@ class ExecutionOrchestrator:
         urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', user_request)
         has_urls = len(urls) > 0
 
-        code_keywords = ["code", "script", "program", "calculate", "compute", "analyze data", "chart", "plot", "graph", "csv", "json"]
+        github_patterns = ["github", "repo", "repository", "commit", "push", "pull request", "PR", "branch", "merge", "git"]
+        needs_github = any(kw.lower() in user_request.lower() for kw in github_patterns)
+
+        code_keywords = ["code", "script", "program", "calculate", "compute", "analyze data", "chart", "plot", "graph", "csv", "json", "python"]
         needs_code = any(kw in user_request.lower() for kw in code_keywords)
 
-        available_tools = []
-        if self.search_layer:
-            available_tools.append("research: Search across 10+ APIs (Perplexity, Bing, Google, Exa, SerpAPI, YouTube, Firecrawl, Pinterest)")
+        available_tools = ["research", "think"]
         if self.e2b and self.e2b.available:
-            available_tools.append("code: Execute Python/JS/Bash in E2B sandbox")
+            available_tools.append("code")
         if self.browserless and self.browserless.available:
-            available_tools.append("browser: Navigate URLs, extract content, take screenshots via Browserless")
-        available_tools.append("think: Analyze data, reason about findings, synthesize information")
+            available_tools.append("browser")
+        if self.github:
+            available_tools.append("github")
 
-        plan_prompt = f"""You are an execution planner for an AI agent system. Today is {current_date}.
+        plan_prompt = f"""You are an execution planner for an AI agent. Today is {current_date}.
 
-AVAILABLE TOOLS:
-{chr(10).join(f'- {t}' for t in available_tools)}
-
-Decompose this user request into 3-8 executable steps. Each step must be one of:
+AVAILABLE STEP TYPES:
 - research: Search the web for information using multiple search engines
-- code: Generate and execute code in a sandbox
-- browser: Navigate to a URL and extract content
-- think: Analyze and reason about collected data
+- think: Analyze and reason about collected data, synthesize findings
+{f'- code: Generate and execute code in a secure sandbox' if 'code' in available_tools else ''}
+{f'- browser: Navigate to a URL and extract its full content' if 'browser' in available_tools else ''}
+{f'- github: Perform GitHub repository operations (read files, create/update files, create branches, create PRs)' if 'github' in available_tools else ''}
 
-IMPORTANT RULES:
-- If the user provides URLs, include a "browser" step to fetch that URL content FIRST
-- If the user asks for data analysis, include a "code" step
+Decompose this user request into 2-8 executable steps.
+
+RULES:
+- If the user provides URLs, include a "browser" step to fetch content FIRST
+- If the user mentions GitHub/repos, include "github" steps for repo operations
+- For data analysis, include a "code" step
 - Always include at least one "research" step for information gathering
 - End with a "think" step to synthesize all findings
 - Keep instructions specific and actionable
+- For GitHub write operations (push, edit, create PR), the instruction must specify: owner, repo, file path, and what to change
 
 For each step provide:
 - step_number (integer starting from 1)
-- step_type (research/code/browser/think)
-- instruction (specific, actionable — what exactly to search/code/browse/analyze)
-- agent ("kimi" or "grok")
+- step_type (one of: {', '.join(available_tools)})
+- instruction (specific, actionable)
+- agent ("kimi")
 - expected_output (what this step produces)
 - dependencies (list of step_numbers this depends on, [] if independent)
 
 Respond ONLY in JSON:
 {{
-    "objective": "brief description of the goal",
-    "reasoning": "why this decomposition makes sense",
+    "objective": "brief description",
+    "reasoning": "why this plan makes sense",
     "steps": [
         {{"step_number": 1, "step_type": "research", "instruction": "...", "agent": "kimi", "expected_output": "...", "dependencies": []}}
-    ],
-    "parallel_groups": [[1, 2], [3]]
+    ]
 }}
 
 User Request: {user_request}
 {"URLs detected: " + ", ".join(urls) if urls else ""}
-{"Context: " + json.dumps(context)[:500] if context else ""}"""
+{"Context: " + json.dumps(context, default=str)[:500] if context else ""}"""
 
         content = await self._llm_call(
             messages=[{"role": "user", "content": plan_prompt}],
@@ -581,18 +691,31 @@ User Request: {user_request}
                 if "agent" not in s:
                     s["agent"] = "kimi"
 
+            # Force browser step if URLs detected but not in plan
             if has_urls and not any(s.get("step_type") == "browser" for s in steps):
                 browser_step = {
                     "step_number": 0,
                     "step_type": "browser",
                     "instruction": f"Navigate to and extract content from: {urls[0]}",
                     "agent": "kimi",
-                    "expected_output": "Page content and structure",
+                    "expected_output": "Page content",
                     "dependencies": [],
                 }
                 steps.insert(0, browser_step)
                 for idx, s in enumerate(steps):
                     s["step_number"] = idx + 1
+
+            # Force github step if repo operations needed but not in plan
+            if needs_github and "github" in available_tools and not any(s.get("step_type") == "github" for s in steps):
+                github_step = {
+                    "step_number": len(steps) + 1,
+                    "step_type": "github",
+                    "instruction": f"Perform GitHub operation for: {user_request[:200]}",
+                    "agent": "kimi",
+                    "expected_output": "Repository operation result",
+                    "dependencies": [],
+                }
+                steps.append(github_step)
 
             return ExecutionPlan(
                 plan_id=f"plan_{uuid.uuid4().hex[:8]}",
@@ -605,51 +728,61 @@ User Request: {user_request}
 
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning(f"Plan parsing failed, using smart fallback: {e}")
+            return self._fallback_plan(user_request, has_urls, needs_code, needs_github, urls)
 
-            fallback_steps = []
-            step_num = 1
+    def _fallback_plan(self, user_request, has_urls, needs_code, needs_github, urls):
+        fallback_steps = []
+        step_num = 1
 
-            if has_urls:
-                fallback_steps.append({
-                    "step_number": step_num, "step_type": "browser",
-                    "instruction": f"Extract content from URL: {urls[0]}",
-                    "agent": "kimi", "expected_output": "URL content", "dependencies": [],
-                })
-                step_num += 1
-
+        if has_urls:
             fallback_steps.append({
-                "step_number": step_num, "step_type": "research",
-                "instruction": f"Research: {user_request}",
-                "agent": "kimi", "expected_output": "Research findings", "dependencies": [],
+                "step_number": step_num, "step_type": "browser",
+                "instruction": f"Extract content from: {urls[0]}",
+                "agent": "kimi", "expected_output": "URL content", "dependencies": [],
             })
             step_num += 1
 
-            if needs_code:
-                fallback_steps.append({
-                    "step_number": step_num, "step_type": "code",
-                    "instruction": f"Write and execute code for: {user_request}",
-                    "agent": "kimi", "expected_output": "Code output", "dependencies": [],
-                })
-                step_num += 1
+        fallback_steps.append({
+            "step_number": step_num, "step_type": "research",
+            "instruction": f"Research: {user_request}",
+            "agent": "kimi", "expected_output": "Research findings", "dependencies": [],
+        })
+        step_num += 1
 
+        if needs_code:
             fallback_steps.append({
-                "step_number": step_num, "step_type": "think",
-                "instruction": f"Synthesize all findings for: {user_request}",
-                "agent": "kimi", "expected_output": "Final analysis",
-                "dependencies": list(range(1, step_num)),
+                "step_number": step_num, "step_type": "code",
+                "instruction": f"Write and execute code for: {user_request}",
+                "agent": "kimi", "expected_output": "Code output", "dependencies": [],
             })
+            step_num += 1
 
-            return ExecutionPlan(
-                plan_id=f"plan_{uuid.uuid4().hex[:8]}",
-                objective=user_request,
-                steps=fallback_steps,
-                estimated_duration=len(fallback_steps) * 15,
-                reasoning="Fallback plan with smart step detection",
-                parallel_groups=[[s["step_number"]] for s in fallback_steps],
-            )
+        if needs_github:
+            fallback_steps.append({
+                "step_number": step_num, "step_type": "github",
+                "instruction": f"GitHub operation: {user_request[:200]}",
+                "agent": "kimi", "expected_output": "Repo operation result", "dependencies": [],
+            })
+            step_num += 1
+
+        fallback_steps.append({
+            "step_number": step_num, "step_type": "think",
+            "instruction": f"Synthesize all findings for: {user_request}",
+            "agent": "kimi", "expected_output": "Final analysis",
+            "dependencies": list(range(1, step_num)),
+        })
+
+        return ExecutionPlan(
+            plan_id=f"plan_{uuid.uuid4().hex[:8]}",
+            objective=user_request,
+            steps=fallback_steps,
+            estimated_duration=len(fallback_steps) * 15,
+            reasoning="Automatic plan based on task analysis",
+            parallel_groups=[[s["step_number"]] for s in fallback_steps],
+        )
 
     # ------------------------------------------------------------------
-    # Step execution with sub-events
+    # Step execution dispatcher
     # ------------------------------------------------------------------
 
     async def _execute_step_with_events(
@@ -657,11 +790,8 @@ User Request: {user_request}
         step: ExecutionStep,
         context: Optional[Dict],
         previous_steps: List[ExecutionStep],
+        execution_id: str = "",
     ) -> tuple:
-        """Execute a step and return (result, sub_events).
-        
-        sub_events are granular progress events emitted during the step.
-        """
         sub_events = []
 
         if step.step_type == StepType.RESEARCH:
@@ -670,6 +800,9 @@ User Request: {user_request}
             result = await self._exec_code(step, context, previous_steps, sub_events)
         elif step.step_type == StepType.BROWSER:
             result = await self._exec_browser(step, context, sub_events)
+        elif step.step_type == StepType.GITHUB:
+            # GitHub uses the streaming variant so credential_request reaches frontend before wait
+            result = await self._exec_github(step, context, previous_steps, sub_events, execution_id)
         elif step.step_type == StepType.THINK:
             result = await self._exec_think(step, context, previous_steps, sub_events)
         else:
@@ -678,34 +811,14 @@ User Request: {user_request}
         return result, sub_events
 
     # ------------------------------------------------------------------
-    # RESEARCH — Fixed SearchLayer data extraction
+    # RESEARCH — Clean reasoning, no API names
     # ------------------------------------------------------------------
 
-    async def _exec_research(
-        self,
-        step: ExecutionStep,
-        context: Optional[Dict],
-        previous: List[ExecutionStep],
-        sub_events: list,
-    ) -> Dict:
-        """Execute research using SearchLayer (10+ APIs).
-        
-        SearchLayer.search() returns:
-        {
-            "query": "...",
-            "results": {
-                "perplexity": {"answer": "...", "citations": [...], "data_points": [...], "sources": []},
-                "exa": {"results": [...], "data_points": [...], "sources": [...]},
-                "google": {"results": [...], "data_points": [...], "sources": [...]},
-                ...
-            },
-            "structured_data": {"data_points": [...], "sources": [...]}
-        }
-        """
+    async def _exec_research(self, step, context, previous, sub_events):
         if self.search_layer:
             try:
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": "- Querying 10+ search APIs in parallel (Perplexity, Exa, Google, Bing, YouTube, Firecrawl...)\n"
+                    "chunk": "- Searching across multiple sources for relevant information\n"
                 }})
 
                 search_result = await self.search_layer.search(
@@ -714,46 +827,45 @@ User Request: {user_request}
                     num_results=15,
                 )
 
-                # === EXTRACT DATA FROM STRUCTURED_DATA (the aggregated format) ===
+                # Extract from structured_data (aggregated format)
                 structured_data = search_result.get("structured_data", {})
                 data_points = structured_data.get("data_points", [])
                 sources = structured_data.get("sources", [])
 
-                # Extract Perplexity answer (the most comprehensive single answer)
-                perplexity_answer = ""
+                # Get AI summary from results
+                ai_summary = ""
                 results_dict = search_result.get("results", {})
                 if isinstance(results_dict, dict):
-                    pplx = results_dict.get("perplexity", {})
-                    if isinstance(pplx, dict):
-                        perplexity_answer = pplx.get("answer", "")
+                    for src_name, src_data in results_dict.items():
+                        if isinstance(src_data, dict) and src_data.get("answer"):
+                            ai_summary = src_data["answer"]
+                            break
 
-                # Build findings text from data points
+                # Build findings from data points
                 findings_parts = []
-                if perplexity_answer:
-                    findings_parts.append(f"**Perplexity AI Summary:**\n{perplexity_answer[:3000]}")
+                if ai_summary:
+                    findings_parts.append(f"**Summary:**\n{ai_summary[:3000]}")
 
-                # Add data points from all sources
-                seen_descriptions = set()
+                seen = set()
                 for dp in data_points[:20]:
                     if isinstance(dp, dict):
                         title = dp.get("title", "")
                         desc = dp.get("description", "")
-                        source = dp.get("source", "")
-                        if desc and desc[:100] not in seen_descriptions:
-                            seen_descriptions.add(desc[:100])
-                            findings_parts.append(f"[{source}] **{title}**: {desc[:400]}")
+                        if desc and desc[:80] not in seen:
+                            seen.add(desc[:80])
+                            findings_parts.append(f"**{title}**: {desc[:400]}")
 
-                # Count active sources
-                active_sources = []
+                # Count active sources (without naming them)
+                active_count = 0
                 if isinstance(results_dict, dict):
-                    for src_name, src_data in results_dict.items():
+                    for src_data in results_dict.values():
                         if isinstance(src_data, dict) and not src_data.get("error"):
-                            active_sources.append(src_name)
+                            active_count += 1
 
-                findings_text = "\n\n".join(findings_parts) if findings_parts else "No results found from search APIs"
+                findings_text = "\n\n".join(findings_parts) if findings_parts else "No results found"
 
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- Found {len(data_points)} data points from {len(active_sources)} sources ({', '.join(active_sources[:6])})\n"
+                    "chunk": f"- Found {len(data_points)} results from {active_count} search engines\n"
                     f"- Collected {len(sources)} unique source URLs\n"
                 }})
 
@@ -763,26 +875,26 @@ User Request: {user_request}
                     "findings": findings_text,
                     "sources": sources[:15],
                     "result_count": len(data_points),
-                    "active_sources": active_sources,
-                    "perplexity_answer": perplexity_answer[:2000] if perplexity_answer else "",
+                    "active_source_count": active_count,
+                    "ai_summary": ai_summary[:2000] if ai_summary else "",
                 }
 
             except Exception as e:
                 logger.error(f"Search failed: {e}")
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- Search API error: {str(e)[:100]}. Falling back to LLM knowledge.\n"
+                    "chunk": f"- Web search encountered an error. Using AI knowledge base instead.\n"
                 }})
                 content = await self._llm_call([
-                    {"role": "system", "content": "You are a research assistant. Provide comprehensive, factual information with sources."},
+                    {"role": "system", "content": "Provide comprehensive, factual information with sources."},
                     {"role": "user", "content": step.instruction},
                 ])
                 return {"type": "research", "findings": content, "sources": [], "fallback": True, "result_count": 0}
         else:
             sub_events.append({"event": "execution_reasoning", "data": {
-                "chunk": "- SearchLayer not available. Using LLM knowledge base.\n"
+                "chunk": "- Using AI knowledge base for research\n"
             }})
             content = await self._llm_call([
-                {"role": "system", "content": "You are a research assistant. Provide comprehensive, factual information."},
+                {"role": "system", "content": "Provide comprehensive, factual information."},
                 {"role": "user", "content": step.instruction},
             ])
             return {"type": "research", "findings": content, "sources": [], "result_count": 0}
@@ -791,25 +903,18 @@ User Request: {user_request}
     # CODE — E2B sandbox execution
     # ------------------------------------------------------------------
 
-    async def _exec_code(
-        self,
-        step: ExecutionStep,
-        context: Optional[Dict],
-        previous: List[ExecutionStep],
-        sub_events: list,
-    ) -> Dict:
-        """Execute code in E2B sandbox."""
+    async def _exec_code(self, step, context, previous, sub_events):
         prev_context = self._get_previous_context(previous)
 
         sub_events.append({"event": "execution_reasoning", "data": {
-            "chunk": "- Generating Python code for the task\n"
+            "chunk": "- Generating code for the task\n"
         }})
 
-        code_prompt = f"""Write clean, executable Python code for this task. Return ONLY the code, no explanations or markdown.
+        code_prompt = f"""Write clean, executable Python code for this task. Return ONLY the code, no explanations.
 
 Task: {step.instruction}
 
-{f"Previous context: {prev_context[:3000]}" if prev_context else ""}
+{f"Previous data: {prev_context[:3000]}" if prev_context else ""}
 
 Requirements:
 - Print all results to stdout
@@ -818,37 +923,41 @@ Requirements:
 - If processing data, print a summary"""
 
         code_content = await self._llm_call([
-            {"role": "system", "content": "You are a Python code generator. Return ONLY executable Python code, no markdown fences, no explanations."},
+            {"role": "system", "content": "Return ONLY executable Python code, no markdown fences, no explanations."},
             {"role": "user", "content": code_prompt},
         ], max_tokens=4096)
 
         # Clean code
         code_content = code_content.strip()
-        if code_content.startswith("```python"):
-            code_content = code_content[9:]
-        if code_content.startswith("```"):
-            code_content = code_content[3:]
+        for prefix in ["```python", "```py", "```"]:
+            if code_content.startswith(prefix):
+                code_content = code_content[len(prefix):]
+                break
         if code_content.endswith("```"):
             code_content = code_content[:-3]
         code_content = code_content.strip()
 
         sub_events.append({"event": "execution_reasoning", "data": {
-            "chunk": f"- Generated {len(code_content)} chars of Python code\n"
+            "chunk": f"- Generated {len(code_content.splitlines())} lines of Python code\n"
         }})
 
-        # Execute in E2B if available
         if self.e2b and self.e2b.available:
             try:
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": "- Executing code in E2B secure sandbox...\n"
+                    "chunk": "- Running code in secure sandbox environment\n"
                 }})
 
                 result = await self.e2b.execute_code(code_content, language="python", timeout=30)
 
-                status = "✅ Success" if result.success else "❌ Error"
-                sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- E2B execution {status} ({result.execution_time_ms:.0f}ms)\n"
-                }})
+                if result.success:
+                    output_preview = (result.output or "")[:200]
+                    sub_events.append({"event": "execution_reasoning", "data": {
+                        "chunk": f"- Code executed successfully ({result.execution_time_ms:.0f}ms)\n- Output: {output_preview}\n"
+                    }})
+                else:
+                    sub_events.append({"event": "execution_reasoning", "data": {
+                        "chunk": f"- Code execution error: {(result.error or '')[:150]}\n"
+                    }})
 
                 return {
                     "type": "code_execution",
@@ -857,49 +966,30 @@ Requirements:
                     "error": result.error or "",
                     "success": result.success,
                     "execution_time_ms": result.execution_time_ms,
-                    "sandbox": "e2b",
                 }
             except Exception as e:
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- E2B execution failed: {str(e)[:100]}\n"
+                    "chunk": f"- Sandbox execution failed: {str(e)[:100]}\n"
                 }})
-                return {
-                    "type": "code_execution",
-                    "code": code_content,
-                    "output": "",
-                    "error": f"E2B execution failed: {str(e)}",
-                    "success": False,
-                    "sandbox": "e2b_error",
-                }
+                return {"type": "code_execution", "code": code_content, "output": "", "error": str(e), "success": False}
         else:
             sub_events.append({"event": "execution_reasoning", "data": {
-                "chunk": "- E2B sandbox not available — code generated but not executed\n"
+                "chunk": "- Code sandbox not available — code generated for reference\n"
             }})
-            return {
-                "type": "code_generation",
-                "code": code_content,
-                "note": "E2B sandbox not available — code generated but not executed. User can run locally.",
-                "success": True,
-            }
+            return {"type": "code_generation", "code": code_content, "note": "Sandbox not available", "success": True}
 
     # ------------------------------------------------------------------
     # BROWSER — Browserless web automation
     # ------------------------------------------------------------------
 
-    async def _exec_browser(
-        self,
-        step: ExecutionStep,
-        context: Optional[Dict],
-        sub_events: list,
-    ) -> Dict:
-        """Execute browser automation via Browserless."""
+    async def _exec_browser(self, step, context, sub_events):
         urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', step.instruction)
 
         if self.browserless and self.browserless.available:
             if urls:
                 target_url = urls[0]
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- Navigating to URL via Browserless: {target_url[:80]}\n"
+                    "chunk": f"- Navigating to {target_url[:80]}\n"
                 }})
 
                 try:
@@ -910,8 +1000,9 @@ Requirements:
                         text = result.get("text", "")
                         links = result.get("links", [])
                         sub_events.append({"event": "execution_reasoning", "data": {
-                            "chunk": f"- Extracted {len(text)} chars from '{title[:60]}'\n"
-                            f"- Found {len(links)} links on the page\n"
+                            "chunk": f"- Extracted {len(text):,} characters from the page\n"
+                            f"- Page title: {title[:80]}\n"
+                            f"- Found {len(links)} links\n"
                         }})
                         return {
                             "type": "browser_extraction",
@@ -922,20 +1013,20 @@ Requirements:
                             "success": True,
                         }
                     else:
-                        error = result.get("error", "Unknown error")
+                        error = result.get("error", "Could not extract page content")
                         sub_events.append({"event": "execution_reasoning", "data": {
-                            "chunk": f"- Browserless extraction failed: {error[:100]}\n"
+                            "chunk": f"- Could not extract content from the URL\n"
                         }})
                         return {"type": "browser_error", "url": target_url, "error": error, "success": False}
 
                 except Exception as e:
                     sub_events.append({"event": "execution_reasoning", "data": {
-                        "chunk": f"- Browserless error: {str(e)[:100]}\n"
+                        "chunk": f"- Web extraction error: {str(e)[:80]}\n"
                     }})
                     return {"type": "browser_error", "url": target_url, "error": str(e), "success": False}
             else:
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": "- No URL found in instruction. Performing Google search via Browserless.\n"
+                    "chunk": "- No URL found in instruction. Performing web search instead.\n"
                 }})
                 try:
                     search_url = f"https://www.google.com/search?q={step.instruction[:100].replace(' ', '+')}"
@@ -950,43 +1041,373 @@ Requirements:
                     return {"type": "browser_error", "error": str(e), "success": False}
         else:
             sub_events.append({"event": "execution_reasoning", "data": {
-                "chunk": "- Browserless not available. Using LLM to analyze URL.\n"
+                "chunk": "- Web browser not available. Using AI to analyze the request.\n"
             }})
             if urls:
                 content = await self._llm_call([
-                    {"role": "system", "content": "The user wants to analyze a URL. Since browser automation is not available, provide what you know about this URL/domain."},
+                    {"role": "system", "content": "The user wants to analyze a URL. Provide what you know about this URL/domain."},
                     {"role": "user", "content": f"Analyze this URL: {urls[0]}\n\nContext: {step.instruction}"},
                 ])
-                return {"type": "browser_fallback", "url": urls[0], "content": content, "note": "Browserless not available"}
+                return {"type": "browser_fallback", "url": urls[0], "content": content}
             else:
                 content = await self._llm_call([{"role": "user", "content": step.instruction}])
                 return {"type": "browser_fallback", "content": content}
 
     # ------------------------------------------------------------------
+    # GITHUB — Real repository operations
+    # ------------------------------------------------------------------
+
+    async def _exec_github(self, step, context, previous, sub_events, execution_id):
+        """Execute GitHub operations using the GitHub API."""
+        if not self.github:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": "- GitHub integration not configured. Providing guidance instead.\n"
+            }})
+            content = await self._llm_call([
+                {"role": "system", "content": "The user wants to perform a GitHub operation but the GitHub API is not configured. Explain what would need to be done and provide the commands/steps."},
+                {"role": "user", "content": step.instruction},
+            ])
+            return {"type": "github_guidance", "content": content, "success": False, "needs_setup": True}
+
+        # Check if we have a token (from credential system or already set on client)
+        token = self.get_credential(execution_id, "github_token")
+        if token:
+            self.github.set_token(token)
+
+        if not self.github.token:
+            # Emit credential request with all fields the frontend expects
+            sub_events.append({"event": "credential_request", "data": {
+                "credential_type": "github_token",
+                "type": "github_token",
+                "message": "To perform GitHub operations, I need a GitHub Personal Access Token (PAT) with 'repo' scope. You can create one at https://github.com/settings/tokens",
+                "execution_id": execution_id,
+                "field_label": "GitHub Personal Access Token",
+                "required_scopes": ["repo"],
+                "url": "https://github.com/settings/tokens",
+            }})
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": "- GitHub token required for repository operations\n- Waiting for you to provide credentials (up to 2 minutes)...\n"
+            }})
+
+            # Wait for the user to provide the credential via /api/v2/execute/credential
+            received = await self._wait_for_credential(execution_id, timeout=120.0)
+
+            if received:
+                token = self.get_credential(execution_id, "github_token")
+                if token:
+                    self.github.set_token(token)
+                    sub_events.append({"event": "execution_reasoning", "data": {
+                        "chunk": "- GitHub token received. Proceeding with repository operation.\n"
+                    }})
+                else:
+                    sub_events.append({"event": "execution_reasoning", "data": {
+                        "chunk": "- Credential received but token was empty.\n"
+                    }})
+                    return {"type": "github_needs_auth", "content": "Token was empty.", "success": False, "needs_token": True}
+            else:
+                sub_events.append({"event": "execution_reasoning", "data": {
+                    "chunk": "- Timed out waiting for GitHub token. Providing guidance instead.\n"
+                }})
+                content = await self._llm_call([
+                    {"role": "system", "content": "The user wanted a GitHub operation but didn't provide a token in time. Explain what the operation would do and how to provide a GitHub PAT next time."},
+                    {"role": "user", "content": step.instruction},
+                ])
+                return {"type": "github_needs_auth", "content": content, "success": False, "needs_token": True}
+
+        # Parse the instruction to determine the GitHub operation
+        instruction_lower = step.instruction.lower()
+
+        # Extract owner/repo from instruction or context
+        repo_match = re.search(r'(?:github\.com/)?([a-zA-Z0-9_-]+)/([a-zA-Z0-9_.-]+)', step.instruction)
+        owner = repo_match.group(1) if repo_match else None
+        repo = repo_match.group(2) if repo_match else None
+
+        # Try to get from context
+        if not owner and context:
+            owner = context.get("github_owner")
+            repo = context.get("github_repo")
+
+        if not owner or not repo:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": "- Could not determine repository from the instruction\n"
+            }})
+            content = await self._llm_call([
+                {"role": "system", "content": "Help the user specify which GitHub repository they want to operate on."},
+                {"role": "user", "content": step.instruction},
+            ])
+            return {"type": "github_error", "content": content, "error": "Could not determine owner/repo", "success": False}
+
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": f"- Working with repository: {owner}/{repo}\n"
+        }})
+
+        try:
+            # Determine operation type
+            if any(kw in instruction_lower for kw in ["read", "get", "show", "list", "view", "check", "analyze"]):
+                return await self._github_read(owner, repo, step, sub_events)
+            elif any(kw in instruction_lower for kw in ["create file", "add file", "write file", "update file", "edit file", "push", "commit"]):
+                return await self._github_write(owner, repo, step, previous, sub_events)
+            elif any(kw in instruction_lower for kw in ["pull request", "pr", "merge request"]):
+                return await self._github_pr(owner, repo, step, sub_events)
+            elif any(kw in instruction_lower for kw in ["branch", "create branch"]):
+                return await self._github_branch(owner, repo, step, sub_events)
+            elif any(kw in instruction_lower for kw in ["issue", "bug", "feature request"]):
+                return await self._github_issue(owner, repo, step, sub_events)
+            else:
+                # Default: get repo info and list files
+                return await self._github_read(owner, repo, step, sub_events)
+
+        except Exception as e:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- GitHub operation failed: {str(e)[:100]}\n"
+            }})
+            return {"type": "github_error", "error": str(e), "success": False}
+
+    async def _github_read(self, owner, repo, step, sub_events):
+        """Read repository info and files."""
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": "- Reading repository information\n"
+        }})
+
+        repo_info = await self.github.get_repo_info(owner, repo)
+        if not repo_info.success:
+            return {"type": "github_error", "error": repo_info.error, "success": False}
+
+        # Try to list root directory
+        dir_result = await self.github.list_directory(owner, repo, "")
+        entries = dir_result.data.get("entries", []) if dir_result.success else []
+
+        # Check if a specific file is mentioned
+        file_match = re.search(r'(?:file|path)[:\s]+([^\s,]+)', step.instruction)
+        file_content = None
+        if file_match:
+            file_path = file_match.group(1)
+            file_result = await self.github.get_file_content(owner, repo, file_path)
+            if file_result.success:
+                file_content = file_result.data
+                sub_events.append({"event": "execution_reasoning", "data": {
+                    "chunk": f"- Read file: {file_path} ({file_result.data.get('size', 0)} bytes)\n"
+                }})
+
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": f"- Repository: {repo_info.data.get('full_name')}\n"
+            f"- Language: {repo_info.data.get('language', 'N/A')}\n"
+            f"- {len(entries)} items in root directory\n"
+        }})
+
+        return {
+            "type": "github_read",
+            "repo_info": repo_info.data,
+            "directory": entries[:30],
+            "file_content": file_content,
+            "success": True,
+        }
+
+    async def _github_write(self, owner, repo, step, previous, sub_events):
+        """Create or update files in the repository."""
+        prev_context = self._get_previous_context(previous)
+
+        # Generate the file content using LLM
+        write_prompt = f"""Based on the instruction, determine:
+1. The file path to create/update
+2. The file content
+3. A commit message
+
+Instruction: {step.instruction}
+
+{f"Context from previous steps: {prev_context[:3000]}" if prev_context else ""}
+
+Respond in JSON:
+{{"file_path": "path/to/file.ext", "content": "file content here", "commit_message": "descriptive commit message"}}"""
+
+        response = await self._llm_call([{"role": "user", "content": write_prompt}], max_tokens=8192)
+
+        try:
+            if "```json" in response:
+                response = response.split("```json")[1].split("```")[0]
+            elif "```" in response:
+                response = response.split("```")[1].split("```")[0]
+            file_data = json.loads(response.strip())
+        except (json.JSONDecodeError, IndexError):
+            return {"type": "github_error", "error": "Could not parse file operation details", "success": False}
+
+        file_path = file_data.get("file_path", "")
+        content = file_data.get("content", "")
+        message = file_data.get("commit_message", f"Update {file_path}")
+
+        if not file_path or not content:
+            return {"type": "github_error", "error": "Missing file path or content", "success": False}
+
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": f"- Creating/updating file: {file_path}\n- Commit message: {message}\n"
+        }})
+
+        # Check if file exists (to get SHA for update)
+        existing = await self.github.get_file_content(owner, repo, file_path)
+        sha = existing.data.get("sha") if existing.success else None
+
+        result = await self.github.create_or_update_file(
+            owner, repo, file_path, content, message, sha=sha
+        )
+
+        if result.success:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- File committed successfully\n- Commit: {result.data.get('commit_sha', '')[:8]}\n"
+            }})
+            # Emit as artifact
+            sub_events.append({"event": "execution_artifact", "data": {
+                "name": file_path,
+                "type": "code",
+                "url": result.url,
+            }})
+        else:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- Failed to commit: {result.error[:100]}\n"
+            }})
+
+        return {
+            "type": "github_write",
+            "file_path": file_path,
+            "commit_sha": result.data.get("commit_sha"),
+            "commit_url": result.data.get("commit_url"),
+            "url": result.url,
+            "success": result.success,
+            "error": result.error,
+        }
+
+    async def _github_pr(self, owner, repo, step, sub_events):
+        """Create a pull request."""
+        pr_prompt = f"""Based on this instruction, determine the PR details:
+Instruction: {step.instruction}
+
+Respond in JSON:
+{{"title": "PR title", "body": "PR description", "head": "source-branch", "base": "main"}}"""
+
+        response = await self._llm_call([{"role": "user", "content": pr_prompt}])
+        try:
+            if "```json" in response:
+                response = response.split("```json")[1].split("```")[0]
+            pr_data = json.loads(response.strip())
+        except (json.JSONDecodeError, IndexError):
+            return {"type": "github_error", "error": "Could not parse PR details", "success": False}
+
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": f"- Creating pull request: {pr_data.get('title', '')}\n"
+        }})
+
+        result = await self.github.create_pull_request(
+            owner, repo,
+            title=pr_data.get("title", ""),
+            body=pr_data.get("body", ""),
+            head=pr_data.get("head", ""),
+            base=pr_data.get("base", "main"),
+        )
+
+        if result.success:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- PR #{result.data.get('number')} created: {result.url}\n"
+            }})
+
+        return {
+            "type": "github_pr",
+            "pr_number": result.data.get("number"),
+            "url": result.url,
+            "success": result.success,
+            "error": result.error,
+        }
+
+    async def _github_branch(self, owner, repo, step, sub_events):
+        """Create a branch."""
+        branch_match = re.search(r'(?:branch|named?)\s+["\']?([a-zA-Z0-9_/-]+)', step.instruction)
+        branch_name = branch_match.group(1) if branch_match else f"feature/{uuid.uuid4().hex[:6]}"
+
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": f"- Creating branch: {branch_name}\n"
+        }})
+
+        result = await self.github.create_branch(owner, repo, branch_name)
+
+        if result.success:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- Branch '{branch_name}' created from {result.data.get('from_branch', 'main')}\n"
+            }})
+
+        return {
+            "type": "github_branch",
+            "branch": branch_name,
+            "success": result.success,
+            "error": result.error,
+        }
+
+    async def _github_issue(self, owner, repo, step, sub_events):
+        """List or create issues."""
+        if any(kw in step.instruction.lower() for kw in ["create", "open", "new", "file"]):
+            issue_prompt = f"""Based on this instruction, create an issue:
+Instruction: {step.instruction}
+
+Respond in JSON:
+{{"title": "Issue title", "body": "Issue description", "labels": ["bug"]}}"""
+
+            response = await self._llm_call([{"role": "user", "content": issue_prompt}])
+            try:
+                if "```json" in response:
+                    response = response.split("```json")[1].split("```")[0]
+                issue_data = json.loads(response.strip())
+            except (json.JSONDecodeError, IndexError):
+                return {"type": "github_error", "error": "Could not parse issue details", "success": False}
+
+            result = await self.github.create_issue(
+                owner, repo,
+                title=issue_data.get("title", ""),
+                body=issue_data.get("body", ""),
+                labels=issue_data.get("labels"),
+            )
+
+            if result.success:
+                sub_events.append({"event": "execution_reasoning", "data": {
+                    "chunk": f"- Issue #{result.data.get('number')} created: {result.url}\n"
+                }})
+
+            return {
+                "type": "github_issue_create",
+                "issue_number": result.data.get("number"),
+                "url": result.url,
+                "success": result.success,
+                "error": result.error,
+            }
+        else:
+            result = await self.github.list_issues(owner, repo)
+            if result.success:
+                issues = result.data.get("issues", [])
+                sub_events.append({"event": "execution_reasoning", "data": {
+                    "chunk": f"- Found {len(issues)} open issues\n"
+                }})
+            return {
+                "type": "github_issue_list",
+                "issues": result.data.get("issues", []) if result.success else [],
+                "count": result.data.get("count", 0) if result.success else 0,
+                "success": result.success,
+                "error": result.error,
+            }
+
+    # ------------------------------------------------------------------
     # THINK — Analysis and synthesis
     # ------------------------------------------------------------------
 
-    async def _exec_think(
-        self,
-        step: ExecutionStep,
-        context: Optional[Dict],
-        previous: List[ExecutionStep],
-        sub_events: list,
-    ) -> Dict:
-        """Execute thinking/analysis step."""
+    async def _exec_think(self, step, context, previous, sub_events):
         prev_context = self._get_previous_context(previous)
 
         sub_events.append({"event": "execution_reasoning", "data": {
-            "chunk": f"- Analyzing {len(previous)} previous step outputs\n- Synthesizing findings into structured analysis\n"
+            "chunk": f"- Analyzing findings from {len(previous)} previous steps\n"
         }})
 
         content = await self._llm_call([
-            {"role": "system", "content": "You are an analytical assistant. Provide deep, structured analysis based on the available data. Be thorough and cite specific findings from the research."},
+            {"role": "system", "content": "You are an analytical assistant. Provide deep, structured analysis based on the available data. Be thorough and reference specific findings."},
             {"role": "user", "content": f"{step.instruction}\n\nData from previous steps:\n{prev_context}"},
         ], max_tokens=8192)
 
         sub_events.append({"event": "execution_reasoning", "data": {
-            "chunk": f"- Analysis complete: {len(content)} chars generated\n"
+            "chunk": f"- Analysis complete\n"
         }})
 
         return {"type": "analysis", "content": content}
@@ -995,38 +1416,41 @@ Requirements:
     # Verification
     # ------------------------------------------------------------------
 
-    async def _verify_execution(self, steps: List[ExecutionStep], user_request: str) -> Dict:
+    async def _verify_execution(self, steps, user_request):
         completed = [s for s in steps if s.status == ExecutionStatus.COMPLETED]
         failed = [s for s in steps if s.status == ExecutionStatus.FAILED]
 
         if not completed:
-            return {"verified": False, "confidence": 0.0, "issues": ["No steps completed successfully"], "completed_steps": 0, "failed_steps": len(failed)}
+            return {"verified": False, "confidence": 0.0, "issues": ["No steps completed"], "completed_steps": 0, "failed_steps": len(failed)}
 
         confidence = len(completed) / max(len(steps), 1)
         issues = []
         if failed:
-            issues.append(f"{len(failed)} step(s) failed")
+            issues.append(f"{len(failed)} step(s) encountered errors")
         if confidence < 0.5:
             issues.append("Less than half of steps completed")
 
-        # Check if research produced actual data
-        has_research_data = False
+        has_data = False
         for s in completed:
             if s.output_data and isinstance(s.output_data, dict):
-                if s.output_data.get("type") == "research" and s.output_data.get("result_count", 0) > 0:
-                    has_research_data = True
-                elif s.output_data.get("type") == "browser_extraction" and s.output_data.get("success"):
-                    has_research_data = True
+                rtype = s.output_data.get("type", "")
+                if rtype == "research" and s.output_data.get("result_count", 0) > 0:
+                    has_data = True
+                elif rtype == "browser_extraction" and s.output_data.get("success"):
+                    has_data = True
+                elif rtype in ("github_read", "github_write", "github_pr") and s.output_data.get("success"):
+                    has_data = True
+                elif rtype == "code_execution" and s.output_data.get("success"):
+                    has_data = True
 
-        if not has_research_data and any(s.step_type == StepType.RESEARCH for s in steps):
-            issues.append("Research steps produced no data")
+        if not has_data and any(s.step_type in (StepType.RESEARCH, StepType.BROWSER) for s in steps):
+            issues.append("Data gathering produced limited results")
             confidence *= 0.7
 
         return {
             "verified": confidence > 0.3,
             "confidence": round(confidence, 2),
             "issues": issues,
-            "recommendations": [],
             "completed_steps": len(completed),
             "failed_steps": len(failed),
         }
@@ -1035,34 +1459,11 @@ Requirements:
     # Delivery (streaming)
     # ------------------------------------------------------------------
 
-    async def _deliver_stream(
-        self,
-        steps: List[ExecutionStep],
-        user_request: str,
-        verification: Dict,
-        context: Optional[Dict],
-    ) -> AsyncGenerator[str, None]:
-        """Stream the final delivery response token by token."""
-
+    async def _deliver_stream(self, steps, user_request, verification, context):
         step_summaries = []
         for s in steps:
             if s.output_data:
-                output_str = ""
-                if isinstance(s.output_data, dict):
-                    rtype = s.output_data.get("type", "")
-                    if rtype == "research":
-                        output_str = s.output_data.get("findings", "")[:3000]
-                    elif rtype == "code_execution":
-                        output_str = f"Code:\n{s.output_data.get('code', '')[:1000]}\nOutput:\n{s.output_data.get('output', '')[:1000]}"
-                    elif rtype in ("browser_extraction", "browser_fallback"):
-                        output_str = f"URL: {s.output_data.get('url', '')}\nContent:\n{s.output_data.get('content', '')[:3000]}"
-                    elif rtype == "analysis":
-                        output_str = s.output_data.get("content", "")[:3000]
-                    else:
-                        output_str = json.dumps(s.output_data, default=str)[:1500]
-                else:
-                    output_str = str(s.output_data)[:1500]
-
+                output_str = self._extract_step_output(s)
                 step_summaries.append(f"### Step {s.step_number} ({s.step_type.value}): {s.instruction[:100]}\n{output_str}")
 
         all_context = "\n\n".join(step_summaries)
@@ -1074,7 +1475,7 @@ Requirements:
                     content = h["content"] if isinstance(h["content"], str) else str(h["content"])
                     history_context += f"\n{h['role']}: {content[:500]}"
 
-        delivery_prompt = f"""You are McLeuker AI, an advanced agentic AI assistant. Synthesize a comprehensive, well-structured response based on the execution results below.
+        delivery_prompt = f"""You are McLeuker AI, an advanced agentic AI assistant. Synthesize a comprehensive, well-structured response.
 
 User Request: {user_request}
 
@@ -1083,21 +1484,19 @@ User Request: {user_request}
 Execution Results:
 {all_context}
 
-Verification: {json.dumps(verification)}
-
 INSTRUCTIONS:
 1. Directly answer the user's request with specific, actionable information
 2. Reference specific data and findings from the research
 3. Use markdown formatting (headers, lists, bold, tables where appropriate)
 4. If code was executed, include the relevant output
 5. If URLs were analyzed, reference the specific content found
-6. Be thorough but concise — focus on what the user actually asked for
-7. If any steps failed, acknowledge limitations honestly
-8. End with actionable next steps or recommendations if appropriate"""
+6. If GitHub operations were performed, include links and commit details
+7. Be thorough but concise — focus on what the user actually asked for
+8. End with actionable next steps if appropriate"""
 
         async for token in self._llm_stream(
             messages=[
-                {"role": "system", "content": "You are McLeuker AI, a powerful agentic AI assistant that executes tasks and delivers comprehensive results. Always be helpful, accurate, and thorough."},
+                {"role": "system", "content": "You are McLeuker AI, a powerful agentic AI assistant. Always be helpful, accurate, and thorough."},
                 {"role": "user", "content": delivery_prompt},
             ],
             max_tokens=16384,
@@ -1108,81 +1507,148 @@ INSTRUCTIONS:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _get_previous_context(self, previous_steps: List[ExecutionStep], max_chars: int = 6000) -> str:
+    def _extract_step_output(self, step, max_chars=3000):
+        if not step.output_data or not isinstance(step.output_data, dict):
+            return str(step.output_data)[:1500] if step.output_data else ""
+
+        rtype = step.output_data.get("type", "")
+        if rtype == "research":
+            return step.output_data.get("findings", "")[:max_chars]
+        elif rtype == "code_execution":
+            code = step.output_data.get("code", "")[:1000]
+            output = step.output_data.get("output", "")[:1000]
+            return f"Code:\n{code}\nOutput:\n{output}"
+        elif rtype == "code_generation":
+            return f"Code (not executed):\n{step.output_data.get('code', '')[:2000]}"
+        elif rtype in ("browser_extraction", "browser_fallback"):
+            url = step.output_data.get("url", "")
+            content = step.output_data.get("content", "")[:max_chars]
+            return f"URL: {url}\nContent:\n{content}"
+        elif rtype == "analysis":
+            return step.output_data.get("content", "")[:max_chars]
+        elif rtype == "github_read":
+            info = step.output_data.get("repo_info", {})
+            entries = step.output_data.get("directory", [])
+            file_content = step.output_data.get("file_content")
+            result = f"Repository: {info.get('full_name', '')}\nLanguage: {info.get('language', 'N/A')}\nFiles: {len(entries)}\n"
+            if file_content:
+                result += f"\nFile content:\n{file_content.get('content', '')[:2000]}"
+            return result
+        elif rtype == "github_write":
+            return f"File: {step.output_data.get('file_path', '')}\nCommit: {step.output_data.get('commit_sha', '')[:8]}\nURL: {step.output_data.get('url', '')}"
+        elif rtype == "github_pr":
+            return f"PR #{step.output_data.get('pr_number', '')}: {step.output_data.get('url', '')}"
+        elif rtype == "github_needs_auth":
+            return step.output_data.get("content", "GitHub token required")
+        elif rtype == "github_guidance":
+            return step.output_data.get("content", "GitHub not configured")
+        else:
+            return json.dumps(step.output_data, default=str)[:1500]
+
+    def _get_previous_context(self, previous_steps, max_chars=6000):
         parts = []
         total = 0
         for ps in previous_steps:
             if ps.output_data and ps.status == ExecutionStatus.COMPLETED:
-                if isinstance(ps.output_data, dict):
-                    rtype = ps.output_data.get("type", "")
-                    if rtype == "research":
-                        text = ps.output_data.get("findings", "")[:2000]
-                    elif rtype == "code_execution":
-                        text = f"Code output: {ps.output_data.get('output', '')[:1000]}"
-                    elif rtype in ("browser_extraction", "browser_fallback"):
-                        text = f"URL content: {ps.output_data.get('content', '')[:2000]}"
-                    elif rtype == "analysis":
-                        text = ps.output_data.get("content", "")[:2000]
-                    else:
-                        text = json.dumps(ps.output_data, default=str)[:1000]
-                else:
-                    text = str(ps.output_data)[:1000]
-
+                text = self._extract_step_output(ps, max_chars=2000)
                 if total + len(text) > max_chars:
                     break
                 parts.append(f"[Step {ps.step_number} - {ps.step_type.value}]: {text}")
                 total += len(text)
         return "\n\n".join(parts)
 
-    def _summarize_result(self, result: Any) -> str:
-        if isinstance(result, dict):
-            rtype = result.get("type", "unknown")
-            if rtype == "research":
-                count = result.get("result_count", 0)
-                sources = result.get("active_sources", [])
-                return f"Found {count} data points from {len(sources)} sources ({', '.join(sources[:4])})"
-            elif rtype == "code_execution":
-                if result.get("success"):
-                    output = result.get("output", "")[:100]
-                    ms = result.get("execution_time_ms", 0)
-                    return f"Code executed in E2B ({ms:.0f}ms): {output}"
-                else:
-                    return f"Code execution failed: {result.get('error', '')[:100]}"
-            elif rtype == "code_generation":
-                return f"Code generated ({len(result.get('code', ''))} chars) — E2B not available"
-            elif rtype == "browser_extraction":
-                title = result.get("title", "")
-                content_len = len(result.get("content", ""))
-                return f"Extracted {content_len} chars from: {title[:60]}"
-            elif rtype == "browser_search":
-                return "Browser search completed"
-            elif rtype == "browser_fallback":
-                return "URL analysis via LLM (Browserless not available)"
-            elif rtype == "browser_error":
-                return f"Browser error: {result.get('error', '')[:100]}"
-            elif rtype == "analysis":
-                return f"Analysis complete ({len(result.get('content', ''))} chars)"
+    def _clean_step_title(self, step_type, instruction):
+        """Generate a clean, user-friendly step title."""
+        titles = {
+            "research": "Searching for information",
+            "code": "Running code",
+            "browser": "Visiting web page",
+            "github": "Working with repository",
+            "think": "Analyzing findings",
+        }
+        base = titles.get(step_type, "Processing")
+
+        # Add context from instruction
+        if step_type == "browser":
+            urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', instruction)
+            if urls:
+                domain = urls[0].split("//")[-1].split("/")[0]
+                return f"Visiting {domain}"
+        elif step_type == "github":
+            repo_match = re.search(r'([a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+)', instruction)
+            if repo_match:
+                return f"Working with {repo_match.group(1)}"
+        elif step_type == "research":
+            # Shorten the instruction for the title
+            short = instruction[:60]
+            if len(instruction) > 60:
+                short += "..."
+            return f"Searching: {short}"
+
+        return f"{base}: {instruction[:60]}{'...' if len(instruction) > 60 else ''}"
+
+    def _clean_result_summary(self, result):
+        """Generate a clean, user-friendly result summary without API names."""
+        if not isinstance(result, dict):
+            return str(result)[:150]
+
+        rtype = result.get("type", "unknown")
+        if rtype == "research":
+            count = result.get("result_count", 0)
+            src_count = result.get("active_source_count", 0)
+            return f"Found {count} results from {src_count} search engines"
+        elif rtype == "code_execution":
+            if result.get("success"):
+                output = (result.get("output", "") or "")[:80]
+                ms = result.get("execution_time_ms", 0)
+                return f"Code executed ({ms:.0f}ms): {output}"
             else:
-                return json.dumps(result, default=str)[:150]
-        return str(result)[:150]
+                return f"Code error: {(result.get('error', '') or '')[:80]}"
+        elif rtype == "code_generation":
+            return f"Code generated ({len(result.get('code', ''))} chars)"
+        elif rtype == "browser_extraction":
+            title = result.get("title", "")
+            chars = len(result.get("content", ""))
+            return f"Extracted {chars:,} chars from: {title[:50]}"
+        elif rtype == "browser_fallback":
+            return "Analyzed URL content"
+        elif rtype == "browser_error":
+            return f"Could not access the URL"
+        elif rtype == "analysis":
+            return f"Analysis complete ({len(result.get('content', '')):,} chars)"
+        elif rtype == "github_read":
+            info = result.get("repo_info", {})
+            return f"Read repository: {info.get('full_name', '')}"
+        elif rtype == "github_write":
+            return f"Committed to: {result.get('file_path', '')}"
+        elif rtype == "github_pr":
+            return f"Created PR #{result.get('pr_number', '')}"
+        elif rtype == "github_branch":
+            return f"Created branch: {result.get('branch', '')}"
+        elif rtype == "github_needs_auth":
+            return "GitHub token required for this operation"
+        elif rtype == "github_guidance":
+            return "Provided GitHub operation guidance"
+        else:
+            return json.dumps(result, default=str)[:100]
 
     # ------------------------------------------------------------------
     # Control methods
     # ------------------------------------------------------------------
 
-    async def pause_execution(self, execution_id: str):
+    async def pause_execution(self, execution_id):
         if execution_id in self._executions:
             self._executions[execution_id]["paused"] = True
 
-    async def resume_execution(self, execution_id: str):
+    async def resume_execution(self, execution_id):
         if execution_id in self._executions:
             self._executions[execution_id]["paused"] = False
 
-    async def cancel_execution(self, execution_id: str):
+    async def cancel_execution(self, execution_id):
         if execution_id in self._executions:
             self._executions[execution_id]["cancelled"] = True
 
-    def get_execution_status(self, execution_id: str) -> Optional[Dict]:
+    def get_execution_status(self, execution_id):
         exec_data = self._executions.get(execution_id)
         if not exec_data:
             return None
@@ -1191,5 +1657,5 @@ INSTRUCTIONS:
             "status": exec_data["status"].value if isinstance(exec_data["status"], ExecutionStatus) else str(exec_data["status"]),
         }
 
-    def list_executions(self) -> List[Dict]:
+    def list_executions(self):
         return [self.get_execution_status(eid) for eid in self._executions if self.get_execution_status(eid)]
