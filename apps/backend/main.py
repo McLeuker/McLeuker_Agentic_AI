@@ -6541,40 +6541,51 @@ async def v2_execute(request: ExecutionRequest):
 
 @app.post("/api/v2/execute/stream")
 async def v2_execute_stream(request: ExecutionRequest):
-    """Execute an agentic task with SSE streaming.
+    """Execute an agentic task with SSE streaming using the REAL ExecutionOrchestrator.
     
-    ARCHITECTURE: Wraps the existing ChatHandler.handle_chat() and adds
-    execution panel events on top. This ensures ALL v1 capabilities
-    (URL fetching, file generation, search, quality checks) work in agent mode.
-    The execution panel shows real-time progress of what ChatHandler is doing.
+    ARCHITECTURE: Uses ExecutionOrchestrator to plan, research, execute code,
+    browse URLs, verify results, and deliver — with real-time SSE streaming.
+    Falls back to ChatHandler wrapper if orchestrator is unavailable.
     """
     try:
         async def agent_event_generator():
             execution_id = request.execution_id or str(uuid.uuid4())[:12]
+            context = request.context or {}
             
-            # Emit execution start
+            # === PRIMARY PATH: Use real ExecutionOrchestrator ===
+            if execution_orchestrator:
+                try:
+                    async for evt in execution_orchestrator.execute_stream(
+                        user_request=request.task,
+                        context=context,
+                        execution_id=execution_id,
+                    ):
+                        evt_name = evt.get("event", "")
+                        evt_data = evt.get("data", {})
+                        yield event(evt_name, evt_data)
+                    return
+                except Exception as orch_err:
+                    logger.error(f"Orchestrator failed, falling back to ChatHandler: {orch_err}")
+                    # Fall through to ChatHandler fallback
+            
+            # === FALLBACK: Wrap ChatHandler (v1) with execution panel events ===
             yield event("execution_start", {"execution_id": execution_id})
             yield event("step_update", {"id": "step-init", "phase": "planning", "title": "Analyzing your request...", "status": "active"})
             yield event("execution_progress", {"progress": 5, "status": "planning"})
             
-            # Build a ChatRequest from the ExecutionRequest so we can reuse ChatHandler
             chat_messages = []
-            
-            # Add conversation history from context
-            if request.context and request.context.get("history"):
-                for h in request.context["history"][-10:]:
+            if context.get("history"):
+                for h in context["history"][-10:]:
                     if isinstance(h, dict) and h.get("role") and h.get("content"):
                         content = h["content"]
                         if isinstance(content, str) and len(content) > 3000:
                             content = content[:3000] + "..."
                         chat_messages.append(ChatMessage(role=h["role"], content=content))
             
-            # Add the current user message
             chat_messages.append(ChatMessage(role="user", content=request.task))
             
-            # Add sector context as system message
-            if request.context and request.context.get("sector") and request.context["sector"] != "all":
-                chat_messages.insert(0, ChatMessage(role="system", content=f"Focus on the {request.context['sector']} sector."))
+            if context.get("sector") and context["sector"] != "all":
+                chat_messages.insert(0, ChatMessage(role="system", content=f"Focus on the {context['sector']} sector."))
             
             chat_request = ChatRequest(
                 messages=chat_messages,
@@ -6582,24 +6593,17 @@ async def v2_execute_stream(request: ExecutionRequest):
                 stream=True,
                 enable_tools=True,
                 user_id=request.user_id,
-                conversation_id=request.context.get("conversation_id") if request.context else None,
+                conversation_id=context.get("conversation_id"),
             )
             
             yield event("step_update", {"id": "step-init", "phase": "planning", "title": "Request analyzed, starting execution", "status": "complete"})
             yield event("execution_progress", {"progress": 10, "status": "executing"})
             
-            # Track what phase we're in based on v1 events
-            current_phase = "research"
-            has_search = False
-            has_urls = False
-            has_files = False
             content_started = False
             step_counter = 0
             
-            # Stream from ChatHandler and intercept events to add execution panel updates
             async for raw_event in ChatHandler.handle_chat(chat_request):
                 try:
-                    # Parse the v1 event
                     if not raw_event.startswith("data: "):
                         yield raw_event
                         continue
@@ -6608,156 +6612,52 @@ async def v2_execute_stream(request: ExecutionRequest):
                     evt_type = evt_json.get("type", "")
                     evt_data = evt_json.get("data", {})
                     
-                    # === Map v1 events to execution panel updates ===
-                    
-                    if evt_type == "start":
-                        # Chat started - pass through
-                        yield raw_event
-                    
-                    elif evt_type == "task_progress":
-                        # v1 task progress -> execution panel step_update
+                    if evt_type == "task_progress":
                         step_id = evt_data.get("id", f"step-{step_counter}")
                         title = evt_data.get("title", "Processing...")
                         status = evt_data.get("status", "active")
                         detail = evt_data.get("detail", "")
-                        
-                        # Determine phase from the step content
-                        phase = "execution"
                         title_lower = title.lower()
+                        phase = "execution"
                         if any(w in title_lower for w in ["search", "research", "reading", "fetching", "gathering", "found"]):
                             phase = "research"
-                            if not has_search and status == "active":
-                                has_search = True
-                        elif any(w in title_lower for w in ["generat", "creat", "build", "file", "excel", "pdf", "ppt", "word"]):
+                        elif any(w in title_lower for w in ["generat", "creat", "build", "file", "excel", "pdf"]):
                             phase = "execution"
-                            has_files = True
-                        elif any(w in title_lower for w in ["synthesiz", "analyz", "process"]):
-                            phase = "execution"
-                        elif any(w in title_lower for w in ["finaliz", "conclusion", "complete", "ready"]):
-                            phase = "delivery"
-                        elif any(w in title_lower for w in ["quality", "verify", "check", "improv"]):
+                        elif any(w in title_lower for w in ["quality", "verify", "check"]):
                             phase = "verification"
-                        
+                        elif any(w in title_lower for w in ["finaliz", "conclusion", "complete"]):
+                            phase = "delivery"
                         step_counter += 1
-                        
-                        # Calculate progress based on phase
-                        if phase == "research":
-                            progress = min(40, 10 + step_counter * 5)
-                        elif phase == "execution":
-                            progress = min(70, 40 + step_counter * 3)
-                        elif phase == "verification":
-                            progress = 80
-                        elif phase == "delivery":
-                            progress = 90
-                        else:
-                            progress = min(85, 15 + step_counter * 4)
-                        
-                        yield event("step_update", {
-                            "id": step_id,
-                            "phase": phase,
-                            "title": title,
-                            "status": status,
-                            "detail": detail
-                        })
+                        progress = min(85, 10 + step_counter * 5)
+                        yield event("step_update", {"id": step_id, "phase": phase, "title": title, "status": status, "detail": detail})
                         yield event("execution_progress", {"progress": progress, "status": "executing"})
-                        
-                        # Also pass through the original task_progress for the main chat view
                         yield raw_event
-                    
-                    elif evt_type == "search_sources":
-                        # Search sources found - emit as research step
-                        sources = evt_data.get("sources", [])
-                        if isinstance(evt_data, list):
-                            sources = evt_data
-                        num_sources = len(sources) if isinstance(sources, list) else 0
-                        yield event("step_update", {
-                            "id": "step-sources",
-                            "phase": "research",
-                            "title": f"Found {num_sources} sources across search engines",
-                            "status": "complete",
-                            "detail": ", ".join([s.get("source", s.get("title", ""))[:30] for s in sources[:5]]) if isinstance(sources, list) else ""
-                        })
-                        yield raw_event
-                    
                     elif evt_type == "content":
-                        # Content streaming - pass through and track
                         if not content_started:
                             content_started = True
-                            yield event("step_update", {
-                                "id": "step-generate",
-                                "phase": "execution",
-                                "title": "Generating response...",
-                                "status": "active"
-                            })
-                            yield event("execution_progress", {"progress": 55, "status": "executing"})
+                            yield event("step_update", {"id": "step-generate", "phase": "delivery", "title": "Generating response...", "status": "active"})
                         yield raw_event
-                    
                     elif evt_type == "reasoning":
-                        # Reasoning output - forward as execution_reasoning for the panel
                         yield event("execution_reasoning", {"chunk": evt_data.get("chunk", evt_data.get("content", ""))})
                         yield raw_event
-                    
                     elif evt_type == "download":
-                        # File download ready - emit as artifact AND pass through
                         filename = evt_data.get("filename", "file")
-                        yield event("step_update", {
-                            "id": f"step-file-{filename}",
-                            "phase": "delivery",
-                            "title": f"Generated: {filename}",
-                            "status": "complete",
-                            "detail": f"File ready for download"
-                        })
-                        yield event("execution_artifact", {
-                            "artifact_type": "file",
-                            "name": filename,
-                            "url": evt_data.get("download_url", ""),
-                            "mime_type": evt_data.get("file_type", "unknown")
-                        })
-                        yield event("execution_progress", {"progress": 85, "status": "executing"})
+                        yield event("execution_artifact", {"artifact_type": "file", "name": filename, "url": evt_data.get("download_url", ""), "mime_type": evt_data.get("file_type", "")})
+                        yield event("step_update", {"id": f"step-file-{filename}", "phase": "delivery", "title": f"Generated: {filename}", "status": "complete"})
                         yield raw_event
-                    
-                    elif evt_type == "conclusion":
-                        # Conclusion generated
-                        yield event("step_update", {
-                            "id": "step-conclude",
-                            "phase": "delivery",
-                            "title": "Analysis complete",
-                            "status": "complete"
-                        })
-                        yield raw_event
-                    
                     elif evt_type == "complete":
-                        # Chat complete - emit execution_complete
                         if content_started:
-                            yield event("step_update", {
-                                "id": "step-generate",
-                                "phase": "execution",
-                                "title": "Response generated",
-                                "status": "complete"
-                            })
+                            yield event("step_update", {"id": "step-generate", "phase": "delivery", "title": "Response delivered", "status": "complete"})
                         yield event("execution_complete", {"status": "completed"})
                         yield event("execution_progress", {"progress": 100, "status": "completed"})
                         yield raw_event
-                    
                     elif evt_type == "error":
-                        # Error - emit execution_error
                         yield event("execution_error", {"message": evt_data.get("message", "An error occurred")})
                         yield raw_event
-                    
-                    elif evt_type == "credits_exhausted":
-                        yield event("execution_error", {"message": "Credits exhausted"})
-                        yield raw_event
-                    
                     else:
-                        # Pass through all other events (source, credit_update, etc.)
                         yield raw_event
-                
-                except (json.JSONDecodeError, KeyError, Exception) as parse_err:
-                    # Pass through unparseable events
+                except (json.JSONDecodeError, KeyError, Exception):
                     yield raw_event
-            
-            # Ensure execution is marked complete
-            yield event("execution_progress", {"progress": 100, "status": "completed"})
         
         return StreamingResponse(
             agent_event_generator(),
