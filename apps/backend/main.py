@@ -6449,7 +6449,9 @@ async def health_check():
             "agentic_workflows": True,
             "agentic_execution": AGENTIC_AVAILABLE,
             "code_execution": e2b_manager is not None and e2b_manager.available if e2b_manager else False,
-            "web_automation": browserless_client is not None and browserless_client.available if browserless_client else False,
+            "web_automation": (browser_engine_instance is not None) or (browserless_client is not None and browserless_client.available if browserless_client else False),
+            "playwright_browser": browser_engine_instance is not None,
+            "browserless_fallback": browserless_client is not None and browserless_client.available if browserless_client else False,
             "github_operations": github_client is not None,
             "websocket_streaming": ws_manager is not None,
             "jwt_auth": True,
@@ -6471,7 +6473,9 @@ async def health_check():
             "s3_storage": bool(S3_BUCKET and S3_ACCESS_KEY),
             "supabase": supabase is not None,
             "github": github_client is not None,
-            "execution_orchestrator": execution_orchestrator is not None
+            "execution_orchestrator": execution_orchestrator is not None,
+            "playwright": browser_engine_instance is not None,
+            "local_sandbox": True
         },
         "upload_config": {
             "max_size_mb": MAX_UPLOAD_SIZE_MB,
