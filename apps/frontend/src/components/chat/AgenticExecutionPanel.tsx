@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   PanelRightClose,
+  Activity,
 } from 'lucide-react';
 import type { ExecutionStep, ExecutionArtifact } from '@/lib/agenticAPI';
 
@@ -104,12 +105,140 @@ function phaseBg(phase: string): string {
 }
 
 // ============================================================================
+// REASONING RENDERER — Manus-style structured bullets
+// ============================================================================
+
+function ReasoningRenderer({ reasoning }: { reasoning: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [reasoning, autoScroll]);
+
+  if (!reasoning) return null;
+
+  // Parse reasoning into structured elements
+  const lines = reasoning.split('\n');
+  const elements: React.ReactNode[] = [];
+
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      elements.push(<div key={`space-${i}`} className="h-1.5" />);
+      return;
+    }
+
+    // Bold headers: **Planning Phase** or **Step 1/3 — RESEARCH**
+    const headerMatch = trimmed.match(/^\*\*(.+?)\*\*$/);
+    if (headerMatch) {
+      elements.push(
+        <div key={`h-${i}`} className="flex items-center gap-2 mt-2 mb-1">
+          <Activity className="h-3 w-3 text-blue-400 flex-shrink-0" />
+          <span className="text-xs font-semibold text-white/80">{headerMatch[1]}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Inline bold within bullet: - **text**: more text
+    const boldInlineMatch = trimmed.match(/^[-•]\s+\*\*(.+?)\*\*(.*)$/);
+    if (boldInlineMatch) {
+      elements.push(
+        <div key={`bi-${i}`} className="flex items-start gap-2 pl-2">
+          <span className="text-white/20 mt-0.5 flex-shrink-0">•</span>
+          <span className="text-[11px] text-white/50 leading-relaxed">
+            <span className="font-semibold text-white/70">{boldInlineMatch[1]}</span>
+            {boldInlineMatch[2]}
+          </span>
+        </div>
+      );
+      return;
+    }
+
+    // Bullet with emoji: - ✅ Completed in 2.3s: Found 15 data points
+    const bulletEmojiMatch = trimmed.match(/^[-•]\s+([\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}✅❌🔍💻🌐🧠📋])\s*(.+)$/u);
+    if (bulletEmojiMatch) {
+      const emoji = bulletEmojiMatch[1];
+      const text = bulletEmojiMatch[2];
+      const isSuccess = emoji === '✅';
+      const isError = emoji === '❌';
+      elements.push(
+        <div key={`be-${i}`} className="flex items-start gap-2 pl-2">
+          <span className="flex-shrink-0 mt-0.5">{emoji}</span>
+          <span className={cn(
+            'text-[11px] leading-relaxed',
+            isSuccess ? 'text-emerald-400/70' :
+            isError ? 'text-red-400/70' :
+            'text-white/50'
+          )}>
+            {text}
+          </span>
+        </div>
+      );
+      return;
+    }
+
+    // Regular bullet: - text
+    const bulletMatch = trimmed.match(/^[-•]\s+(.+)$/);
+    if (bulletMatch) {
+      elements.push(
+        <div key={`b-${i}`} className="flex items-start gap-2 pl-2">
+          <span className="text-white/20 mt-0.5 flex-shrink-0">•</span>
+          <span className="text-[11px] text-white/50 leading-relaxed">{bulletMatch[1]}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Italic/emphasis: *text*
+    const italicMatch = trimmed.match(/^\*(.+)\*$/);
+    if (italicMatch) {
+      elements.push(
+        <div key={`it-${i}`} className="pl-4">
+          <span className="text-[10px] text-white/30 italic">{italicMatch[1]}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Fallback: plain text
+    elements.push(
+      <div key={`t-${i}`} className="pl-2">
+        <span className="text-[11px] text-white/40 leading-relaxed">{trimmed}</span>
+      </div>
+    );
+  });
+
+  return (
+    <div
+      ref={scrollRef}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+        setAutoScroll(atBottom);
+      }}
+      className="space-y-0.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar"
+    >
+      {elements}
+    </div>
+  );
+}
+
+// ============================================================================
 // STEP ITEM COMPONENT
 // ============================================================================
 
 function StepItem({ step }: { step: ExecutionStep }) {
   const [expanded, setExpanded] = useState(step.status === 'active');
   const hasDetails = !!(step.detail || (step.subSteps && step.subSteps.length > 0) || (step.artifacts && step.artifacts.length > 0));
+
+  // Auto-expand active steps, collapse completed
+  useEffect(() => {
+    if (step.status === 'active') setExpanded(true);
+  }, [step.status]);
 
   return (
     <div className={cn(
@@ -224,7 +353,7 @@ function LiveContentPreview({ content, isStreaming }: { content: string; isStrea
 
   if (!content) return null;
 
-  // Show last ~500 chars for preview
+  // Show last ~800 chars for preview
   const previewContent = content.length > 800 ? '...' + content.slice(-800) : content;
 
   return (
@@ -279,8 +408,9 @@ export function AgenticExecutionPanel({
   onClose,
   className,
 }: AgenticExecutionPanelProps) {
-  const [showReasoning, setShowReasoning] = useState(false);
+  const [showReasoning, setShowReasoning] = useState(true); // Open by default
   const [showPreview, setShowPreview] = useState(true);
+  const [activeTab, setActiveTab] = useState<'steps' | 'reasoning'>('steps');
 
   // Group steps by phase
   const groupedSteps = useMemo(() => {
@@ -405,60 +535,110 @@ export function AgenticExecutionPanel({
         </div>
       )}
 
-      {/* Steps list */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {phaseOrder.map((phase) => {
-          const phaseSteps = groupedSteps[phase];
-          if (!phaseSteps || phaseSteps.length === 0) return null;
+      {/* Tab switcher: Steps | Reasoning */}
+      <div className="flex border-b border-white/[0.06]">
+        <button
+          onClick={() => setActiveTab('steps')}
+          className={cn(
+            'flex-1 py-2 text-xs font-medium transition-colors',
+            activeTab === 'steps'
+              ? 'text-white/80 border-b-2 border-blue-400'
+              : 'text-white/30 hover:text-white/50'
+          )}
+        >
+          Steps ({steps.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('reasoning')}
+          className={cn(
+            'flex-1 py-2 text-xs font-medium transition-colors flex items-center justify-center gap-1.5',
+            activeTab === 'reasoning'
+              ? 'text-white/80 border-b-2 border-violet-400'
+              : 'text-white/30 hover:text-white/50'
+          )}
+        >
+          <Brain className="h-3 w-3" />
+          Reasoning
+          {isRunning && reasoning && (
+            <span className="inline-block w-1.5 h-1.5 bg-violet-400 rounded-full animate-pulse" />
+          )}
+        </button>
+      </div>
 
-          return (
-            <div key={phase} className="space-y-1.5">
-              <div className="flex items-center gap-2 px-1 pt-1">
-                <PhaseIcon phase={phase} className={cn('h-3 w-3', phaseColor(phase))} />
-                <span className={cn('text-[10px] font-semibold uppercase tracking-wider', phaseColor(phase))}>
-                  {phase}
-                </span>
-                <span className="text-[9px] text-white/20">
-                  {phaseSteps.filter(s => s.status === 'complete').length}/{phaseSteps.length}
-                </span>
+      {/* Content area */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Steps tab */}
+        {activeTab === 'steps' && (
+          <div className="p-3 space-y-2">
+            {phaseOrder.map((phase) => {
+              const phaseSteps = groupedSteps[phase];
+              if (!phaseSteps || phaseSteps.length === 0) return null;
+
+              return (
+                <div key={phase} className="space-y-1.5">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <PhaseIcon phase={phase} className={cn('h-3 w-3', phaseColor(phase))} />
+                    <span className={cn('text-[10px] font-semibold uppercase tracking-wider', phaseColor(phase))}>
+                      {phase}
+                    </span>
+                    <span className="text-[9px] text-white/20">
+                      {phaseSteps.filter(s => s.status === 'complete').length}/{phaseSteps.length}
+                    </span>
+                  </div>
+                  {phaseSteps.map((step) => (
+                    <StepItem key={step.id} step={step} />
+                  ))}
+                </div>
+              );
+            })}
+
+            {/* Empty state while planning */}
+            {steps.length === 0 && isRunning && (
+              <div className="flex flex-col items-center justify-center py-8 text-white/30">
+                <Loader2 className="h-6 w-6 animate-spin mb-3" />
+                <span className="text-sm">Analyzing your request...</span>
+                <span className="text-xs text-white/20 mt-1">Creating execution plan...</span>
               </div>
-              {phaseSteps.map((step) => (
-                <StepItem key={step.id} step={step} />
-              ))}
-            </div>
-          );
-        })}
+            )}
 
-        {/* Empty state while planning */}
-        {steps.length === 0 && isRunning && (
-          <div className="flex flex-col items-center justify-center py-8 text-white/30">
-            <Loader2 className="h-6 w-6 animate-spin mb-3" />
-            <span className="text-sm">Analyzing your request...</span>
+            {/* Error display */}
+            {error && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle className="h-4 w-4 text-red-400" />
+                  <span className="text-sm font-medium text-red-400">Error</span>
+                </div>
+                <p className="text-xs text-red-300/70 pl-6">{error}</p>
+              </div>
+            )}
+
+            {/* Completion summary */}
+            {status === 'completed' && (
+              <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  <span className="text-sm font-medium text-emerald-400">Execution Complete</span>
+                </div>
+                <p className="text-xs text-white/40 pl-6 mt-1">
+                  {steps.filter(s => s.status === 'complete').length} steps completed
+                  {artifacts.length > 0 && ` · ${artifacts.length} artifact${artifacts.length > 1 ? 's' : ''} generated`}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Error display */}
-        {error && (
-          <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-            <div className="flex items-center gap-2 mb-1">
-              <AlertCircle className="h-4 w-4 text-red-400" />
-              <span className="text-sm font-medium text-red-400">Error</span>
-            </div>
-            <p className="text-xs text-red-300/70 pl-6">{error}</p>
-          </div>
-        )}
-
-        {/* Completion summary */}
-        {status === 'completed' && (
-          <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-              <span className="text-sm font-medium text-emerald-400">Execution Complete</span>
-            </div>
-            <p className="text-xs text-white/40 pl-6 mt-1">
-              {steps.filter(s => s.status === 'complete').length} steps completed
-              {artifacts.length > 0 && ` · ${artifacts.length} artifact${artifacts.length > 1 ? 's' : ''} generated`}
-            </p>
+        {/* Reasoning tab */}
+        {activeTab === 'reasoning' && (
+          <div className="p-3">
+            {reasoning ? (
+              <ReasoningRenderer reasoning={reasoning} />
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-white/20">
+                <Brain className="h-6 w-6 mb-2 opacity-30" />
+                <span className="text-xs">Reasoning will appear here as the agent thinks...</span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -466,29 +646,6 @@ export function AgenticExecutionPanel({
       {/* Live content preview */}
       {showPreview && content && (
         <LiveContentPreview content={content} isStreaming={isRunning} />
-      )}
-
-      {/* Reasoning toggle */}
-      {reasoning && (
-        <div className="border-t border-white/[0.06]">
-          <button
-            onClick={() => setShowReasoning(!showReasoning)}
-            className="w-full flex items-center justify-between px-4 py-2 text-xs text-white/40 hover:text-white/60 transition"
-          >
-            <span className="flex items-center gap-1.5">
-              <Brain className="h-3 w-3" />
-              Reasoning
-            </span>
-            {showReasoning ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </button>
-          {showReasoning && (
-            <div className="px-4 pb-3 max-h-40 overflow-y-auto">
-              <p className="text-[11px] text-white/30 leading-relaxed whitespace-pre-wrap">
-                {reasoning}
-              </p>
-            </div>
-          )}
-        </div>
       )}
 
       {/* Artifacts footer */}
