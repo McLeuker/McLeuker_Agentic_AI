@@ -163,8 +163,14 @@ Respond in JSON format:
         user_request: str,
         context: Optional[Dict[str, Any]] = None,
         available_tools: Optional[List[str]] = None,
+        mode: str = "auto",
     ) -> ExecutionPlan:
         """Create an execution plan from a user request."""
+
+        # Get mode limits
+        from .mode_config import get_mode_config
+        mode_config = get_mode_config(mode)
+        max_steps = mode_config["capabilities"].max_steps
 
         # Analyze the task first
         task_analysis = await self._analyze_task(user_request, context)
@@ -175,6 +181,9 @@ Respond in JSON format:
 
 REQUEST: {user_request}
 
+MODE: {mode.upper()}
+MAX STEPS ALLOWED: {max_steps}
+
 ANALYSIS:
 - Complexity: {task_analysis.get('complexity', 'medium')}
 - Type: {task_analysis.get('task_type', 'general')}
@@ -182,7 +191,8 @@ ANALYSIS:
 - Constraints: {', '.join(task_analysis.get('constraints', []))}
 - Challenges: {', '.join(task_analysis.get('challenges', []))}
 
-Provide a detailed plan with all steps, dependencies, and tool usage."""}
+Provide a detailed plan with all steps, dependencies, and tool usage.
+IMPORTANT: Limit to {max_steps} steps maximum for {mode} mode."""}
         ]
 
         try:

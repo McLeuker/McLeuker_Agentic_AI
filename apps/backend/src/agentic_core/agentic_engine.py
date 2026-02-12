@@ -291,11 +291,29 @@ class AgenticEngine:
             reasoning_result = await self._reason_about_request(user_request, conversation_history)
             yield {"type": "reasoning", "data": reasoning_result}
 
-            # Check if instant mode is sufficient
-            if mode == "instant" or reasoning_result.get("mode_recommendation") == "instant":
+            # Smart mode routing: respect reasoning recommendation for simple queries
+            recommended_mode = reasoning_result.get("mode_recommendation", mode)
+            complexity = reasoning_result.get("complexity", "moderate")
+            
+            # If reasoning says it's simple, use instant mode even if user selected agent
+            if complexity == "simple" or recommended_mode == "instant":
+                yield {"type": "mode_override", "data": {
+                    "original_mode": mode,
+                    "actual_mode": "instant",
+                    "reason": "This query is simple and doesn't require full agentic execution"
+                }}
                 async for event in self._execute_instant(user_request, reasoning_result, ctx):
                     yield event
                 return
+            
+            # If reasoning says auto is sufficient, downgrade from agent to auto
+            if mode == "agent" and recommended_mode == "auto" and complexity == "moderate":
+                yield {"type": "mode_override", "data": {
+                    "original_mode": mode,
+                    "actual_mode": "auto",
+                    "reason": "This task can be handled efficiently in auto mode"
+                }}
+                mode = "auto"
 
             # ── Phase 2: Planning ──
             yield {"type": "status", "data": {"phase": "planning", "message": "Creating execution plan..."}}
@@ -304,6 +322,7 @@ class AgenticEngine:
             plan = await self.planner.create_plan(
                 user_request=user_request,
                 context={"reasoning": reasoning_result},
+                mode=mode,
             )
             ctx.plan = plan
 
@@ -490,22 +509,59 @@ Respond in JSON:
         reasoning: Dict[str, Any],
         ctx: ExecutionContext,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Execute instant mode — fast, direct response."""
-        yield {"type": "status", "data": {"phase": "instant", "message": "Generating response..."}}
+        """Execute instant mode — ChatGPT-style thinking flow, then concise answer."""
+        
+        # Step 1: Think with grok-4-1-fast-reasoning
+        yield {"type": "thinking", "data": {"phase": "reasoning", "message": "Thinking..."}}
+        
+        thinking_messages = [
+            {"role": "system", "content": """You are McLeuker AI's reasoning engine. Think step-by-step about the user's request.
 
-        messages = [
-            {"role": "system", "content": """You are McLeuker AI. Respond concisely and precisely.
-Think step-by-step internally, then give a clear, well-structured answer.
-Be direct — no filler, no excessive formatting. Quality over quantity."""},
+Analyze:
+1. What is the user actually asking?
+2. What's the core question or need?
+3. What's the best way to answer concisely?
+4. What key points must be included?
+
+Output your thinking process in 2-3 sentences."""},
             {"role": "user", "content": user_request}
         ]
-
+        
         try:
+            # Thinking phase
+            thinking_response = await self.grok_client.chat.completions.create(
+                model=self.config.reasoning_model,
+                messages=thinking_messages,
+                temperature=0.7,
+                max_tokens=300,
+            )
+            
+            thinking = thinking_response.choices[0].message.content
+            yield {"type": "thinking", "data": {"content": thinking}}
+            
+            # Step 2: Generate final answer with kimi
+            yield {"type": "status", "data": {"phase": "generating", "message": "Generating response..."}}
+            
+            answer_messages = [
+                {"role": "system", "content": f"""You are McLeuker AI. Respond concisely and precisely.
+
+Internal thinking: {thinking}
+
+Now write your answer:
+- Lead with the key insight or answer
+- Be direct and natural — like a sharp colleague
+- Use **bold** for the most important term
+- NO bullet points, NO numbered lists, NO headers
+- Maximum 3 short paragraphs
+- Quality over quantity"""},
+                {"role": "user", "content": user_request}
+            ]
+            
             response = await self.kimi_client.chat.completions.create(
                 model=self.config.primary_model,
-                messages=messages,
+                messages=answer_messages,
                 temperature=self.config.temperature,
-                max_tokens=4000,
+                max_tokens=2000,
             )
 
             answer = response.choices[0].message.content

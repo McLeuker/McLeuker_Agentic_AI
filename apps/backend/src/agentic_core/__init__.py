@@ -15,6 +15,9 @@ from .task_planner import TaskPlanner, ExecutionPlan, TaskStep, StepType, StepSt
 from .execution_loop import ExecutionLoop, ExecutionResult, ExecutionStatus
 from .reflection_engine import ReflectionEngine, ReflectionResult, ReflectionAction
 from .state_manager import StateManager, SessionState
+from .agent_swarm import AgentSwarm, SwarmTask, SwarmAgent, AgentRole
+from .agent_router import AgentRouter, RoutingDecision, AgentCapability
+from .error_recovery import RecoveryManager, RecoveryStrategy, RecoveryResult, ErrorType
 
 __all__ = [
     "AgenticEngine", "AgenticConfig", "ExecutionContext",
@@ -22,4 +25,7 @@ __all__ = [
     "ExecutionLoop", "ExecutionResult", "ExecutionStatus",
     "ReflectionEngine", "ReflectionResult", "ReflectionAction",
     "StateManager", "SessionState",
+    "AgentSwarm", "SwarmTask", "SwarmAgent", "AgentRole",
+    "AgentRouter", "RoutingDecision", "AgentCapability",
+    "RecoveryManager", "RecoveryStrategy", "RecoveryResult", "ErrorType",
 ]

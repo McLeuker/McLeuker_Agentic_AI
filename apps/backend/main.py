@@ -465,6 +465,17 @@ agentic_engine = None
 try:
     from agentic_core.agentic_engine import AgenticEngine, AgenticConfig
     from agentic_core.api_routes import router as agentic_router, set_engine as set_agentic_engine
+    from agentic_core.agent_swarm import AgentSwarm
+    from agentic_core.agent_router import AgentRouter
+    from agentic_core.error_recovery import RecoveryManager
+    from specialized_agents import (
+        ComputerUseAgent,
+        DeepResearchAgent,
+        DocumentAgent,
+        ExcelAgent,
+        SlidesAgent,
+        WebsiteBuilderAgent,
+    )
     from tools.unified_registry import UnifiedToolRegistry
     from tools.search.search_tools import SearchTools
     from tools.browser.browser_tools import BrowserTools
@@ -526,6 +537,27 @@ try:
         tool_registry.set_handler("write_file", file_tools.write_file)
         tool_registry.set_handler("list_directory", file_tools.list_directory)
 
+        # Initialize specialized agents
+        computer_agent = ComputerUseAgent(llm_client=agentic_kimi, headless=True)
+        research_agent = DeepResearchAgent(llm_client=agentic_kimi)
+        document_agent = DocumentAgent(llm_client=agentic_kimi)
+        excel_agent = ExcelAgent(llm_client=agentic_kimi)
+        slides_agent = SlidesAgent(llm_client=agentic_kimi)
+        website_agent = WebsiteBuilderAgent(llm_client=agentic_kimi)
+
+        # Initialize agent swarm and router
+        from agentic_core.agent_swarm import AgentRole
+        agent_swarm = AgentSwarm(llm_client=agentic_kimi)
+        agent_swarm.register_agent("computer_use", computer_agent, [AgentRole.EXECUTOR], ["browser", "automation"])
+        agent_swarm.register_agent("deep_research", research_agent, [AgentRole.RESEARCHER], ["search", "analysis"])
+        agent_swarm.register_agent("document", document_agent, [AgentRole.GENERATOR], ["document", "file"])
+        agent_swarm.register_agent("excel", excel_agent, [AgentRole.GENERATOR], ["excel", "data"])
+        agent_swarm.register_agent("slides", slides_agent, [AgentRole.GENERATOR], ["slides", "presentation"])
+        agent_swarm.register_agent("website", website_agent, [AgentRole.GENERATOR], ["website", "code"])
+
+        agent_router = AgentRouter(kimi_client=agentic_kimi)
+        error_recovery = RecoveryManager(llm_client=agentic_kimi)
+
         # Wire engine and register routes
         set_agentic_engine(agentic_engine)
         app.include_router(agentic_router)
@@ -533,6 +565,8 @@ try:
         AGENTIC_ENGINE_AVAILABLE = True
         logger.info("Agentic Engine initialized — full orchestration ready")
         logger.info(f"  Tools registered: {len(tool_registry.get_all_tools())}")
+        logger.info(f"  Specialized agents: 6 (computer, research, document, excel, slides, website)")
+        logger.info(f"  Agent swarm: active")
         logger.info(f"  Memory: active")
         logger.info(f"  Workspace: active")
         logger.info(f"  Routes: /api/agentic/*")
