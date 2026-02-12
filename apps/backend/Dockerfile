@@ -26,15 +26,33 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatspi2.0-0 \
     libwayland-client0 \
+    # Additional deps for headless Chrome
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxext6 \
+    fonts-liberation \
+    libappindicator3-1 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-# Cache bust: V6.3 - playwright browser engine + local sandbox
+# Cache bust: V6.4 - playwright browser engine with proper Railway setup
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright Chromium browser
-RUN playwright install chromium || echo "Playwright browser install skipped (will use system chromium)"
+# Set Playwright environment variables BEFORE installing browsers
+# This ensures browsers are installed in a persistent location
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+
+# Install Playwright Chromium browser to the specified path
+# Use --with-deps to ensure all browser dependencies are installed
+RUN playwright install --with-deps chromium
+
+# Verify browser installation
+RUN playwright install --dry-run chromium && \
+    echo "Playwright Chromium installed successfully at $PLAYWRIGHT_BROWSERS_PATH"
 
 # Copy application code
 COPY . .

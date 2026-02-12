@@ -1,0 +1,23 @@
+# Railway Configuration for McLeuker Agentic AI Backend
+# This file configures build and runtime settings for Railway deployment
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/backend/Dockerfile"
+
+[deploy]
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Environment variables for Playwright browser automation
+# These are set automatically during build and runtime
+[env]
+PLAYWRIGHT_BROWSERS_PATH = "/ms-playwright"
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "0"
+# Disable Playwright telemetry for privacy
+PLAYWRIGHT_SKIP_BROWSER_GC = "1"
+# Use headless mode for server-side rendering
+PLAYWRIGHT_CHROMIUM_ARGS = "--disable-dev-shm-usage --no-sandbox --disable-setuid-sandbox"
