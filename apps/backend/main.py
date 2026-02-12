@@ -455,6 +455,95 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# ============================================================================
+# AGENTIC ENGINE — FULL ORCHESTRATION (Plan → Execute → Reflect → Deliver)
+# ============================================================================
+
+AGENTIC_ENGINE_AVAILABLE = False
+agentic_engine = None
+
+try:
+    from agentic_core.agentic_engine import AgenticEngine, AgenticConfig
+    from agentic_core.api_routes import router as agentic_router, set_engine as set_agentic_engine
+    from tools.unified_registry import UnifiedToolRegistry
+    from tools.search.search_tools import SearchTools
+    from tools.browser.browser_tools import BrowserTools
+    from tools.code.code_tools import CodeTools
+    from tools.file.file_tools import FileTools
+    from memory.memory_manager import MemoryManager
+    from memory.context_compressor import ContextCompressor
+    from workspace.workspace_manager import WorkspaceManager
+    from workspace.artifact_store import ArtifactStore
+    from workspace.code_sandbox import CodeSandbox
+
+    # Create async clients for agentic engine
+    agentic_kimi = None
+    agentic_grok = None
+    if KIMI_API_KEY:
+        agentic_kimi = openai.AsyncOpenAI(api_key=KIMI_API_KEY, base_url="https://api.moonshot.ai/v1")
+    if GROK_API_KEY:
+        agentic_grok = openai.AsyncOpenAI(api_key=GROK_API_KEY, base_url="https://api.x.ai/v1")
+
+    if agentic_kimi or agentic_grok:
+        agentic_config = AgenticConfig(
+            primary_model="kimi-k2.5",
+            reasoning_model="grok-4-1-fast-reasoning",
+            fast_model="grok-3-mini",
+            temperature=1.0,
+            max_steps=20,
+            max_retries_per_step=3,
+            reflection_enabled=True,
+        )
+
+        agentic_engine = AgenticEngine(
+            kimi_client=agentic_kimi,
+            grok_client=agentic_grok,
+            config=agentic_config,
+        )
+
+        # Initialize tool layers
+        tool_registry = UnifiedToolRegistry()
+        search_tools = SearchTools()
+        browser_tools = BrowserTools(browser_engine=browser_engine_instance if AGENTIC_AVAILABLE else None)
+        code_tools = CodeTools()
+        file_tools = FileTools()
+        memory_manager = MemoryManager()
+        context_compressor = ContextCompressor(kimi_client=agentic_kimi)
+        workspace_manager = WorkspaceManager()
+        artifact_store = ArtifactStore()
+        code_sandbox = CodeSandbox()
+
+        # Register tool handlers
+        tool_registry.set_handler("web_search", search_tools.web_search)
+        tool_registry.set_handler("fetch_url", search_tools.fetch_url)
+        tool_registry.set_handler("browser_navigate", browser_tools.navigate)
+        tool_registry.set_handler("browser_click", browser_tools.click)
+        tool_registry.set_handler("browser_type", browser_tools.type_text)
+        tool_registry.set_handler("browser_screenshot", browser_tools.screenshot)
+        tool_registry.set_handler("execute_python", code_tools.execute_python)
+        tool_registry.set_handler("execute_javascript", code_tools.execute_javascript)
+        tool_registry.set_handler("read_file", file_tools.read_file)
+        tool_registry.set_handler("write_file", file_tools.write_file)
+        tool_registry.set_handler("list_directory", file_tools.list_directory)
+
+        # Wire engine and register routes
+        set_agentic_engine(agentic_engine)
+        app.include_router(agentic_router)
+
+        AGENTIC_ENGINE_AVAILABLE = True
+        logger.info("Agentic Engine initialized — full orchestration ready")
+        logger.info(f"  Tools registered: {len(tool_registry.get_all_tools())}")
+        logger.info(f"  Memory: active")
+        logger.info(f"  Workspace: active")
+        logger.info(f"  Routes: /api/agentic/*")
+    else:
+        logger.warning("Agentic Engine: no LLM clients available")
+
+except Exception as e:
+    logger.warning(f"Agentic Engine not available: {e}")
+    import traceback
+    traceback.print_exc()
+
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -6663,6 +6752,8 @@ async def health_check():
             "local_sandbox": True,
             "agent_v2_agentic": V2_AGENTIC_AVAILABLE,
             "v2_orchestrator": v2_orchestrator is not None,
+            "agentic_engine": AGENTIC_ENGINE_AVAILABLE,
+            "agentic_engine_instance": agentic_engine is not None,
             "agent_v3_framework": AGENT_V3_AVAILABLE,
             "v3_browser_agent": v3_browser_agent is not None and getattr(v3_browser_agent, 'is_available', False) if v3_browser_agent else False,
             "v3_execution_engine": v3_execution_engine is not None,
@@ -7561,6 +7652,14 @@ async def startup_event():
         v2_orchestrator.search_layer = SearchLayer
         logger.info("SearchLayer wired to V2 orchestrator")
 
+    # Wire Agentic Engine SearchLayer and browser
+    global agentic_engine
+    if agentic_engine and AGENTIC_ENGINE_AVAILABLE:
+        agentic_engine.register_search_handler(SearchLayer)
+        if browser_engine_instance:
+            agentic_engine.register_browser_handler(browser_engine_instance)
+        logger.info("SearchLayer + browser wired to Agentic Engine")
+
     # Wire V3 executor handlers
     global v3_execution_engine
     if v3_execution_engine and AGENT_V3_AVAILABLE:
@@ -7625,10 +7724,11 @@ async def startup_event():
         executor.register_github(v3_github_handler)
         logger.info("V3 Executor: github handler wired")
 
-    logger.info(f"Startup complete – McLeuker AI V7.0 with Agentic AI ready.")
+    logger.info(f"Startup complete \u2013 McLeuker AI V7.0 with Agentic AI ready.")
     logger.info(f"  V1 orchestrator: {execution_orchestrator is not None}")
     logger.info(f"  V2 agentic: {V2_AGENTIC_AVAILABLE}")
     logger.info(f"  V3 framework: {AGENT_V3_AVAILABLE}")
+    logger.info(f"  Agentic Engine: {AGENTIC_ENGINE_AVAILABLE}")
 
 
 # ============================================================================
