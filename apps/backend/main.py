@@ -3036,20 +3036,45 @@ class ChatHandler:
         
         yield event("start", {"conversation_id": conversation_id, "mode": request.mode.value})
         
+        # REASONING FIRST: Always show reasoning step before any API calls
+        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "active", "detail": "Analyzing intent, context, and the best approach..."})
+        
         # Save user message
         await MemoryManager.save_message(conversation_id, "user", user_message)
         
-        # Determine if search is needed
+        # Mark reasoning as complete
+        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "complete", "detail": "Determined optimal approach"})
+        
+        # Determine if search is needed — mode-aware
+        # INSTANT mode: minimal API calls, reasoning-first, protect margin
+        # AUTO/RESEARCH mode: full search with all sources
+        current_mode = request.mode.value
         needs_search = ChatHandler._needs_search(user_message)
+        
+        # Instant mode: skip search for most queries, only search for explicit research questions
+        if current_mode == "instant" and needs_search:
+            # In instant mode, only search if the query is clearly a research question
+            instant_search_keywords = ['latest', 'current', 'today', 'news', 'price', 'stock', 
+                                        'weather', 'score', 'result', 'update', 'recent',
+                                        'what happened', 'breaking', 'live', '2025', '2026']
+            if not any(kw in user_message.lower() for kw in instant_search_keywords):
+                needs_search = False  # Skip search in instant mode for non-time-sensitive queries
         
         search_results = {}
         structured_data = {"data_points": [], "sources": []}
         
         if needs_search:
             yield event("task_progress", {"id": "analyze", "title": "Understanding your request", "status": "complete", "detail": "Identified key topics and search strategy"})
-            yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "active", "detail": "Querying web, news, and social sources..."})
             
-            search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
+            # Mode-specific search configuration
+            if current_mode == "instant":
+                # Instant: minimal sources (1-2 APIs), fewer results, fast response
+                yield event("task_progress", {"id": "search", "title": "Quick lookup", "status": "active", "detail": "Checking latest information..."})
+                search_results = await SearchLayer.search(user_message, sources=["web"], num_results=5)
+            else:
+                # Auto/Research: full search across all sources
+                yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "active", "detail": "Querying web, news, and social sources..."})
+                search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
             
             # Bill for search APIs used (real-time deduction)

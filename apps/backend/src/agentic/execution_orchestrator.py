@@ -482,41 +482,48 @@ class ExecutionOrchestrator:
                 step.started_at = datetime.now()
 
                 try:
-                    if actual_type == "github":
-                        # GitHub steps use streaming execution so credential_request
-                        # events reach the frontend before the async wait for user input.
-                        event_queue: asyncio.Queue = asyncio.Queue()
-                        result_holder: Dict[str, Any] = {"result": None, "error": None}
+                    # ALL step types use streaming execution via asyncio.Queue
+                    # so sub-events (browser screenshots, reasoning, credential requests)
+                    # reach the frontend in real-time as they're produced.
+                    event_queue: asyncio.Queue = asyncio.Queue()
+                    result_holder: Dict[str, Any] = {"result": None, "error": None}
 
-                        async def _run_github_step(_step, _ctx, _prev, _queue, _eid):
-                            proxy = _SubEventQueue(_queue)
-                            try:
+                    async def _run_step(_step, _ctx, _prev, _queue, _eid, _type):
+                        proxy = _SubEventQueue(_queue)
+                        try:
+                            if _type == "github":
                                 r = await self._exec_github(_step, _ctx, _prev, proxy, _eid)
-                                result_holder["result"] = r
-                            except Exception as exc:
-                                result_holder["error"] = exc
-                            finally:
-                                await _queue.put(None)  # sentinel
+                            elif _type == "browser":
+                                r = await self._exec_browser(_step, _ctx, proxy)
+                            elif _type == "code":
+                                r = await self._exec_code(_step, _ctx, _prev, proxy)
+                            elif _type == "research":
+                                r = await self._exec_research(_step, _ctx, _prev, proxy)
+                            elif _type == "think":
+                                r = await self._exec_think(_step, _ctx, _prev, proxy)
+                            else:
+                                r = await self._exec_think(_step, _ctx, _prev, proxy)
+                            result_holder["result"] = r
+                        except Exception as exc:
+                            result_holder["error"] = exc
+                        finally:
+                            await _queue.put(None)  # sentinel
 
-                        github_task = asyncio.create_task(
-                            _run_github_step(step, context, all_step_results, event_queue, execution_id)
-                        )
+                    step_task = asyncio.create_task(
+                        _run_step(step, context, all_step_results, event_queue, execution_id, actual_type)
+                    )
 
-                        # Yield sub-events in real-time as they're produced
-                        while True:
-                            sub_evt = await event_queue.get()
-                            if sub_evt is None:
-                                break
-                            yield sub_evt
+                    # Yield sub-events in real-time as they're produced
+                    while True:
+                        sub_evt = await event_queue.get()
+                        if sub_evt is None:
+                            break
+                        yield sub_evt
 
-                        await github_task
-                        if result_holder["error"]:
-                            raise result_holder["error"]
-                        result = result_holder["result"]
-                    else:
-                        result, sub_events_list = await self._execute_step_with_events(step, context, all_step_results, execution_id)
-                        for sub_evt in sub_events_list:
-                            yield sub_evt
+                    await step_task
+                    if result_holder["error"]:
+                        raise result_holder["error"]
+                    result = result_holder["result"]
 
                     step.output_data = result
                     step.status = ExecutionStatus.COMPLETED
@@ -1008,6 +1015,34 @@ IMPORTANT REQUIREMENTS:
             code_content = code_content[:-3]
         code_content = code_content.strip()
 
+        # Validate Python syntax before execution
+        import ast
+        try:
+            ast.parse(code_content)
+        except SyntaxError as syn_err:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- Syntax error detected, regenerating code...\n"
+            }})
+            # Retry with explicit error feedback
+            retry_prompt = f"""The previous code had a syntax error: {syn_err}
+
+Original task: {step.instruction}
+
+Write CORRECT, COMPLETE Python code. Return ONLY raw Python code.
+No markdown fences. No explanations. Must be directly executable."""
+            code_content = await self._llm_call([
+                {"role": "system", "content": "Return ONLY executable Python code. No markdown. No explanations."},
+                {"role": "user", "content": retry_prompt},
+            ], max_tokens=4096)
+            code_content = code_content.strip()
+            for prefix in ["```python", "```py", "```"]:
+                if code_content.startswith(prefix):
+                    code_content = code_content[len(prefix):]
+                    break
+            if code_content.endswith("```"):
+                code_content = code_content[:-3]
+            code_content = code_content.strip()
+
         # Fallback if code is empty or too short
         if len(code_content.strip()) < 10:
             code_content = f"""# Auto-generated code for: {step.instruction[:100]}
@@ -1437,16 +1472,36 @@ Respond in JSON:
         pr_prompt = f"""Based on this instruction, determine the PR details:
 Instruction: {step.instruction}
 
-Respond in JSON:
+Respond with ONLY a JSON object (no markdown, no explanation):
 {{"title": "PR title", "body": "PR description", "head": "source-branch", "base": "main"}}"""
 
-        response = await self._llm_call([{"role": "user", "content": pr_prompt}])
+        response = await self._llm_call([
+            {"role": "system", "content": "Return ONLY valid JSON. No markdown fences. No explanation."},
+            {"role": "user", "content": pr_prompt},
+        ])
         try:
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            pr_data = json.loads(response.strip())
-        except (json.JSONDecodeError, IndexError):
-            return {"type": "github_error", "error": "Could not parse PR details", "success": False}
+            # Try to extract JSON from various formats
+            cleaned = response.strip()
+            if "```json" in cleaned:
+                cleaned = cleaned.split("```json")[1].split("```")[0]
+            elif "```" in cleaned:
+                cleaned = cleaned.split("```")[1].split("```")[0]
+            # Find JSON object in the response
+            json_match = re.search(r'\{[^{}]*\}', cleaned, re.DOTALL)
+            if json_match:
+                cleaned = json_match.group(0)
+            pr_data = json.loads(cleaned.strip())
+        except (json.JSONDecodeError, IndexError, AttributeError) as e:
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- Could not parse PR details from LLM response, using defaults\n"
+            }})
+            # Use sensible defaults
+            pr_data = {
+                "title": f"Update from agent: {step.instruction[:60]}",
+                "body": f"Automated PR created by McLeuker AI agent.\n\nTask: {step.instruction}",
+                "head": f"feature/agent-{uuid.uuid4().hex[:6]}",
+                "base": "main"
+            }
 
         sub_events.append({"event": "execution_reasoning", "data": {
             "chunk": f"- Creating pull request: {pr_data.get('title', '')}\n"

@@ -2800,6 +2800,57 @@ function DashboardContent() {
       if (globalAbortController === currentAbortController) {
         globalAbortController = null;
       }
+
+      // CRITICAL: Save partial content to Supabase if streaming was interrupted
+      // This ensures messages survive page navigation, tab switching, etc.
+      if (currentContent && requestConversationId && user) {
+        try {
+          // Check if the message was already saved (by the 'complete' event handler)
+          const { data: existing } = await supabase
+            .from('chat_messages')
+            .select('id')
+            .eq('conversation_id', requestConversationId)
+            .eq('role', 'assistant')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          // Only save if no assistant message exists yet for this conversation turn
+          const userMsgCount = messages.filter(m => m.role === 'user').length + 1;
+          const { count: assistantCount } = await supabase
+            .from('chat_messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', requestConversationId)
+            .eq('role', 'assistant');
+
+          if ((assistantCount || 0) < userMsgCount) {
+            await supabase.from('chat_messages').insert({
+              conversation_id: requestConversationId,
+              user_id: user.id,
+              role: 'assistant',
+              content: currentContent || '(Response interrupted — please retry)',
+              model_used: 'kimi-k2.5',
+              credits_used: 0,
+              metadata: {
+                interrupted: true,
+                task_steps: currentTaskSteps,
+                reasoning_layers: currentLayers.map(l => ({
+                  id: l.id, layer_num: l.layer_num, type: l.type,
+                  title: l.title, content: l.content, status: l.status,
+                })),
+              },
+            });
+          }
+        } catch (e) {
+          console.error('Error saving interrupted message:', e);
+        }
+      }
+
+      // Mark the assistant message as no longer streaming in the UI
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId && m.isStreaming
+          ? { ...m, isStreaming: false }
+          : m
+      ));
     }
   };
 
