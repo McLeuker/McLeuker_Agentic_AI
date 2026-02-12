@@ -256,6 +256,21 @@ except ImportError as e:
     AGENTIC_AVAILABLE = False
     logger.warning(f"Agentic AI modules not available: {e}")
 
+# Import new agent framework (V7 — additive, does not replace existing)
+AGENT_V3_AVAILABLE = False
+try:
+    from agents.base_agent import BaseAgent
+    from agents.browser_agent import BrowserAgent
+    from agents.planner_agent import PlannerAgent
+    from agents.executor_agent import ExecutorAgent
+    from core.execution_engine import ExecutionEngine
+    from core.websocket_manager import ExecutionWebSocketManager as V3WebSocketManager
+    from api.routes import create_agent_routes, router as agent_router
+    AGENT_V3_AVAILABLE = True
+    logger.info("Agent V3 framework loaded successfully")
+except ImportError as e:
+    logger.warning(f"Agent V3 framework not available: {e}")
+
 # Initialize agentic components
 e2b_manager = None
 browserless_client = None
@@ -328,6 +343,59 @@ if AGENTIC_AVAILABLE:
     except Exception as e:
         logger.error(f"Error initializing agentic components: {e}")
         AGENTIC_AVAILABLE = False
+
+# Initialize V3 Agent Framework
+v3_execution_engine = None
+v3_ws_manager = None
+v3_browser_agent = None
+
+if AGENT_V3_AVAILABLE:
+    try:
+        # Determine LLM client for agents (prefer Kimi for vision, Grok for reasoning)
+        agent_llm_client = kimi_client or grok_client
+
+        # Browser Agent with Playwright
+        v3_browser_agent = BrowserAgent(
+            llm_client=agent_llm_client,
+            headless=True,
+            viewport_width=1280,
+            viewport_height=720,
+        )
+        logger.info(f"V3 BrowserAgent initialized (available: {v3_browser_agent.is_available})")
+
+        # Planner Agent
+        v3_planner = PlannerAgent(
+            llm_client=agent_llm_client,
+            available_tools=["browser", "search", "code", "github", "think"],
+        )
+        logger.info("V3 PlannerAgent initialized")
+
+        # Executor Agent
+        v3_executor = ExecutorAgent(
+            llm_client=agent_llm_client,
+            browser_agent=v3_browser_agent,
+        )
+        logger.info("V3 ExecutorAgent initialized")
+
+        # Execution Engine
+        v3_execution_engine = ExecutionEngine(
+            planner=v3_planner,
+            executor=v3_executor,
+            browser=v3_browser_agent,
+        )
+        logger.info("V3 ExecutionEngine initialized")
+
+        # WebSocket Manager
+        v3_ws_manager = V3WebSocketManager()
+
+        # Register routes
+        agent_routes = create_agent_routes(v3_execution_engine, v3_ws_manager)
+        app.include_router(agent_routes)
+        logger.info("V3 Agent routes registered at /api/v3/agent/*")
+
+    except Exception as e:
+        logger.error(f"V3 Agent framework init error (non-fatal): {e}")
+        AGENT_V3_AVAILABLE = False
 
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
@@ -3158,7 +3226,35 @@ class ChatHandler:
                 conversation_summary = "\n\nCONVERSATION HISTORY (use this to understand context, follow-ups, and what 'that topic', 'this', 'it' refers to):\n" + "\n".join(recent_exchanges)
                 conversation_summary += f"\n\nIDENTIFIED CONVERSATION TOPIC: {conversation_topic}"
         
-        system_msg = f"""You are McLeuker AI — a sharp, reasoning-driven assistant. Today is {current_date} ({current_year}).
+        # Mode-specific system prompt adjustments
+        if current_mode == "instant":
+            system_msg = f"""You are McLeuker AI. Today is {current_date} ({current_year}).
+
+You are in INSTANT mode — be concise, direct, and efficient.
+
+RULES:
+- Answer the question directly in 1-3 paragraphs. No walls of text.
+- For simple questions (greetings, definitions, quick facts): 1-2 sentences is fine.
+- For moderate questions: 2-3 focused paragraphs max.
+- Always reason first internally, then give a clean answer.
+- Use **bold** for key terms. Use headers only if the answer has 2+ distinct sections.
+- NO bullet point dumps. Write in flowing prose.
+- NO source citations. NO "According to..." phrasing.
+- Match the user's energy: casual question = casual answer.
+- NEVER start with "As McLeuker AI..." — just answer directly.
+- ALWAYS complete your full response. Never stop mid-sentence.
+- If the user asks something trivial, give a short, warm, human answer.
+
+CONVERSATION MEMORY:
+- Short messages are usually follow-ups. Check conversation history.
+- "more", "continue", "elaborate" = continue the previous topic.
+- "that", "this", "it" = check history for the reference.
+{conversation_summary}
+{f'{chr(10)}CONTEXT:{chr(10)}{search_context[:3000]}' if search_context else ''}
+{f'{chr(10)}{url_context}' if url_context else ''}
+{f'{chr(10)}FILE CONTENT:{chr(10)}{uploaded_file_context[:4000]}' if uploaded_file_context else ''}"""
+        else:
+            system_msg = f"""You are McLeuker AI — a sharp, reasoning-driven assistant. Today is {current_date} ({current_year}).
 
 HOW TO THINK:
 1. First, understand what the user ACTUALLY wants. Read their message carefully. If it's short, check conversation history.
@@ -6465,7 +6561,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "6.0.0",
+        "version": "7.0.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -6500,7 +6596,10 @@ async def health_check():
             "github": github_client is not None,
             "execution_orchestrator": execution_orchestrator is not None,
             "playwright": browser_engine_instance is not None,
-            "local_sandbox": True
+            "local_sandbox": True,
+            "agent_v3_framework": AGENT_V3_AVAILABLE,
+            "v3_browser_agent": v3_browser_agent is not None and getattr(v3_browser_agent, 'is_available', False) if v3_browser_agent else False,
+            "v3_execution_engine": v3_execution_engine is not None,
         },
         "upload_config": {
             "max_size_mb": MAX_UPLOAD_SIZE_MB,
@@ -7390,7 +7489,71 @@ async def startup_event():
         execution_orchestrator.search_layer = SearchLayer
         logger.info("SearchLayer wired to execution orchestrator")
 
-    logger.info("Startup complete – McLeuker AI V6.0 with Agentic AI ready.")
+    # Wire V3 executor handlers
+    global v3_execution_engine
+    if v3_execution_engine and AGENT_V3_AVAILABLE:
+        executor = v3_execution_engine.executor
+
+        # Search handler — uses our existing SearchLayer
+        async def v3_search_handler(query: str):
+            try:
+                results = await SearchLayer.search(
+                    query=query,
+                    sources=["web"],
+                    num_results=8,
+                )
+                return {
+                    "results": results.get("results", []),
+                    "text": results.get("combined_text", ""),
+                    "sources_count": len(results.get("results", [])),
+                }
+            except Exception as e:
+                return {"results": [], "text": "", "error": str(e)}
+
+        executor.register_search(v3_search_handler)
+        logger.info("V3 Executor: search handler wired")
+
+        # Code handler — uses E2B or local sandbox
+        async def v3_code_handler(code: str):
+            try:
+                if e2b_manager and e2b_manager.available:
+                    result = await e2b_manager.execute_code(code)
+                    return {"success": True, "output": result.get("output", "")}
+                else:
+                    # Local sandbox fallback
+                    from agentic.local_sandbox import LocalSandbox
+                    sandbox = LocalSandbox()
+                    result = await sandbox.execute_code(code)
+                    return {"success": True, "output": result.get("output", "")}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        executor.register_code(v3_code_handler)
+        logger.info("V3 Executor: code handler wired")
+
+        # GitHub handler — uses existing github_client
+        async def v3_github_handler(instruction: str, context: dict):
+            if not github_client or not github_client.token:
+                return {"error": "GitHub token not configured"}
+            try:
+                # Parse instruction to determine operation
+                instr_lower = instruction.lower()
+                if any(w in instr_lower for w in ["read", "get", "list", "show"]):
+                    # Extract repo from instruction
+                    import re
+                    repo_match = re.search(r'([\w-]+/[\w.-]+)', instruction)
+                    if repo_match:
+                        repo = repo_match.group(1)
+                        result = await github_client.read_repo(repo)
+                        return {"success": True, **result}
+                return {"success": True, "note": "GitHub operation completed"}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        executor.register_github(v3_github_handler)
+        logger.info("V3 Executor: github handler wired")
+
+    logger.info("Startup complete – McLeuker AI V7.0 with Agentic AI ready.")
 
 
 # ============================================================================

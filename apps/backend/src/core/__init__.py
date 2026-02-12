@@ -1,15 +1,12 @@
 """
-V5 Core Module
-Contains the main orchestrator and brain.
+Core Module — Execution engine and infrastructure
 """
 
-from src.core.orchestrator import V5Orchestrator, OrchestratorResponse, orchestrator
-from src.core.brain import brain, BrainResponse
+from .execution_engine import ExecutionEngine, ExecutionState
+from .websocket_manager import ExecutionWebSocketManager
 
 __all__ = [
-    "V5Orchestrator",
-    "OrchestratorResponse",
-    "orchestrator",
-    "brain",
-    "BrainResponse"
+    'ExecutionEngine',
+    'ExecutionState',
+    'ExecutionWebSocketManager',
 ]
