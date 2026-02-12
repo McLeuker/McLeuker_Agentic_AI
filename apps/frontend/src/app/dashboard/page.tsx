@@ -3317,11 +3317,17 @@ function DashboardContent() {
                                         )}>
                                           {step.title}
                                         </span>
-                                        {step.detail && (
-                                          <span className={cn(
-                                            "text-[10px] block mt-0.5 leading-relaxed",
-                                            step.status === 'active' ? "text-white/30" : "text-white/20"
-                                          )}>
+                                        {step.detail && step.status === 'active' && (
+                                          <div className="mt-1 space-y-[2px]">
+                                            {step.detail.split('. ').filter(Boolean).slice(0, 3).map((line, lineIdx) => (
+                                              <span key={lineIdx} className="text-[10px] block leading-relaxed text-white/25">
+                                                {line.trim().endsWith('.') ? line.trim() : `${line.trim()}.`}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {step.detail && step.status === 'complete' && (
+                                          <span className="text-[10px] block mt-0.5 leading-relaxed text-white/20">
                                             {step.detail}
                                           </span>
                                         )}

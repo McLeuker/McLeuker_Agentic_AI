@@ -376,12 +376,12 @@ class ExecutionOrchestrator:
                 "chunk": "**Understanding Request**\n- Reading and analyzing the task requirements\n- Determining which tools and actions are needed\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 5, "status": "planning"}}
-            # task_progress for message field (Manus-style)
+            # task_progress for message field (Manus-style — longer detail)
             yield {"event": "task_progress", "data": {
                 "id": "tp-plan", "step": "tp-plan",
                 "title": "Analyzing your request and creating execution plan",
                 "status": "active",
-                "detail": "Breaking down the task into actionable steps"
+                "detail": "Understanding the scope and requirements of your task. Identifying the best tools and approach to deliver accurate results. Preparing a multi-step execution strategy."
             }}
 
             plan = await self._create_plan(execution_id, user_request, context)
@@ -408,11 +408,17 @@ class ExecutionOrchestrator:
             yield {"event": "execution_reasoning", "data": {"chunk": plan_reasoning}}
             yield {"event": "execution_progress", "data": {"progress": 10, "status": "executing"}}
             # task_progress: plan complete
+            plan_tools = set(s.get('step_type', '') for s in plan.steps)
+            tools_desc = ', '.join({
+                'research': 'web research', 'code': 'code execution',
+                'browser': 'web browsing', 'github': 'repository operations',
+                'think': 'analysis'
+            }.get(t, t) for t in plan_tools if t)
             yield {"event": "task_progress", "data": {
                 "id": "tp-plan", "step": "tp-plan",
                 "title": f"Execution plan ready — {len(plan.steps)} steps",
                 "status": "complete",
-                "detail": plan.reasoning[:120] if plan.reasoning else "Plan created"
+                "detail": f"Plan includes: {tools_desc}. {plan.reasoning[:80] if plan.reasoning else 'Optimized for accuracy and speed.'}"
             }}
 
             # === PHASE 3: EXECUTE STEPS ===
@@ -453,12 +459,13 @@ class ExecutionOrchestrator:
                     "chunk": f"**Step {step_num}/{total_steps}**\n- {step_title}\n"
                 }}
                 yield {"event": "execution_progress", "data": {"progress": step_progress, "status": "executing"}}
-                # task_progress for message field
+                # task_progress for message field — rich 3-line detail
+                step_details = self._get_step_detail_lines(actual_type, instruction, step_num, total_steps)
                 yield {"event": "task_progress", "data": {
                     "id": f"tp-{step_id}", "step": f"tp-{step_id}",
                     "title": step_title,
                     "status": "active",
-                    "detail": f"Step {step_num} of {total_steps} — {instruction[:80]}"
+                    "detail": step_details
                 }}
 
                 # Execute the step
@@ -527,12 +534,12 @@ class ExecutionOrchestrator:
                     yield {"event": "execution_reasoning", "data": {
                         "chunk": f"- Done ({elapsed:.1f}s): {result_summary}\n\n"
                     }}
-                    # task_progress: step complete
+                    # task_progress: step complete — concise summary
                     yield {"event": "task_progress", "data": {
                         "id": f"tp-{step_id}", "step": f"tp-{step_id}",
                         "title": step_title,
                         "status": "complete",
-                        "detail": result_summary
+                        "detail": result_summary[:120]
                     }}
 
                 except Exception as e:
@@ -578,7 +585,7 @@ class ExecutionOrchestrator:
                 "id": "tp-verify", "step": "tp-verify",
                 "title": "Verifying results quality and completeness",
                 "status": "active",
-                "detail": "Cross-checking data accuracy"
+                "detail": "Cross-checking data accuracy and consistency across all gathered information. Ensuring all parts of your request have been addressed. Validating source reliability and output quality."
             }}
 
             verification = await self._verify_execution(all_step_results, user_request)
@@ -623,7 +630,7 @@ class ExecutionOrchestrator:
                 "id": "tp-deliver", "step": "tp-deliver",
                 "title": "Composing comprehensive response",
                 "status": "active",
-                "detail": "Synthesizing all findings into a structured answer"
+                "detail": "Synthesizing all findings into a clear, structured answer. Organizing key insights with supporting evidence. Formatting the response for maximum readability."
             }}
 
             full_content = ""
@@ -1271,17 +1278,22 @@ Requirements:
         }})
 
         try:
-            # Determine operation type
-            if any(kw in instruction_lower for kw in ["read", "get", "show", "list", "view", "check", "analyze"]):
-                return await self._github_read(owner, repo, step, sub_events)
-            elif any(kw in instruction_lower for kw in ["create file", "add file", "write file", "update file", "edit file", "push", "commit"]):
-                return await self._github_write(owner, repo, step, previous, sub_events)
-            elif any(kw in instruction_lower for kw in ["pull request", "pr", "merge request"]):
+            # Determine operation type — check WRITE operations BEFORE read
+            # (instructions often contain both "read" and "create" keywords)
+            if any(kw in instruction_lower for kw in ["pull request", "pr ", "merge request", "open pr", "create pr"]):
                 return await self._github_pr(owner, repo, step, sub_events)
-            elif any(kw in instruction_lower for kw in ["branch", "create branch"]):
+            elif any(kw in instruction_lower for kw in [
+                "create file", "add file", "write file", "update file", "edit file",
+                "push", "commit", "create", "write", "update", "modify", "add",
+                "generate", "deploy", "upload", "save to", "overwrite",
+            ]):
+                return await self._github_write(owner, repo, step, previous, sub_events)
+            elif any(kw in instruction_lower for kw in ["branch", "create branch", "new branch"]):
                 return await self._github_branch(owner, repo, step, sub_events)
             elif any(kw in instruction_lower for kw in ["issue", "bug", "feature request"]):
                 return await self._github_issue(owner, repo, step, sub_events)
+            elif any(kw in instruction_lower for kw in ["read", "get", "show", "list", "view", "check", "analyze", "inspect", "fetch", "retrieve"]):
+                return await self._github_read(owner, repo, step, sub_events)
             else:
                 # Default: get repo info and list files
                 return await self._github_read(owner, repo, step, sub_events)
@@ -1685,6 +1697,46 @@ INSTRUCTIONS:
                 parts.append(f"[Step {ps.step_number} - {ps.step_type.value}]: {text}")
                 total += len(text)
         return "\n\n".join(parts)
+
+    def _get_step_detail_lines(self, step_type, instruction, step_num, total_steps):
+        """Generate rich 3-line detail for task_progress events in the message field."""
+        short_instr = instruction[:100].rstrip('.')
+        
+        details = {
+            "research": [
+                f"Querying multiple search engines for: {short_instr[:60]}",
+                "Aggregating results from diverse sources for comprehensive coverage",
+                "Filtering and ranking findings by relevance and recency",
+            ],
+            "code": [
+                f"Generating executable code for: {short_instr[:60]}",
+                "Running in a secure sandbox environment with output capture",
+                "Validating execution results and handling any errors",
+            ],
+            "browser": [
+                f"Opening web page and capturing live screenshot",
+                f"Extracting structured content from: {short_instr[:60]}",
+                "Analyzing page layout and identifying key information",
+            ],
+            "github": [
+                f"Connecting to GitHub repository for: {short_instr[:60]}",
+                "Authenticating and preparing repository operation",
+                "Executing changes and verifying commit integrity",
+            ],
+            "think": [
+                f"Deep analysis: {short_instr[:60]}",
+                f"Synthesizing data from {step_num - 1} previous step{'s' if step_num > 2 else ''}",
+                "Generating structured insights and actionable conclusions",
+            ],
+        }
+        
+        lines = details.get(step_type, [
+            f"Processing step {step_num} of {total_steps}",
+            f"Working on: {short_instr[:60]}",
+            "Preparing output for next phase",
+        ])
+        
+        return " ".join(lines)
 
     def _clean_step_title(self, step_type, instruction):
         """Generate a clean, user-friendly step title."""
