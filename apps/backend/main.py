@@ -405,6 +405,56 @@ if AGENT_V3_AVAILABLE:
         logger.error(f"V3 Agent framework init error (non-fatal): {e}")
         AGENT_V3_AVAILABLE = False
 
+# ============================================================================
+# V2 AGENTIC AI — REASONING-FIRST EXECUTION
+# ============================================================================
+
+V2_AGENTIC_AVAILABLE = False
+v2_orchestrator = None
+
+try:
+    from agentic.reasoning_agent import ReasoningAgent, ModeRouter
+    from agentic.browser_engine_v2 import BrowserEngineV2, PLAYWRIGHT_V2_AVAILABLE
+    from agentic.execution_orchestrator_v2 import ExecutionOrchestratorV2
+    from agentic.api_routes_v2 import create_v2_routes
+
+    # Create async LLM clients for V2 agents
+    async_kimi_client = None
+    async_grok_client = None
+
+    if KIMI_API_KEY:
+        async_kimi_client = openai.AsyncOpenAI(
+            api_key=KIMI_API_KEY,
+            base_url="https://api.moonshot.ai/v1"
+        )
+    if GROK_API_KEY:
+        async_grok_client = openai.AsyncOpenAI(
+            api_key=GROK_API_KEY,
+            base_url="https://api.x.ai/v1"
+        )
+
+    # Initialize V2 Orchestrator
+    v2_orchestrator = ExecutionOrchestratorV2(
+        kimi_client=async_kimi_client,
+        grok_client=async_grok_client,
+        search_layer=None,  # Will be wired in startup_event
+    )
+
+    # Register V2 API routes
+    v2_routes = create_v2_routes(v2_orchestrator)
+    app.include_router(v2_routes)
+
+    V2_AGENTIC_AVAILABLE = True
+    logger.info("V2 Agentic AI initialized — reasoning-first execution ready")
+    logger.info(f"  Grok client: {async_grok_client is not None}")
+    logger.info(f"  Kimi client: {async_kimi_client is not None}")
+    logger.info(f"  V2 routes registered at /api/v2/*")
+
+except Exception as e:
+    logger.warning(f"V2 Agentic AI not available: {e}")
+    import traceback
+    traceback.print_exc()
+
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -3238,25 +3288,31 @@ class ChatHandler:
         if current_mode == "instant":
             system_msg = f"""You are McLeuker AI. Today is {current_date} ({current_year}).
 
-You are in INSTANT mode — be concise, direct, and efficient.
+You are in INSTANT mode. Think first, answer concisely.
 
-RULES:
-- Answer the question directly in 1-3 paragraphs. No walls of text.
-- For simple questions (greetings, definitions, quick facts): 1-2 sentences is fine.
-- For moderate questions: 2-3 focused paragraphs max.
-- Always reason first internally, then give a clean answer.
-- Use **bold** for key terms. Use headers only if the answer has 2+ distinct sections.
-- NO bullet point dumps. Write in flowing prose.
-- NO source citations. NO "According to..." phrasing.
-- Match the user's energy: casual question = casual answer.
-- NEVER start with "As McLeuker AI..." — just answer directly.
-- ALWAYS complete your full response. Never stop mid-sentence.
-- If the user asks something trivial, give a short, warm, human answer.
+CORE PRINCIPLE: Reason internally before answering. Your response should reflect clear thinking — not a dump of information.
+
+RESPONSE LENGTH:
+- Trivial questions ("hi", "what's 2+2", greetings): 1 sentence. Be warm and natural.
+- Simple questions (definitions, quick facts): 2-4 sentences. Direct answer with one key insight.
+- Moderate questions (analysis, comparisons): 2-3 short paragraphs. Lead with the answer, then the reasoning.
+- NEVER exceed 3 paragraphs in instant mode. If the topic needs more, suggest the user switch to agent mode.
+
+STYLE:
+- Write like a sharp, knowledgeable colleague — not a textbook.
+- Lead with the answer or key insight. Reasoning supports it, not the other way around.
+- Use **bold** for the single most important term or phrase per paragraph.
+- NO bullet points. NO numbered lists. Write in flowing prose.
+- NO headers unless absolutely necessary (2+ distinct sections).
+- NO source citations, no "According to...", no "Based on my analysis...".
+- NEVER start with "As McLeuker AI" or any self-reference.
+- Match the user's energy: casual = casual, serious = serious.
+- ALWAYS complete your response. Never stop mid-sentence.
 
 CONVERSATION MEMORY:
-- Short messages are usually follow-ups. Check conversation history.
-- "more", "continue", "elaborate" = continue the previous topic.
-- "that", "this", "it" = check history for the reference.
+- Short messages are follow-ups. Check conversation history.
+- "more", "continue", "elaborate" = continue previous topic.
+- "that", "this", "it" = check history for reference.
 {conversation_summary}
 {f'{chr(10)}CONTEXT:{chr(10)}{search_context[:3000]}' if search_context else ''}
 {f'{chr(10)}{url_context}' if url_context else ''}
@@ -6605,6 +6661,8 @@ async def health_check():
             "execution_orchestrator": execution_orchestrator is not None,
             "playwright": browser_engine_instance is not None,
             "local_sandbox": True,
+            "agent_v2_agentic": V2_AGENTIC_AVAILABLE,
+            "v2_orchestrator": v2_orchestrator is not None,
             "agent_v3_framework": AGENT_V3_AVAILABLE,
             "v3_browser_agent": v3_browser_agent is not None and getattr(v3_browser_agent, 'is_available', False) if v3_browser_agent else False,
             "v3_execution_engine": v3_execution_engine is not None,
@@ -7497,6 +7555,12 @@ async def startup_event():
         execution_orchestrator.search_layer = SearchLayer
         logger.info("SearchLayer wired to execution orchestrator")
 
+    # Wire V2 orchestrator SearchLayer
+    global v2_orchestrator
+    if v2_orchestrator and V2_AGENTIC_AVAILABLE:
+        v2_orchestrator.search_layer = SearchLayer
+        logger.info("SearchLayer wired to V2 orchestrator")
+
     # Wire V3 executor handlers
     global v3_execution_engine
     if v3_execution_engine and AGENT_V3_AVAILABLE:
@@ -7561,7 +7625,10 @@ async def startup_event():
         executor.register_github(v3_github_handler)
         logger.info("V3 Executor: github handler wired")
 
-    logger.info("Startup complete – McLeuker AI V7.0 with Agentic AI ready.")
+    logger.info(f"Startup complete – McLeuker AI V7.0 with Agentic AI ready.")
+    logger.info(f"  V1 orchestrator: {execution_orchestrator is not None}")
+    logger.info(f"  V2 agentic: {V2_AGENTIC_AVAILABLE}")
+    logger.info(f"  V3 framework: {AGENT_V3_AVAILABLE}")
 
 
 # ============================================================================
