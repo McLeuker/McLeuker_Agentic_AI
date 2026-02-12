@@ -164,6 +164,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 del _ws_connections[session_id]
 
 
+@router.get("/modes")
+async def get_modes():
+    """Get available execution modes with capabilities and credit costs."""
+    from .mode_config import get_mode_capabilities_summary
+    return {"modes": get_mode_capabilities_summary()}
+
+
 @router.get("/health")
 async def agentic_health():
     """Agentic engine health check."""
@@ -176,12 +183,13 @@ async def agentic_health():
     return {
         "status": "healthy",
         "engine": True,
-        "planner": _engine.planner is not None,
-        "executor": _engine.executor is not None,
-        "reflector": _engine.reflector is not None,
-        "state_manager": _engine.state_manager is not None,
-        "search_layer": _engine.search_layer is not None,
-        "browser_engine": _engine.browser_engine is not None,
+        "components": {
+            "planner": _engine.planner is not None,
+            "executor": _engine.executor is not None,
+            "reflector": _engine.reflector is not None,
+            "state_manager": _engine.state_manager is not None,
+            "search_layer": _engine.search_layer is not None,
+            "browser_engine": _engine.browser_engine is not None,
+        },
         "active_executions": len(_engine._active_executions),
-        "memory_stats": _engine.state_manager.list_sessions() if _engine.state_manager else [],
     }
