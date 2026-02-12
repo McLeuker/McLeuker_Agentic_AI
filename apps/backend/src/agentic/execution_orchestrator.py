@@ -376,6 +376,13 @@ class ExecutionOrchestrator:
                 "chunk": "**Understanding Request**\n- Reading and analyzing the task requirements\n- Determining which tools and actions are needed\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 5, "status": "planning"}}
+            # task_progress for message field (Manus-style)
+            yield {"event": "task_progress", "data": {
+                "id": "tp-plan", "step": "tp-plan",
+                "title": "Analyzing your request and creating execution plan",
+                "status": "active",
+                "detail": "Breaking down the task into actionable steps"
+            }}
 
             plan = await self._create_plan(execution_id, user_request, context)
 
@@ -400,6 +407,13 @@ class ExecutionOrchestrator:
             }}
             yield {"event": "execution_reasoning", "data": {"chunk": plan_reasoning}}
             yield {"event": "execution_progress", "data": {"progress": 10, "status": "executing"}}
+            # task_progress: plan complete
+            yield {"event": "task_progress", "data": {
+                "id": "tp-plan", "step": "tp-plan",
+                "title": f"Execution plan ready — {len(plan.steps)} steps",
+                "status": "complete",
+                "detail": plan.reasoning[:120] if plan.reasoning else "Plan created"
+            }}
 
             # === PHASE 3: EXECUTE STEPS ===
             all_step_results: List[ExecutionStep] = []
@@ -439,6 +453,13 @@ class ExecutionOrchestrator:
                     "chunk": f"**Step {step_num}/{total_steps}**\n- {step_title}\n"
                 }}
                 yield {"event": "execution_progress", "data": {"progress": step_progress, "status": "executing"}}
+                # task_progress for message field
+                yield {"event": "task_progress", "data": {
+                    "id": f"tp-{step_id}", "step": f"tp-{step_id}",
+                    "title": step_title,
+                    "status": "active",
+                    "detail": f"Step {step_num} of {total_steps} — {instruction[:80]}"
+                }}
 
                 # Execute the step
                 step = ExecutionStep(
@@ -506,6 +527,13 @@ class ExecutionOrchestrator:
                     yield {"event": "execution_reasoning", "data": {
                         "chunk": f"- Done ({elapsed:.1f}s): {result_summary}\n\n"
                     }}
+                    # task_progress: step complete
+                    yield {"event": "task_progress", "data": {
+                        "id": f"tp-{step_id}", "step": f"tp-{step_id}",
+                        "title": step_title,
+                        "status": "complete",
+                        "detail": result_summary
+                    }}
 
                 except Exception as e:
                     step.status = ExecutionStatus.FAILED
@@ -521,6 +549,13 @@ class ExecutionOrchestrator:
                     }}
                     yield {"event": "execution_reasoning", "data": {
                         "chunk": f"- Failed: {str(e)[:150]}\n\n"
+                    }}
+                    # task_progress: step failed
+                    yield {"event": "task_progress", "data": {
+                        "id": f"tp-{step_id}", "step": f"tp-{step_id}",
+                        "title": step_title,
+                        "status": "complete",
+                        "detail": f"Encountered an issue, continuing..."
                     }}
 
                 all_step_results.append(step)
@@ -539,6 +574,12 @@ class ExecutionOrchestrator:
                 "chunk": "**Checking Results**\n- Verifying data quality and completeness\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 82, "status": "verifying"}}
+            yield {"event": "task_progress", "data": {
+                "id": "tp-verify", "step": "tp-verify",
+                "title": "Verifying results quality and completeness",
+                "status": "active",
+                "detail": "Cross-checking data accuracy"
+            }}
 
             verification = await self._verify_execution(all_step_results, user_request)
 
@@ -561,6 +602,12 @@ class ExecutionOrchestrator:
             yield {"event": "execution_reasoning", "data": {
                 "chunk": f"- {verify_detail}\n\n"
             }}
+            yield {"event": "task_progress", "data": {
+                "id": "tp-verify", "step": "tp-verify",
+                "title": "Results verified",
+                "status": "complete",
+                "detail": verify_detail
+            }}
 
             # === PHASE 5: DELIVERY ===
             yield {"event": "step_update", "data": {
@@ -572,6 +619,12 @@ class ExecutionOrchestrator:
                 "chunk": "**Preparing Response**\n- Synthesizing all findings into a clear answer\n"
             }}
             yield {"event": "execution_progress", "data": {"progress": 90, "status": "delivering"}}
+            yield {"event": "task_progress", "data": {
+                "id": "tp-deliver", "step": "tp-deliver",
+                "title": "Composing comprehensive response",
+                "status": "active",
+                "detail": "Synthesizing all findings into a structured answer"
+            }}
 
             full_content = ""
             async for token in self._deliver_stream(all_step_results, user_request, verification, context):
@@ -625,9 +678,11 @@ class ExecutionOrchestrator:
         needs_code = any(kw in user_request.lower() for kw in code_keywords)
 
         available_tools = ["research", "think"]
-        if self.e2b and self.e2b.available:
+        # Code: E2B or local sandbox
+        if (self.e2b and self.e2b.available) or self.local_sandbox:
             available_tools.append("code")
-        if self.browserless and self.browserless.available:
+        # Browser: Playwright engine or Browserless
+        if self.browser_engine or (self.browserless and self.browserless.available):
             available_tools.append("browser")
         if self.github:
             available_tools.append("github")

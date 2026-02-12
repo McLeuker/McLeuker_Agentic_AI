@@ -288,9 +288,13 @@ if AGENTIC_AVAILABLE:
             grok_client_instance = GrokClient(client=grok_client)
             logger.info("Grok agentic client initialized")
 
-        # GitHub Client
-        github_client = GitHubClient()
-        logger.info("GitHub API client initialized")
+        # GitHub Client — use env var if available to avoid credential popup
+        github_token_env = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
+        github_client = GitHubClient(token=github_token_env)
+        if github_token_env:
+            logger.info("GitHub API client initialized with token from environment")
+        else:
+            logger.info("GitHub API client initialized (will request token from user when needed)")
 
         # WebSocket Manager
         ws_manager = get_websocket_manager()

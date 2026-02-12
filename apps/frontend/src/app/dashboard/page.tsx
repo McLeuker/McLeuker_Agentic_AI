@@ -3273,9 +3273,16 @@ function DashboardContent() {
 
                           {/* ===== STREAMING INDICATOR ===== */}
                           {message.isStreaming && !message.content && !message.thinkingSteps?.length && !message.taskSteps?.length && !message.reasoning_layers.length && (
-                            <div className="flex items-center gap-2 text-white/50 py-2">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm">Connecting...</span>
+                            <div className="py-2 space-y-1.5">
+                              <div className="flex items-center gap-2 text-white/50">
+                                <Loader2 className="h-4 w-4 animate-spin text-[#8a9a7e]" />
+                                <span className="text-sm font-medium text-white/60">Starting execution...</span>
+                              </div>
+                              <div className="pl-6 space-y-0.5">
+                                <span className="text-[10px] text-white/25 block">Analyzing your request and creating an execution plan</span>
+                                <span className="text-[10px] text-white/20 block">Determining the best approach and tools needed</span>
+                                <span className="text-[10px] text-white/15 block">This usually takes a few seconds</span>
+                              </div>
                             </div>
                           )}
                           
@@ -3287,7 +3294,7 @@ function DashboardContent() {
                                 <div className="absolute left-[7px] top-2 bottom-2 w-[1px] bg-white/[0.06]" />
                                 <div className="space-y-0.5">
                                   {message.taskSteps.map((step, idx) => (
-                                    <div key={idx} className="flex items-start gap-2.5 py-1 relative">
+                                    <div key={idx} className="flex items-start gap-2.5 py-1.5 relative">
                                       <div className="relative z-10 mt-0.5">
                                         {step.status === 'complete' ? (
                                           <div className="h-[15px] w-[15px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
@@ -3306,12 +3313,17 @@ function DashboardContent() {
                                       <div className="flex-1 min-w-0">
                                         <span className={cn(
                                           "text-[12px] leading-tight block",
-                                          step.status === 'active' ? "text-white/75 font-medium" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                          step.status === 'active' ? "text-white/75 font-medium" : step.status === 'complete' ? "text-white/45" : "text-white/20"
                                         )}>
                                           {step.title}
                                         </span>
-                                        {step.detail && step.status === 'active' && (
-                                          <span className="text-[10px] text-white/25 block mt-0.5">{step.detail}</span>
+                                        {step.detail && (
+                                          <span className={cn(
+                                            "text-[10px] block mt-0.5 leading-relaxed",
+                                            step.status === 'active' ? "text-white/30" : "text-white/20"
+                                          )}>
+                                            {step.detail}
+                                          </span>
                                         )}
                                       </div>
                                     </div>

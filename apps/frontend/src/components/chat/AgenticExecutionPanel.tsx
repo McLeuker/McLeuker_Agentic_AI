@@ -453,18 +453,22 @@ function LiveContentPreview({ content, isStreaming }: { content: string; isStrea
 
   if (!content) return null;
 
-  const previewContent = content.length > 800 ? '...' + content.slice(-800) : content;
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="border-t border-white/[0.06]">
       <div className="flex items-center justify-between px-4 py-2">
-        <span className="text-[10px] text-white/30 uppercase tracking-wider flex items-center gap-1.5">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-[10px] text-white/30 uppercase tracking-wider flex items-center gap-1.5 hover:text-white/50 transition-colors"
+        >
           <Eye className="h-3 w-3" />
           Live Preview
           {isStreaming && (
             <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
           )}
-        </span>
+          <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+        </button>
         <span className="text-[10px] text-white/20 font-mono">
           {content.length.toLocaleString()} chars
         </span>
@@ -476,10 +480,13 @@ function LiveContentPreview({ content, isStreaming }: { content: string; isStrea
           const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
           setAutoScroll(atBottom);
         }}
-        className="px-4 pb-3 max-h-48 overflow-y-auto"
+        className={cn(
+          "px-4 pb-3 overflow-y-auto transition-all",
+          expanded ? "max-h-[600px]" : "max-h-48"
+        )}
       >
         <div className="text-[11px] text-white/50 leading-relaxed whitespace-pre-wrap break-words font-mono">
-          {previewContent}
+          {content}
           {isStreaming && (
             <span className="inline-block w-1 h-3 bg-blue-400 animate-pulse ml-0.5" />
           )}
