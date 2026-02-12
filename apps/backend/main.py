@@ -249,6 +249,7 @@ try:
     from agentic.kimi25_client import Kimi25Client
     from agentic.websocket_handler import ExecutionWebSocketManager, get_websocket_manager
     from agentic.github_integration import GitHubClient
+    from agentic.browser_engine import BrowserEngine, get_browser_engine, shutdown_browser_engine, PLAYWRIGHT_AVAILABLE
     AGENTIC_AVAILABLE = True
     logger.info("Agentic AI modules loaded successfully")
 except ImportError as e:
@@ -263,6 +264,7 @@ execution_orchestrator = None
 ws_manager = None
 kimi25_client_instance = None
 grok_client_instance = None
+browser_engine_instance = None
 
 if AGENTIC_AVAILABLE:
     try:
@@ -293,6 +295,19 @@ if AGENTIC_AVAILABLE:
         # WebSocket Manager
         ws_manager = get_websocket_manager()
 
+        # Browser Engine (Playwright-based with live screenshots)
+        try:
+            if PLAYWRIGHT_AVAILABLE:
+                browser_engine_instance = BrowserEngine(
+                    kimi_client=kimi_client,
+                    grok_client=grok_client,
+                )
+                logger.info("Playwright browser engine initialized (will start on first use)")
+            else:
+                logger.warning("Playwright not available — browser engine disabled")
+        except Exception as be_err:
+            logger.warning(f"Browser engine init error (non-fatal): {be_err}")
+
         # Execution Orchestrator
         execution_orchestrator = ExecutionOrchestrator(
             kimi_client=kimi_client,
@@ -301,6 +316,7 @@ if AGENTIC_AVAILABLE:
             e2b_manager=e2b_manager,
             browserless_client=browserless_client,
             github_client=github_client,
+            browser_engine=browser_engine_instance,
             max_steps=15,
             enable_auto_correct=True,
         )

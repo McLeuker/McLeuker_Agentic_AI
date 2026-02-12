@@ -1883,6 +1883,13 @@ function DashboardContent() {
     execution_id: string;
     field_label: string;
   } | null>(null);
+  const [browserScreenshot, setBrowserScreenshot] = useState<{
+    screenshot: string;
+    url: string;
+    title: string;
+    step: number;
+    action: string;
+  } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -2378,6 +2385,15 @@ function DashboardContent() {
                   message: eventData.message || 'The agent needs access credentials to perform this action.',
                   execution_id: eventData.execution_id || '',
                   field_label: eventData.field_label || 'Access Token',
+                });
+              } else if (eventType === 'browser_screenshot') {
+                // Live browser screenshot from Playwright engine
+                setBrowserScreenshot({
+                  screenshot: eventData.screenshot || '',
+                  url: eventData.url || '',
+                  title: eventData.title || '',
+                  step: eventData.step || 0,
+                  action: eventData.action || '',
                 });
               } else if (eventType === 'status') {
                 // Legacy status handler - convert to task_progress format
@@ -3475,6 +3491,7 @@ function DashboardContent() {
             reasoning={agentReasoning}
             artifacts={agentArtifacts}
             error={agentError}
+            browserScreenshot={browserScreenshot}
             onPause={() => {
               if (agentExecutionId) {
                 fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/pause`, { method: 'POST' }).catch(() => {});

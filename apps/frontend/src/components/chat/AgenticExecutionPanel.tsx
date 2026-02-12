@@ -24,12 +24,24 @@ import {
   EyeOff,
   PanelRightClose,
   Activity,
+  Monitor,
+  MousePointer2,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import type { ExecutionStep, ExecutionArtifact } from '@/lib/agenticAPI';
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+interface BrowserScreenshotData {
+  screenshot: string;
+  url: string;
+  title: string;
+  step: number;
+  action: string;
+}
 
 interface AgenticExecutionPanelProps {
   steps: ExecutionStep[];
@@ -39,6 +51,7 @@ interface AgenticExecutionPanelProps {
   reasoning: string;
   artifacts: ExecutionArtifact[];
   error: string | null;
+  browserScreenshot?: BrowserScreenshotData | null;
   onPause?: () => void;
   onResume?: () => void;
   onCancel?: () => void;
@@ -105,6 +118,104 @@ function phaseBg(phase: string): string {
 }
 
 // ============================================================================
+// LIVE BROWSER VIEWER — Shows real-time screenshots from Playwright
+// ============================================================================
+
+function LiveBrowserViewer({ data, isRunning }: { data: BrowserScreenshotData | null; isRunning: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!data || !data.screenshot) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-white/20">
+        <Monitor className="h-8 w-8 mb-3 opacity-30" />
+        <span className="text-xs">Browser view will appear here when the agent browses the web...</span>
+        <span className="text-[10px] text-white/15 mt-1">Live screenshots streamed in real-time</span>
+      </div>
+    );
+  }
+
+  const truncatedUrl = data.url.length > 50 ? data.url.substring(0, 50) + '...' : data.url;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Browser chrome bar */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border-b border-white/[0.06]">
+        {/* Traffic lights */}
+        <div className="flex items-center gap-1.5 mr-2">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-amber-500/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" />
+        </div>
+
+        {/* URL bar */}
+        <div className="flex-1 flex items-center gap-1.5 px-2.5 py-1 bg-white/[0.04] border border-white/[0.08] rounded-md">
+          <Globe className="h-3 w-3 text-white/30 flex-shrink-0" />
+          <span className="text-[10px] text-white/40 truncate font-mono">{truncatedUrl}</span>
+          {isRunning && (
+            <Loader2 className="h-3 w-3 text-blue-400 animate-spin flex-shrink-0 ml-auto" />
+          )}
+        </div>
+
+        {/* Expand button */}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-1 rounded hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition"
+          title={isExpanded ? 'Minimize' : 'Expand'}
+        >
+          {isExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+
+      {/* Screenshot viewport */}
+      <div className={cn(
+        "relative overflow-hidden bg-black",
+        isExpanded ? "flex-1" : "h-[240px]"
+      )}>
+        <img
+          src={`data:image/jpeg;base64,${data.screenshot}`}
+          alt={`Browser: ${data.title}`}
+          className="w-full h-full object-contain"
+          style={{ imageRendering: 'auto' }}
+        />
+
+        {/* Live indicator */}
+        {isRunning && (
+          <div className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-0.5 bg-red-500/80 rounded-full">
+            <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+            <span className="text-[9px] text-white font-medium uppercase tracking-wider">Live</span>
+          </div>
+        )}
+
+        {/* Cursor overlay for click actions */}
+        {data.action.toLowerCase().includes('click') && (
+          <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 bg-blue-500/70 rounded-full">
+            <MousePointer2 className="h-3 w-3 text-white" />
+            <span className="text-[9px] text-white font-medium">Clicking</span>
+          </div>
+        )}
+      </div>
+
+      {/* Action bar */}
+      <div className="flex items-center justify-between px-3 py-2 bg-[#111] border-t border-white/[0.06]">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] text-white/20 font-mono flex-shrink-0">
+            Step {data.step}
+          </span>
+          <span className="text-[10px] text-white/40 truncate">
+            {data.action}
+          </span>
+        </div>
+        {data.title && (
+          <span className="text-[10px] text-white/20 truncate ml-2 max-w-[120px]">
+            {data.title}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // REASONING RENDERER — Manus-style structured bullets
 // ============================================================================
 
@@ -120,7 +231,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
 
   if (!reasoning) return null;
 
-  // Parse reasoning into structured elements
   const lines = reasoning.split('\n');
   const elements: React.ReactNode[] = [];
 
@@ -131,7 +241,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
       return;
     }
 
-    // Bold headers: **Planning Phase** or **Step 1/3 — RESEARCH**
     const headerMatch = trimmed.match(/^\*\*(.+?)\*\*$/);
     if (headerMatch) {
       elements.push(
@@ -143,7 +252,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
       return;
     }
 
-    // Inline bold within bullet: - **text**: more text
     const boldInlineMatch = trimmed.match(/^[-•]\s+\*\*(.+?)\*\*(.*)$/);
     if (boldInlineMatch) {
       elements.push(
@@ -158,7 +266,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
       return;
     }
 
-    // Bullet with emoji: - ✅ Completed in 2.3s: Found 15 data points
     const bulletEmojiMatch = trimmed.match(/^[-•]\s+([\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}✅❌🔍💻🌐🧠📋])\s*(.+)$/u);
     if (bulletEmojiMatch) {
       const emoji = bulletEmojiMatch[1];
@@ -181,7 +288,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
       return;
     }
 
-    // Regular bullet: - text
     const bulletMatch = trimmed.match(/^[-•]\s+(.+)$/);
     if (bulletMatch) {
       elements.push(
@@ -193,7 +299,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
       return;
     }
 
-    // Italic/emphasis: *text*
     const italicMatch = trimmed.match(/^\*(.+)\*$/);
     if (italicMatch) {
       elements.push(
@@ -204,7 +309,6 @@ function ReasoningRenderer({ reasoning }: { reasoning: string }) {
       return;
     }
 
-    // Fallback: plain text
     elements.push(
       <div key={`t-${i}`} className="pl-2">
         <span className="text-[11px] text-white/40 leading-relaxed">{trimmed}</span>
@@ -235,7 +339,6 @@ function StepItem({ step }: { step: ExecutionStep }) {
   const [expanded, setExpanded] = useState(step.status === 'active');
   const hasDetails = !!(step.detail || (step.subSteps && step.subSteps.length > 0) || (step.artifacts && step.artifacts.length > 0));
 
-  // Auto-expand active steps, collapse completed
   useEffect(() => {
     if (step.status === 'active') setExpanded(true);
   }, [step.status]);
@@ -281,14 +384,12 @@ function StepItem({ step }: { step: ExecutionStep }) {
         )}
       </button>
 
-      {/* Expanded details */}
       {expanded && hasDetails && (
         <div className="px-3 pb-3 space-y-2">
           {step.detail && step.status !== 'active' && (
             <p className="text-xs text-white/40 pl-11">{step.detail}</p>
           )}
 
-          {/* Sub-steps */}
           {step.subSteps && step.subSteps.length > 0 && (
             <div className="pl-11 space-y-1">
               {step.subSteps.map((sub, i) => (
@@ -305,7 +406,6 @@ function StepItem({ step }: { step: ExecutionStep }) {
             </div>
           )}
 
-          {/* Artifacts */}
           {step.artifacts && step.artifacts.length > 0 && (
             <div className="pl-11 flex flex-wrap gap-1.5">
               {step.artifacts.map((artifact, i) => (
@@ -353,7 +453,6 @@ function LiveContentPreview({ content, isStreaming }: { content: string; isStrea
 
   if (!content) return null;
 
-  // Show last ~800 chars for preview
   const previewContent = content.length > 800 ? '...' + content.slice(-800) : content;
 
   return (
@@ -402,15 +501,22 @@ export function AgenticExecutionPanel({
   reasoning,
   artifacts,
   error,
+  browserScreenshot,
   onPause,
   onResume,
   onCancel,
   onClose,
   className,
 }: AgenticExecutionPanelProps) {
-  const [showReasoning, setShowReasoning] = useState(true); // Open by default
   const [showPreview, setShowPreview] = useState(true);
-  const [activeTab, setActiveTab] = useState<'steps' | 'reasoning'>('steps');
+  const [activeTab, setActiveTab] = useState<'steps' | 'reasoning' | 'browser'>('steps');
+
+  // Auto-switch to browser tab when first screenshot arrives
+  useEffect(() => {
+    if (browserScreenshot?.screenshot && activeTab !== 'browser') {
+      setActiveTab('browser');
+    }
+  }, [browserScreenshot?.screenshot]);
 
   // Group steps by phase
   const groupedSteps = useMemo(() => {
@@ -426,10 +532,11 @@ export function AgenticExecutionPanel({
   const isRunning = status === 'planning' || status === 'executing';
   const isPaused = status === 'paused';
 
-  // Get active step for status display
   const activeStep = useMemo(() => {
     return steps.find(s => s.status === 'active');
   }, [steps]);
+
+  const hasBrowser = !!browserScreenshot?.screenshot;
 
   if (status === 'idle' && steps.length === 0) return null;
 
@@ -467,7 +574,6 @@ export function AgenticExecutionPanel({
         </div>
 
         <div className="flex items-center gap-1">
-          {/* Toggle live preview */}
           <button
             onClick={() => setShowPreview(!showPreview)}
             className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition"
@@ -502,7 +608,6 @@ export function AgenticExecutionPanel({
               <X className="h-3.5 w-3.5" />
             </button>
           )}
-          {/* Close button - just hides the panel, does NOT cancel */}
           {onClose && (
             <button
               onClick={onClose}
@@ -528,14 +633,13 @@ export function AgenticExecutionPanel({
         </div>
       )}
 
-      {/* Completed progress bar */}
       {status === 'completed' && (
         <div className="h-1 bg-white/[0.04]">
           <div className="h-full w-full bg-gradient-to-r from-emerald-500 to-[#5c6652] rounded-r" />
         </div>
       )}
 
-      {/* Tab switcher: Steps | Reasoning */}
+      {/* Tab switcher: Steps | Browser | Reasoning */}
       <div className="flex border-b border-white/[0.06]">
         <button
           onClick={() => setActiveTab('steps')}
@@ -547,6 +651,21 @@ export function AgenticExecutionPanel({
           )}
         >
           Steps ({steps.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('browser')}
+          className={cn(
+            'flex-1 py-2 text-xs font-medium transition-colors flex items-center justify-center gap-1.5',
+            activeTab === 'browser'
+              ? 'text-white/80 border-b-2 border-cyan-400'
+              : 'text-white/30 hover:text-white/50'
+          )}
+        >
+          <Monitor className="h-3 w-3" />
+          Browser
+          {hasBrowser && isRunning && (
+            <span className="inline-block w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+          )}
         </button>
         <button
           onClick={() => setActiveTab('reasoning')}
@@ -592,7 +711,6 @@ export function AgenticExecutionPanel({
               );
             })}
 
-            {/* Empty state while planning */}
             {steps.length === 0 && isRunning && (
               <div className="flex flex-col items-center justify-center py-8 text-white/30">
                 <Loader2 className="h-6 w-6 animate-spin mb-3" />
@@ -601,7 +719,6 @@ export function AgenticExecutionPanel({
               </div>
             )}
 
-            {/* Error display */}
             {error && (
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
                 <div className="flex items-center gap-2 mb-1">
@@ -612,7 +729,6 @@ export function AgenticExecutionPanel({
               </div>
             )}
 
-            {/* Completion summary */}
             {status === 'completed' && (
               <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
                 <div className="flex items-center gap-2">
@@ -626,6 +742,11 @@ export function AgenticExecutionPanel({
               </div>
             )}
           </div>
+        )}
+
+        {/* Browser tab — Live browser viewer */}
+        {activeTab === 'browser' && (
+          <LiveBrowserViewer data={browserScreenshot || null} isRunning={isRunning} />
         )}
 
         {/* Reasoning tab */}

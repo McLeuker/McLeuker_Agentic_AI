@@ -186,6 +186,7 @@ class ExecutionOrchestrator:
         e2b_manager=None,
         browserless_client=None,
         github_client=None,
+        browser_engine=None,
         max_steps: int = 15,
         enable_auto_correct: bool = True,
     ):
@@ -195,6 +196,8 @@ class ExecutionOrchestrator:
         self.e2b = e2b_manager
         self.browserless = browserless_client
         self.github = github_client
+        self.browser_engine = browser_engine  # Playwright-based browser with live screenshots
+        self.local_sandbox = None  # Lazy-init local sandbox as E2B fallback
         self.max_steps = max_steps
         self.enable_auto_correct = enable_auto_correct
         self._executions: Dict[str, Dict[str, Any]] = {}
@@ -941,13 +944,32 @@ Requirements:
             "chunk": f"- Generated {len(code_content.splitlines())} lines of Python code\n"
         }})
 
+        # Try E2B first, then local sandbox fallback
+        sandbox_to_use = None
+        sandbox_name = ""
+
         if self.e2b and self.e2b.available:
+            sandbox_to_use = self.e2b
+            sandbox_name = "cloud sandbox"
+        else:
+            # Lazy-init local sandbox
+            if not self.local_sandbox:
+                try:
+                    from agentic.local_sandbox import get_local_sandbox
+                    self.local_sandbox = get_local_sandbox()
+                except Exception:
+                    pass
+            if self.local_sandbox and self.local_sandbox.available:
+                sandbox_to_use = self.local_sandbox
+                sandbox_name = "local sandbox"
+
+        if sandbox_to_use:
             try:
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": "- Running code in secure sandbox environment\n"
+                    "chunk": f"- Running code in {sandbox_name}\n"
                 }})
 
-                result = await self.e2b.execute_code(code_content, language="python", timeout=30)
+                result = await sandbox_to_use.execute_code(code_content, language="python", timeout=30)
 
                 if result.success:
                     output_preview = (result.output or "")[:200]
@@ -974,22 +996,73 @@ Requirements:
                 return {"type": "code_execution", "code": code_content, "output": "", "error": str(e), "success": False}
         else:
             sub_events.append({"event": "execution_reasoning", "data": {
-                "chunk": "- Code sandbox not available — code generated for reference\n"
+                "chunk": "- Code sandbox not available \u2014 code generated for reference\n"
             }})
             return {"type": "code_generation", "code": code_content, "note": "Sandbox not available", "success": True}
 
     # ------------------------------------------------------------------
-    # BROWSER — Browserless web automation
+    # BROWSER — Playwright live browser + Browserless fallback
     # ------------------------------------------------------------------
 
     async def _exec_browser(self, step, context, sub_events):
-        urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', step.instruction)
+        """Execute browser operations with live screenshot streaming.
 
+        Priority:
+        1. Playwright browser engine (interactive, screenshots streamed to frontend)
+        2. Browserless (simple content extraction fallback)
+        3. LLM fallback (no browser available)
+        """
+        urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', step.instruction)
+        instruction_lower = step.instruction.lower()
+
+        # Determine if this is an interactive task (needs clicking, typing, etc.)
+        interactive_keywords = ["click", "fill", "type", "submit", "login", "sign in",
+                                "search for", "enter", "navigate and", "interact",
+                                "book", "order", "purchase", "register", "form",
+                                "browse", "scroll", "find and click", "automation"]
+        is_interactive = any(kw in instruction_lower for kw in interactive_keywords)
+
+        # === PRIORITY 1: Playwright Browser Engine (live screenshots) ===
+        if self.browser_engine:
+            try:
+                if is_interactive or not urls:
+                    # Full CUA (Computer-Use Agent) loop with vision model
+                    sub_events.append({"event": "execution_reasoning", "data": {
+                        "chunk": "- Starting live browser automation with screen capture...\n"
+                    }})
+                    start_url = urls[0] if urls else None
+                    result = await self.browser_engine.execute_task(
+                        task=step.instruction,
+                        start_url=start_url,
+                        max_steps=15,
+                        sub_events=sub_events,
+                    )
+                    return result
+                else:
+                    # Simple navigate + extract with screenshot
+                    target_url = urls[0]
+                    sub_events.append({"event": "execution_reasoning", "data": {
+                        "chunk": f"- Opening {target_url[:80]} in live browser...\n"
+                    }})
+                    result = await self.browser_engine.navigate_and_extract(
+                        url=target_url,
+                        sub_events=sub_events,
+                    )
+                    return result
+
+            except Exception as e:
+                logger.error(f"Browser engine error: {e}")
+                sub_events.append({"event": "execution_reasoning", "data": {
+                    "chunk": f"- Live browser encountered an error, falling back to content extraction...\n"
+                }})
+                # Fall through to Browserless
+
+        # === PRIORITY 2: Browserless (simple extraction) ===
         if self.browserless and self.browserless.available:
             if urls:
                 target_url = urls[0]
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- Navigating to {target_url[:80]}\n"
+                    "chunk": f"- Extracting content from {target_url[:80]}\n"
                 }})
 
                 try:
@@ -1039,19 +1112,20 @@ Requirements:
                     }
                 except Exception as e:
                     return {"type": "browser_error", "error": str(e), "success": False}
+
+        # === PRIORITY 3: LLM Fallback ===
+        sub_events.append({"event": "execution_reasoning", "data": {
+            "chunk": "- Web browser not available. Using AI to analyze the request.\n"
+        }})
+        if urls:
+            content = await self._llm_call([
+                {"role": "system", "content": "The user wants to analyze a URL. Provide what you know about this URL/domain."},
+                {"role": "user", "content": f"Analyze this URL: {urls[0]}\n\nContext: {step.instruction}"},
+            ])
+            return {"type": "browser_fallback", "url": urls[0], "content": content}
         else:
-            sub_events.append({"event": "execution_reasoning", "data": {
-                "chunk": "- Web browser not available. Using AI to analyze the request.\n"
-            }})
-            if urls:
-                content = await self._llm_call([
-                    {"role": "system", "content": "The user wants to analyze a URL. Provide what you know about this URL/domain."},
-                    {"role": "user", "content": f"Analyze this URL: {urls[0]}\n\nContext: {step.instruction}"},
-                ])
-                return {"type": "browser_fallback", "url": urls[0], "content": content}
-            else:
-                content = await self._llm_call([{"role": "user", "content": step.instruction}])
-                return {"type": "browser_fallback", "content": content}
+            content = await self._llm_call([{"role": "user", "content": step.instruction}])
+            return {"type": "browser_fallback", "content": content}
 
     # ------------------------------------------------------------------
     # GITHUB — Real repository operations
