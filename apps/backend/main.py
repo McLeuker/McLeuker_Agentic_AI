@@ -351,12 +351,21 @@ v3_browser_agent = None
 
 if AGENT_V3_AVAILABLE:
     try:
-        # Determine LLM client for agents (prefer Kimi for vision, Grok for reasoning)
-        agent_llm_client = kimi_client or grok_client
+        # Create async LLM clients for V3 agents (BaseAgent.call_llm uses await)
+        agent_llm_client = None
+        if KIMI_API_KEY:
+            agent_llm_client = openai.AsyncOpenAI(
+                api_key=KIMI_API_KEY,
+                base_url="https://api.moonshot.ai/v1"
+            )
+        elif GROK_API_KEY:
+            agent_llm_client = openai.AsyncOpenAI(
+                api_key=GROK_API_KEY,
+                base_url="https://api.x.ai/v1"
+            )
 
         # Browser Agent with Playwright
         v3_browser_agent = BrowserAgent(
-            llm_client=agent_llm_client,
             headless=True,
             viewport_width=1280,
             viewport_height=720,
@@ -366,7 +375,6 @@ if AGENT_V3_AVAILABLE:
         # Planner Agent
         v3_planner = PlannerAgent(
             llm_client=agent_llm_client,
-            available_tools=["browser", "search", "code", "github", "think"],
         )
         logger.info("V3 PlannerAgent initialized")
 

@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 
-from ..agents.planner_agent import PlannerAgent, ExecutionPlan, ExecutionStep
-from ..agents.executor_agent import ExecutorAgent
-from ..agents.browser_agent import BrowserAgent
+from agents.planner_agent import PlannerAgent, ExecutionPlan, ExecutionStep
+from agents.executor_agent import ExecutorAgent
+from agents.browser_agent import BrowserAgent
 
 logger = logging.getLogger(__name__)
 
