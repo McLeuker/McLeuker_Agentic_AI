@@ -1,8 +1,8 @@
 """
-McLeuker AI V8.0 - Multi-Layer Agentic Reasoning API
+McLeuker AI V9.0 - Agentic Execution Platform
 =====================================================
-True agentic AI with multi-layer reasoning like Manus AI.
-Includes Nano Banana image generation integration.
+True end-to-end agentic AI with multi-layer reasoning,
+execution engine, domain agents, and web automation.
 """
 
 import os
@@ -20,16 +20,44 @@ from pydantic import BaseModel
 from src.core.reasoning_orchestrator import ReasoningOrchestrator
 from src.services.nano_banana import nano_banana_service
 
+# Enhancement imports
+try:
+    from src.enhancement.execution import ExecutionEngine
+    from src.enhancement import McLeukerEnhancement, EnhancementConfig
+    ENHANCEMENT_AVAILABLE = True
+except ImportError as e:
+    import logging
+    logging.warning(f"Enhancement modules not available: {e}")
+    ENHANCEMENT_AVAILABLE = False
 
 # Initialize orchestrator
 reasoning_orchestrator = ReasoningOrchestrator()
 
+# Initialize execution engine
+execution_engine = None
+enhancement = None
+if ENHANCEMENT_AVAILABLE:
+    try:
+        execution_engine = ExecutionEngine()
+        enhancement = McLeukerEnhancement(
+            llm_client=None,  # Will be set up with proper client
+            config=EnhancementConfig(
+                enable_domain_agents=True,
+                enable_tool_stability=True,
+                enable_file_analysis=True,
+                enable_execution_engine=True,
+            )
+        )
+    except Exception as e:
+        import logging
+        logging.warning(f"Enhancement initialization failed: {e}")
+
 
 # FastAPI app
 app = FastAPI(
-    title="McLeuker AI V8.0",
-    description="Multi-Layer Agentic Reasoning AI Platform with Nano Banana Image Generation",
-    version="8.0.0"
+    title="McLeuker AI V9.0",
+    description="Agentic Execution Platform — Multi-Layer Reasoning, Web Automation, Domain Agents",
+    version="9.0.0"
 )
 
 # CORS middleware
@@ -78,7 +106,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "version": "8.0.0",
+        "version": "9.0.0",
         "timestamp": datetime.now().isoformat(),
         "features": {
             "multi_layer_reasoning": True,
@@ -86,7 +114,11 @@ async def health_check():
             "realtime_data": True,
             "dynamic_sources": True,
             "nano_banana": True,
-            "file_upload": True
+            "file_upload": True,
+            "execution_engine": execution_engine is not None,
+            "domain_agents": enhancement is not None,
+            "web_automation": True,
+            "file_analysis": True
         }
     }
 
@@ -96,16 +128,22 @@ async def root():
     """Root endpoint"""
     return {
         "name": "McLeuker AI",
-        "version": "8.0.0",
-        "description": "Multi-Layer Agentic Reasoning AI Platform",
+        "version": "9.0.0",
+        "description": "Agentic Execution Platform — Multi-Layer Reasoning, Web Automation, Domain Agents",
         "endpoints": {
             "health": "/health",
             "chat": "/api/chat",
             "chat_stream": "/api/chat/stream",
+            "execute": "/api/execute",
+            "execute_stream": "/api/execute/stream",
+            "execution_status": "/api/execute/{task_id}",
             "image_generate": "/api/image/generate",
             "image_edit": "/api/image/edit",
             "image_analyze": "/api/image/analyze",
-            "file_upload": "/api/upload"
+            "file_upload": "/api/upload",
+            "document_generate": "/api/document/generate",
+            "export_chat": "/api/export/chat",
+            "capabilities": "/api/capabilities"
         }
     }
 
@@ -695,3 +733,250 @@ async def export_chat(request: ExportChatRequest):
                 "error": str(e)
             }
         )
+
+
+# =============================================================================
+# Execution Engine Endpoints — True End-to-End Agentic Execution
+# =============================================================================
+
+class ExecuteRequest(BaseModel):
+    """Request to execute a task end-to-end."""
+    query: str
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    mode: str = "auto"  # auto, web, research, file, code
+    context: Optional[dict] = None
+
+
+@app.post("/api/execute")
+async def execute_task(request: ExecuteRequest):
+    """
+    Execute a task end-to-end (non-streaming).
+    
+    The execution engine will:
+    1. Decompose the task into steps
+    2. Execute each step (web automation, search, file generation, etc.)
+    3. Return the final result
+    """
+    if not execution_engine:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "error": "Execution engine not available"
+            }
+        )
+    
+    try:
+        results = []
+        async for event in execution_engine.execute(
+            query=request.query,
+            user_id=request.user_id,
+            session_id=request.session_id,
+            context=request.context,
+        ):
+            results.append(event)
+        
+        # Find the final result event
+        final_result = None
+        for event in reversed(results):
+            if event.get("type") == "result":
+                final_result = event.get("data", {})
+                break
+        
+        if final_result:
+            return {
+                "success": True,
+                "result": final_result,
+                "events": results,
+            }
+        else:
+            # Check for errors
+            for event in reversed(results):
+                if event.get("type") == "error":
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "success": False,
+                            "error": event.get("data", {}).get("error", "Execution failed"),
+                        }
+                    )
+            return {
+                "success": True,
+                "result": {"content": "Task completed", "events": results},
+            }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/execute/stream")
+async def execute_task_stream(request: ExecuteRequest):
+    """
+    Execute a task with real-time SSE streaming.
+    
+    Event types:
+    - planning_start: Task decomposition started
+    - planning_complete: Plan ready with steps
+    - step_start: Step execution started
+    - step_progress: Step progress update
+    - step_complete: Step completed successfully
+    - step_failed: Step failed
+    - step_retry: Retrying a failed step
+    - screenshot: Real-time browser screenshot
+    - credential_required: User credentials needed
+    - user_confirmation_required: User confirmation needed
+    - result: Final execution result
+    - error: Execution error
+    """
+    if not execution_engine:
+        async def error_gen():
+            yield f"data: {json.dumps({'type': 'error', 'data': {'error': 'Execution engine not available'}})}\n\n"
+        return StreamingResponse(
+            error_gen(),
+            media_type="text/event-stream",
+        )
+    
+    async def generate() -> AsyncGenerator[str, None]:
+        try:
+            async for event in execution_engine.execute(
+                query=request.query,
+                user_id=request.user_id,
+                session_id=request.session_id,
+                context=request.context,
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+                
+                event_type = event.get("type")
+                if event_type in ["planning_start", "planning_complete"]:
+                    await asyncio.sleep(0.1)
+                elif event_type in ["step_start", "step_complete"]:
+                    await asyncio.sleep(0.05)
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/api/execute/{task_id}")
+async def get_execution_status(task_id: str):
+    """Get the status of an execution task."""
+    if not execution_engine:
+        return JSONResponse(
+            status_code=503,
+            content={"success": False, "error": "Execution engine not available"}
+        )
+    
+    task = execution_engine.get_task(task_id)
+    if not task:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "error": "Task not found"}
+        )
+    
+    return {"success": True, "task": task.to_dict()}
+
+
+@app.get("/api/execute/active/list")
+async def list_active_executions():
+    """List all active execution tasks."""
+    if not execution_engine:
+        return {"success": True, "tasks": []}
+    
+    return {"success": True, "tasks": execution_engine.get_active_tasks()}
+
+
+# =============================================================================
+# Capabilities Endpoint
+# =============================================================================
+
+@app.get("/api/capabilities")
+async def get_capabilities():
+    """
+    Get the full capabilities of the McLeuker AI system.
+    Used by the frontend to know what features are available.
+    """
+    capabilities = {
+        "version": "9.0.0",
+        "reasoning": {
+            "multi_layer": True,
+            "streaming": True,
+            "modes": ["quick", "deep"],
+        },
+        "execution": {
+            "available": execution_engine is not None,
+            "web_automation": True,
+            "file_generation": True,
+            "code_execution": True,
+            "api_calls": True,
+            "credential_management": True,
+            "supported_services": [
+                "github", "google", "twitter", "linkedin", "canva",
+                "slack", "notion", "figma", "vercel", "railway",
+            ],
+        },
+        "image": {
+            "generation": True,
+            "editing": True,
+            "analysis": True,
+            "provider": "nano_banana",
+        },
+        "documents": {
+            "formats": ["excel", "powerpoint", "word", "markdown", "pdf"],
+            "export": True,
+        },
+        "domain_agents": {
+            "available": enhancement is not None,
+            "agents": [
+                "fashion", "beauty", "skincare", "sustainability",
+                "tech", "catwalk", "culture", "textile", "lifestyle",
+            ] if enhancement else [],
+        },
+        "file_analysis": {
+            "available": enhancement is not None,
+            "supported_types": [
+                "image/jpeg", "image/png", "image/webp",
+                "application/pdf", "text/plain", "text/markdown",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ],
+        },
+    }
+    
+    return {"success": True, "capabilities": capabilities}
+
+
+# =============================================================================
+# Enhancement Status Endpoint
+# =============================================================================
+
+@app.get("/api/enhancement/status")
+async def get_enhancement_status():
+    """Get the status of all enhancement components."""
+    if not enhancement:
+        return {
+            "success": True,
+            "status": {
+                "enhancement_available": False,
+                "execution_engine": execution_engine is not None,
+            }
+        }
+    
+    return {
+        "success": True,
+        "status": {
+            "enhancement_available": True,
+            "execution_engine": execution_engine is not None,
+            **enhancement.get_status(),
+        }
+    }

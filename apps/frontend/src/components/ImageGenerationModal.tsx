@@ -73,7 +73,7 @@ export function ImageGenerationModal({ isOpen, onClose, onImageGenerated }: Imag
       const stylePreset = STYLE_PRESETS.find(s => s.id === selectedStyle);
       const enhancedPrompt = `${prompt}. Style: ${stylePreset?.description || 'fashion photography'}. High quality, professional, detailed.`;
 
-      const response = await fetch(`${API_URL}/api/image/generate`, {
+      const response = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

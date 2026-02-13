@@ -82,7 +82,7 @@ export default function SignupPage() {
         {/* Logo */}
         <div className="text-center mb-10">
           <Link href="/" className="inline-block">
-            <span className="font-editorial text-2xl text-white">McLeuker</span>
+            <span className="font-editorial text-2xl text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
           </Link>
         </div>
 

@@ -30,7 +30,7 @@ export interface MessageMetadata {
   sources?: Source[];
   reasoning_layers?: ReasoningLayer[];
   follow_up_questions?: string[];
-  search_mode?: 'quick' | 'deep';
+  search_mode?: 'auto' | 'instant' | 'agent';
 }
 
 export interface ChatMessage {
@@ -47,7 +47,7 @@ export interface ChatMessage {
   sources?: Source[];
   reasoning_layers?: ReasoningLayer[];
   follow_up_questions?: string[];
-  search_mode?: 'quick' | 'deep';
+  search_mode?: 'auto' | 'instant' | 'agent';
 }
 
 export interface Conversation {

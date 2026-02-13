@@ -3,10 +3,17 @@
 import { useEffect, useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSector, Sector, DOMAIN_STARTERS } from "@/contexts/SectorContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { DomainHero } from "@/components/domain/DomainHero";
-import { DomainInsights, IntelligenceItem } from "@/components/domain/DomainInsights";
+import { DomainInsights } from "@/components/domain/DomainInsights";
 import { DomainModules } from "@/components/domain/DomainModules";
+import { WeeklyInsights } from "@/components/domain/WeeklyInsights";
 import { WorkspaceNavigation } from "@/components/workspace/WorkspaceNavigation";
+import { Footer } from "@/components/layout/Footer";
+import { MoodBoard } from "@/components/domain/MoodBoard";
+import { Lock, ArrowRight } from "lucide-react";
+import Link from "next/link";
 
 // Map URL slugs to sector IDs
 const slugToSector: Record<string, Sector> = {
@@ -21,33 +28,13 @@ const slugToSector: Record<string, Sector> = {
   lifestyle: "lifestyle",
 };
 
-// Sample intelligence items for demo
-const getSampleIntelligence = (sector: Sector): IntelligenceItem[] => {
-  const baseItems: IntelligenceItem[] = [
-    {
-      title: "Emerging trends signal shift in consumer preferences",
-      description: "Industry analysts report significant changes in how consumers approach purchasing decisions in this sector.",
-      source: "Industry Report",
-      date: new Date().toISOString(),
-      confidence: "high",
-    },
-    {
-      title: "Major brands announce sustainability initiatives",
-      description: "Leading companies are committing to new environmental standards and transparency measures.",
-      source: "Business News",
-      date: new Date(Date.now() - 86400000).toISOString(),
-      confidence: "high",
-    },
-    {
-      title: "Technology adoption accelerates across the industry",
-      description: "Digital transformation continues to reshape operations and customer experiences.",
-      source: "Tech Analysis",
-      date: new Date(Date.now() - 172800000).toISOString(),
-      confidence: "medium",
-    },
-  ];
-
-  return baseItems;
+// Domain access by plan — all domains unlocked for all users
+const ALL_DOMAINS = ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'];
+const DOMAIN_ACCESS: Record<string, string[]> = {
+  free: ALL_DOMAINS,
+  standard: ALL_DOMAINS,
+  pro: ALL_DOMAINS,
+  enterprise: ALL_DOMAINS,
 };
 
 export default function DomainLandingPage() {
@@ -55,11 +42,36 @@ export default function DomainLandingPage() {
   const router = useRouter();
   const domain = params.domain as string;
   const { currentSector, setSector, getSectorConfig } = useSector();
-  const [intelligenceItems, setIntelligenceItems] = useState<IntelligenceItem[]>([]);
-  const [intelligenceLoading, setIntelligenceLoading] = useState(true);
+  const { user } = useAuth();
+  const [userPlan, setUserPlan] = useState<string>('free');
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
   // Resolve sector from URL
   const resolvedSector = domain ? slugToSector[domain] : undefined;
+
+  // Fetch user plan
+  useEffect(() => {
+    const fetchPlan = async () => {
+      if (!user) {
+        setCheckingAccess(false);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('subscription_plan')
+          .eq('id', user.id)
+          .single();
+        if (!error && data?.subscription_plan) {
+          setUserPlan(data.subscription_plan);
+        }
+      } catch {
+        // Default to free
+      }
+      setCheckingAccess(false);
+    };
+    fetchPlan();
+  }, [user]);
 
   // Sync URL param to sector context
   useEffect(() => {
@@ -71,47 +83,30 @@ export default function DomainLandingPage() {
     }
   }, [resolvedSector, currentSector, setSector, domain, router]);
 
-  // Fetch intelligence on mount/domain change
-  useEffect(() => {
-    if (resolvedSector) {
-      setIntelligenceLoading(true);
-      // Simulate API call
-      setTimeout(() => {
-        setIntelligenceItems(getSampleIntelligence(resolvedSector));
-        setIntelligenceLoading(false);
-      }, 1000);
-    }
-  }, [resolvedSector]);
-
   const sectorConfig = getSectorConfig();
   const starters = DOMAIN_STARTERS[currentSector] || [];
 
-  // Handle refresh
-  const handleRefresh = useCallback(() => {
-    if (resolvedSector) {
-      setIntelligenceLoading(true);
-      setTimeout(() => {
-        setIntelligenceItems(getSampleIntelligence(resolvedSector));
-        setIntelligenceLoading(false);
-      }, 1000);
-    }
-  }, [resolvedSector]);
+  // Check domain access
+  const accessibleDomains = DOMAIN_ACCESS[userPlan] || DOMAIN_ACCESS.free;
+  const hasAccess = resolvedSector ? accessibleDomains.includes(resolvedSector) : false;
 
-  // Handle module click - navigate to dashboard with pre-filled prompt
-  const handleModuleClick = useCallback(
+  // Handle module/insight click - navigate to dashboard with pre-filled prompt and auto-execute
+  const handlePromptClick = useCallback(
     (prompt: string) => {
       sessionStorage.setItem("domainPrompt", prompt);
       sessionStorage.setItem("domainContext", currentSector);
+      sessionStorage.setItem("autoExecute", "true");
       router.push("/dashboard");
     },
     [currentSector, router]
   );
 
-  // Handle ask AI submission
+  // Handle ask AI submission - auto-execute on dashboard
   const handleAskSubmit = useCallback(
     (query: string) => {
       sessionStorage.setItem("domainPrompt", query);
       sessionStorage.setItem("domainContext", currentSector);
+      sessionStorage.setItem("autoExecute", "true");
       router.push("/dashboard");
     },
     [currentSector, router]
@@ -119,6 +114,62 @@ export default function DomainLandingPage() {
 
   if (!resolvedSector) {
     return null;
+  }
+
+  // Show loading while checking access
+  if (checkingAccess) {
+    return (
+      <div className="min-h-screen bg-[#070707] flex items-center justify-center">
+        <div className="w-6 h-6 rounded-full border-2 border-white/10 border-t-white/40 animate-spin" />
+      </div>
+    );
+  }
+
+  // Locked domain — user doesn't have access
+  if (!hasAccess) {
+    const domainLabel = domain.charAt(0).toUpperCase() + domain.slice(1).replace("-", " ");
+    const requiredPlan = ['skincare', 'sustainability', 'fashion-tech'].includes(domain) ? 'Standard' : 'Pro';
+    
+    return (
+      <div className="min-h-screen bg-[#070707] flex flex-col overflow-x-hidden">
+        <WorkspaceNavigation showSectorTabs={true} />
+        <div className="h-14 lg:h-[72px]" />
+        
+        <main className="flex-1 flex items-center justify-center px-6">
+          <div className="max-w-md w-full text-center">
+            <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center mx-auto mb-6">
+              <Lock className="w-7 h-7 text-white/30" />
+            </div>
+            <h1 className="text-2xl md:text-3xl font-serif text-white/90 mb-3">
+              {domainLabel} Intelligence
+            </h1>
+            <p className="text-white/40 text-sm leading-relaxed mb-2">
+              This domain requires a <span className="text-white/70 font-medium">{requiredPlan}</span> plan or higher.
+            </p>
+            <p className="text-white/25 text-xs mb-8">
+              Upgrade your plan to unlock {domainLabel.toLowerCase()} intelligence, real-time trends, weekly insights, and AI-powered research modules.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href="/pricing"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-[#2E3524] text-white text-sm font-medium hover:bg-[#3a4530] transition-colors"
+              >
+                View Plans
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+              <Link
+                href="/dashboard"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/60 text-sm hover:bg-white/[0.08] transition-colors"
+              >
+                Back to Dashboard
+              </Link>
+            </div>
+          </div>
+        </main>
+
+        <Footer />
+      </div>
+    );
   }
 
   return (
@@ -139,23 +190,30 @@ export default function DomainLandingPage() {
           onSubmit={handleAskSubmit}
         />
 
-        {/* What's Happening Now - Real-time Intelligence */}
+        {/* What's Happening Now - Real-time live signals */}
         <DomainInsights
           sector={currentSector}
-          items={intelligenceItems}
-          isLoading={intelligenceLoading}
-          error={null}
-          source="fallback"
-          seasonContext="SS26"
-          onRefresh={handleRefresh}
+          onSignalClick={handlePromptClick}
         />
 
-        {/* Intelligence Modules */}
+        {/* Last Week's Insights - AI-curated weekly intelligence */}
+        <WeeklyInsights
+          sector={currentSector}
+          onInsightClick={handlePromptClick}
+        />
+
+        {/* Curated Mood Board - AI-generated visual references */}
+        <MoodBoard sector={currentSector} />
+
+        {/* Research Modules - Deep dive research tracks */}
         <DomainModules
           sector={currentSector}
-          onModuleClick={handleModuleClick}
+          onModuleClick={handlePromptClick}
         />
       </main>
+
+      {/* Footer for all domain pages */}
+      <Footer />
     </div>
   );
 }

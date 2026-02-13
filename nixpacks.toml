@@ -1,0 +1,62 @@
+# Nixpacks Configuration for McLeuker Agentic AI Backend
+# =======================================================
+# Ensures Playwright, Chromium, and all dependencies are properly installed.
+
+[phases.setup]
+nixPkgs = [
+    "python311",
+    "python311Packages.pip",
+    "chromium",
+    "nodejs_20",
+    "npm",
+    "git",
+    "curl",
+    "wget",
+    "unzip",
+    "fontconfig",
+    "freetype",
+    "nss",
+    "nspr",
+    "atk",
+    "at-spi2-atk",
+    "at-spi2-core",
+    "gtk3",
+    "pango",
+    "cairo",
+    "gdk-pixbuf",
+    "glib",
+    "dbus",
+    "libxcb",
+    "libX11",
+    "libXcomposite",
+    "libXdamage",
+    "libXext",
+    "libXfixes",
+    "libXrandr",
+    "libxkbcommon",
+    "alsa-lib",
+    "cups",
+    "mesa",
+    "libdrm",
+]
+
+[phases.install]
+cmds = [
+    "python -m pip install --upgrade pip",
+    "pip install -r requirements.txt",
+    "playwright install chromium",
+    "playwright install-deps chromium",
+]
+
+[phases.build]
+cmds = [
+    "echo 'Build phase complete'",
+]
+
+[start]
+cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --loop uvloop"
+
+[variables]
+PYTHONUNBUFFERED = "1"
+PLAYWRIGHT_BROWSERS_PATH = "0"
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = "/usr/bin/chromium"

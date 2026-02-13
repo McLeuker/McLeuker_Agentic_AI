@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const { signIn, signInWithGoogle, loading: authLoading } = useAuth();
   
@@ -16,6 +16,21 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const searchParams = useSearchParams();
+
+  // Check for OAuth errors in URL params
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    const errorDescription = searchParams.get('error_description');
+    
+    if (errorParam) {
+      if (errorDescription) {
+        setError(decodeURIComponent(errorDescription.replace(/\+/g, ' ')));
+      } else {
+        setError('Authentication failed. Please try again.');
+      }
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +43,8 @@ export default function LoginPage() {
       setError(error.message || "Failed to sign in");
       setIsLoading(false);
     } else {
-      router.push("/dashboard");
+      const redirectUrl = searchParams.get('redirect') || '/dashboard';
+      router.push(redirectUrl);
     }
   };
 
@@ -51,7 +67,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-10">
           <Link href="/" className="inline-block">
-            <span className="font-editorial text-2xl text-white">McLeuker</span>
+            <span className="font-editorial text-2xl text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
           </Link>
         </div>
 
@@ -162,8 +178,8 @@ export default function LoginPage() {
               disabled={isLoading || authLoading}
               className={cn(
                 "w-full flex items-center justify-center gap-2 px-6 py-3 rounded-full",
-                "bg-gradient-to-r from-purple-600 to-purple-700 text-white font-medium",
-                "hover:from-purple-500 hover:to-purple-600 transition-all",
+                "bg-gradient-to-r from-[#2E3524] to-[#21261A] text-white font-medium",
+                "hover:from-[#3a4330] hover:to-[#2a3021] transition-all",
                 "disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
@@ -174,8 +190,8 @@ export default function LoginPage() {
 
           <div className="mt-8 pt-6 border-t border-white/[0.08] text-center">
             <p className="text-sm text-white/55">
-              Don't have an account?{" "}
-              <Link href="/signup" className="text-purple-400 hover:text-purple-300 transition-colors">
+              Don&apos;t have an account?{" "}
+              <Link href="/signup" className="text-[#5c6652] hover:text-[#7a8a6e] transition-colors">
                 Sign up
               </Link>
             </p>
@@ -190,5 +206,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#070707] flex items-center justify-center">
+        <div className="text-white/40">Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

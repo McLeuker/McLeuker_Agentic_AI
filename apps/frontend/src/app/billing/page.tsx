@@ -1,15 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { UpgradePlanModal } from '@/components/billing/UpgradePlanModal';
+import { BuyCreditsModal } from '@/components/billing/BuyCreditsModal';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -23,129 +23,130 @@ import {
 import {
   CreditCard,
   Coins,
-  Calendar,
   TrendingUp,
-  ArrowUpRight,
+  ArrowRight,
   Zap,
   Receipt,
   ChevronLeft,
   LogOut,
   CheckCircle,
   Clock,
-  XCircle,
+  Gift,
+  ShoppingCart,
+  ExternalLink,
+  Flame,
+  Crown,
+  Search,
+  Brain,
+  Palette,
+  Plus,
+  Settings,
 } from 'lucide-react';
 
-interface Transaction {
-  id: string;
-  amount: number;
-  type: string;
-  description: string | null;
-  balance_after: number;
-  created_at: string;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
+
+const PLAN_DETAILS: Record<string, { name: string; dailyCredits: number; monthlyCredits: number; maxDomains: number; price: string }> = {
+  free: { name: 'Free', dailyCredits: 15, monthlyCredits: 450, maxDomains: 2, price: '$0' },
+  standard: { name: 'Standard', dailyCredits: 50, monthlyCredits: 1500, maxDomains: 5, price: '$19/mo' },
+  pro: { name: 'Pro', dailyCredits: 300, monthlyCredits: 9000, maxDomains: 10, price: '$99/mo' },
+  enterprise: { name: 'Enterprise', dailyCredits: 500, monthlyCredits: 25000, maxDomains: 10, price: 'Custom' },
+};
+
+interface CreditSummary {
+  balance: number;
+  plan: string;
+  plan_name?: string;
+  monthly_credits?: number;
+  daily_credits_available?: boolean;
+  daily_credits_balance?: number;
+  daily_fresh_credits?: number;
+  extra_credits?: number;
+  streak?: number;
+  total_consumed?: number;
+  max_domains?: number;
+  billing_interval?: string;
 }
 
-// Pricing configuration
-const SUBSCRIPTION_PLANS = {
-  free: {
-    name: 'Free',
-    monthlyPrice: 0,
-    yearlyPrice: 0,
-    credits: 50,
-    description: 'Get started with basic AI research',
-  },
-  starter: {
-    name: 'Starter',
-    monthlyPrice: 29,
-    yearlyPrice: 290,
-    credits: 500,
-    description: 'For individual researchers',
-  },
-  pro: {
-    name: 'Pro',
-    monthlyPrice: 79,
-    yearlyPrice: 790,
-    credits: 2000,
-    description: 'For teams and power users',
-  },
-  enterprise: {
-    name: 'Enterprise',
-    monthlyPrice: 199,
-    yearlyPrice: 1990,
-    credits: 10000,
-    description: 'For organizations with advanced needs',
-  },
-};
+interface UsageItem {
+  date: string;
+  api_service: string;
+  api_operation: string;
+  credits_consumed: number;
+  task_type?: string;
+}
 
 function BillingContent() {
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, session, signOut } = useAuth();
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [usageTransactions, setUsageTransactions] = useState<Transaction[]>([]);
+  const [creditSummary, setCreditSummary] = useState<CreditSummary | null>(null);
+  const [usageHistory, setUsageHistory] = useState<UsageItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [claimingDaily, setClaimingDaily] = useState(false);
+  const [dailyClaimed, setDailyClaimed] = useState(false);
 
-  // Subscription state (would come from a hook in production)
-  const [plan, setPlan] = useState('free');
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly' | null>(null);
-  const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
-  const [creditBalance, setCreditBalance] = useState(50);
-  const [monthlyCredits, setMonthlyCredits] = useState(50);
-  const [extraCredits, setExtraCredits] = useState(0);
-  const [subscribed, setSubscribed] = useState(false);
+  // Modal states
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
 
-  const planConfig = SUBSCRIPTION_PLANS[plan as keyof typeof SUBSCRIPTION_PLANS] || SUBSCRIPTION_PLANS.free;
-  const totalCredits = monthlyCredits + extraCredits;
-  const usedCredits = totalCredits - creditBalance;
-  const usagePercentage = totalCredits > 0 ? (creditBalance / totalCredits) * 100 : 0;
+  const getAuthHeaders = useCallback(() => {
+    const token = session?.access_token;
+    return token ? { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+  }, [session]);
 
   useEffect(() => {
-    if (user) {
+    if (user && session) {
       fetchData();
     }
-  }, [user]);
+  }, [user, session]);
 
   const fetchData = async () => {
-    if (!user) return;
-
     try {
-      // Fetch user subscription data
-      const { data: userData } = await supabase
-        .from('users')
-        .select('subscription_plan, credit_balance')
-        .eq('user_id', user.id)
-        .single();
+      const [creditsRes, usageRes] = await Promise.all([
+        fetch(`${API_URL}/api/v1/billing/credits`, { headers: getAuthHeaders() }),
+        fetch(`${API_URL}/api/v1/billing/usage?days=30`, { headers: getAuthHeaders() }),
+      ]);
 
-      if (userData) {
-        setPlan(userData.subscription_plan || 'free');
-        setCreditBalance(userData.credit_balance || 50);
-        setMonthlyCredits(SUBSCRIPTION_PLANS[userData.subscription_plan as keyof typeof SUBSCRIPTION_PLANS]?.credits || 50);
-        setSubscribed(userData.subscription_plan !== 'free');
-      }
+      const creditsData = await creditsRes.json();
+      const usageData = await usageRes.json();
 
-      // Fetch billing transactions
-      const { data: billingData } = await supabase
-        .from('credit_transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .in('type', ['purchase', 'subscription_reset', 'refill'])
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      // Fetch usage transactions
-      const { data: usageData } = await supabase
-        .from('credit_transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('type', 'usage')
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      setTransactions(billingData || []);
-      setUsageTransactions(usageData || []);
+      if (creditsData.success) setCreditSummary(creditsData.data);
+      if (usageData.success) setUsageHistory(usageData.history || []);
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error fetching billing data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClaimDaily = async () => {
+    setClaimingDaily(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/billing/credits/claim-daily`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDailyClaimed(true);
+        setCreditSummary(prev => prev ? { ...prev, balance: data.new_balance, streak: data.streak } : prev);
+      }
+    } catch (error) {
+      console.error('Error claiming daily credits:', error);
+    } finally {
+      setClaimingDaily(false);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/subscriptions/portal`, { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (data.success && data.url) {
+        window.open(data.url, '_blank');
+      }
+    } catch (error) {
+      console.error('Error opening portal:', error);
     }
   };
 
@@ -154,45 +155,28 @@ function BillingContent() {
     router.push('/login');
   };
 
-  const getStatusBadge = () => {
-    if (!subscribed) return <Badge variant="outline">Free</Badge>;
-    if (subscriptionEnd && new Date(subscriptionEnd) < new Date()) {
-      return <Badge variant="destructive">Expired</Badge>;
-    }
-    return <Badge className="bg-green-600 hover:bg-green-600">Active</Badge>;
-  };
-
   const formatDate = (dateString: string) => {
     try {
       return new Date(dateString).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
+        year: 'numeric', month: 'short', day: 'numeric',
       });
-    } catch {
-      return '—';
-    }
+    } catch { return '—'; }
   };
 
-  const getActionType = (description: string | null) => {
-    if (description?.toLowerCase().includes('research')) return 'AI Research';
-    if (description?.toLowerCase().includes('market')) return 'Market Analysis';
-    if (description?.toLowerCase().includes('trend')) return 'Trend Report';
-    if (description?.toLowerCase().includes('supplier')) return 'Supplier Search';
-    if (description?.toLowerCase().includes('pdf')) return 'PDF Export';
-    if (description?.toLowerCase().includes('excel')) return 'Excel Export';
-    return 'AI Query';
-  };
+  const plan = creditSummary?.plan || 'free';
+  const planInfo = PLAN_DETAILS[plan] || PLAN_DETAILS.free;
+  const balance = creditSummary?.balance || 0;
+  const dailyBalance = creditSummary?.daily_credits_balance || 0;
+  const extraCredits = creditSummary?.extra_credits || 0;
+  const totalConsumed = creditSummary?.total_consumed || 0;
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0A0A0A]">
         <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] border-b border-white/[0.08]">
           <div className="h-16 lg:h-[72px] flex items-center justify-between px-6 lg:px-8">
-            <Link href="/dashboard" className="flex items-center gap-2 text-white/60 hover:text-white">
-              <ChevronLeft className="h-5 w-5" />
-            </Link>
-            <span className="font-editorial text-xl text-white">McLeuker</span>
+            <Link href="/dashboard" className="flex items-center gap-2 text-white/60 hover:text-white"><ChevronLeft className="h-5 w-5" /></Link>
+            <span className="font-editorial text-xl text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
             <div className="w-10" />
           </div>
         </header>
@@ -209,46 +193,64 @@ function BillingContent() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0A]">
+      {/* Modals */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
+      <BuyCreditsModal open={showCreditsModal} onOpenChange={setShowCreditsModal} />
+
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] border-b border-white/[0.08]">
         <div className="h-16 lg:h-[72px] flex items-center justify-between px-6 lg:px-8">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 text-white/60 hover:text-white transition-colors"
-          >
+          <Link href="/dashboard" className="flex items-center gap-2 text-white/60 hover:text-white transition-colors">
             <ChevronLeft className="h-5 w-5" />
             <span className="hidden sm:inline">Back to Dashboard</span>
           </Link>
-          <Link href="/" className="flex items-center">
-            <span className="font-editorial text-xl lg:text-2xl text-white tracking-[0.02em]">
-              McLeuker
-            </span>
+          <Link href="/" className="flex items-center justify-center">
+            <span className="font-editorial text-xl lg:text-[22px] text-white tracking-[0.02em]">McLeuker<span className="text-white/30">.ai</span></span>
           </Link>
-          <button
-            onClick={handleSignOut}
-            className="flex items-center gap-2 text-white/60 hover:text-white transition-colors"
-          >
-            <LogOut className="h-5 w-5" />
-            <span className="hidden sm:inline">Sign Out</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <Link href="/settings" className="text-white/60 hover:text-white transition-colors">
+              <Settings className="h-5 w-5" />
+            </Link>
+            <button onClick={handleSignOut} className="flex items-center gap-2 text-white/60 hover:text-white transition-colors">
+              <LogOut className="h-5 w-5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="pt-24 lg:pt-28 pb-12 px-4 lg:px-8">
         <div className="max-w-5xl mx-auto">
-          {/* Header */}
-          <div className="mb-8 lg:mb-12">
-            <h1 className="text-3xl lg:text-4xl font-serif font-light tracking-tight text-white">
-              Billing & Credits
-            </h1>
-            <p className="text-white/60 mt-2">
-              Manage your subscription, credits, and billing history
-            </p>
+          <div className="mb-8 lg:mb-12 flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl lg:text-4xl font-serif font-light tracking-tight text-white">Billing & Credits</h1>
+              <p className="text-white/60 mt-2">Manage your subscription, credits, and billing history</p>
+            </div>
+            {/* Quick action buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => setShowCreditsModal(true)}
+                className="bg-white text-black hover:bg-white/90 text-sm"
+              >
+                <Plus className="h-4 w-4 mr-1.5" />
+                Buy Credits
+              </Button>
+              {(plan === 'free' || plan === 'standard') && (
+                <Button
+                  onClick={() => setShowUpgradeModal(true)}
+                  variant="outline"
+                  className="border-white/[0.12] text-white hover:bg-white/[0.08] text-sm"
+                >
+                  <TrendingUp className="h-4 w-4 mr-1.5" />
+                  Upgrade
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-8">
-            {/* Current Plan */}
+            {/* Current Plan Card */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -257,55 +259,85 @@ function BillingContent() {
                       <CreditCard className="h-5 w-5" />
                       Current Plan
                     </CardTitle>
-                    <CardDescription className="mt-1">{planConfig.description}</CardDescription>
+                    <CardDescription className="mt-1">Your active subscription tier</CardDescription>
                   </div>
-                  {getStatusBadge()}
+                  <Badge className={cn(
+                    plan === 'free' ? 'bg-white/10 text-white/60' :
+                    plan === 'standard' ? 'bg-blue-600/20 text-blue-400 border-blue-500/30' :
+                    plan === 'pro' ? 'bg-purple-600/20 text-purple-400 border-purple-500/30' :
+                    'bg-green-600/20 text-green-400 border-green-500/30'
+                  )}>
+                    {planInfo.name}
+                  </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-6 sm:grid-cols-4">
                   <div className="space-y-1">
                     <p className="text-sm text-white/60">Plan</p>
-                    <p className="text-2xl font-light capitalize text-white">{plan}</p>
+                    <p className="text-2xl font-light text-white">{planInfo.name}</p>
                   </div>
-
                   <div className="space-y-1">
-                    <p className="text-sm text-white/60">Billing Cycle</p>
-                    <p className="text-2xl font-light capitalize text-white">
-                      {billingCycle || '—'}
-                    </p>
+                    <p className="text-sm text-white/60">Daily Credits</p>
+                    <p className="text-2xl font-light text-white">{planInfo.dailyCredits}</p>
                   </div>
-
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60">Domains</p>
+                    <p className="text-2xl font-light text-white">{planInfo.maxDomains === 10 ? 'All 10' : planInfo.maxDomains}</p>
+                  </div>
                   <div className="space-y-1">
                     <p className="text-sm text-white/60">Price</p>
-                    <p className="text-2xl font-light text-white">
-                      {planConfig.monthlyPrice === 0
-                        ? '€0'
-                        : `€${
-                            billingCycle === 'yearly'
-                              ? Math.round((planConfig.yearlyPrice || 0) / 12)
-                              : planConfig.monthlyPrice
-                          }/mo`}
-                    </p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <p className="text-sm text-white/60">Renewal Date</p>
-                    <p className="text-2xl font-light text-white">
-                      {subscriptionEnd ? formatDate(subscriptionEnd) : '—'}
-                    </p>
+                    <p className="text-2xl font-light text-white">{planInfo.price}</p>
                   </div>
                 </div>
 
                 <Separator className="bg-white/[0.08]" />
 
+                {/* Upgrade prompt for free/standard users */}
+                {(plan === 'free' || plan === 'standard') && (
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
+                          <Crown className="h-5 w-5 text-white/50" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {plan === 'free' ? 'Upgrade to Standard or Pro' : 'Upgrade to Pro'}
+                          </p>
+                          <p className="text-xs text-white/40">
+                            {plan === 'free'
+                              ? 'Unlock deep search, file exports, and more domains'
+                              : 'Unlock agent mode and all 10 domains'}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => setShowUpgradeModal(true)}
+                        className="bg-white text-black hover:bg-white/90 text-sm"
+                      >
+                        <TrendingUp className="h-4 w-4 mr-2" />
+                        Upgrade
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-3">
-                  <Link href="/pricing">
-                    <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]">
-                      <TrendingUp className="h-4 w-4 mr-2" />
-                      {subscribed ? 'Change Plan' : 'Upgrade Plan'}
+                  <Button
+                    variant="outline"
+                    className="border-white/[0.08] text-white hover:bg-white/[0.08]"
+                    onClick={() => setShowUpgradeModal(true)}
+                  >
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    {plan === 'free' ? 'View Plans' : 'Change Plan'}
+                  </Button>
+                  {plan !== 'free' && (
+                    <Button variant="outline" className="border-white/[0.08] text-white hover:bg-white/[0.08]" onClick={handleManageSubscription}>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Manage Subscription
                     </Button>
-                  </Link>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -313,52 +345,166 @@ function BillingContent() {
             {/* Credit Overview */}
             <Card className="border-white/[0.08] bg-[#1A1A1A]">
               <CardHeader>
-                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
-                  <Coins className="h-5 w-5" />
-                  Credit Overview
-                </CardTitle>
+                <div className="flex items-start justify-between">
+                  <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
+                    <Coins className="h-5 w-5" />
+                    Credit Balance
+                  </CardTitle>
+                  <Button
+                    onClick={() => setShowCreditsModal(true)}
+                    className="bg-white text-black hover:bg-white/90 text-sm"
+                    size="sm"
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Buy Credits
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Main Credit Display */}
-                <div className="space-y-3">
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-4xl font-light text-white">{creditBalance.toLocaleString()}</p>
-                      <p className="text-sm text-white/60">credits available</p>
-                    </div>
-                    <div className="text-right text-sm text-white/60">
-                      <p>{usedCredits.toLocaleString()} used this period</p>
-                    </div>
+                <div className="grid gap-6 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60">Total Balance</p>
+                    <p className="text-4xl font-light text-white">{balance.toLocaleString()}</p>
+                    <p className="text-xs text-white/40">credits available</p>
                   </div>
-
-                  <Progress value={usagePercentage} className="h-2 bg-white/[0.08]" />
-
-                  {usagePercentage < 20 && creditBalance > 0 && (
+                  <div className="space-y-1">
                     <p className="text-sm text-white/60 flex items-center gap-1">
-                      <Zap className="h-4 w-4" />
-                      Low credits — consider a refill
+                      <Gift className="h-3 w-3" /> Daily Fresh
                     </p>
-                  )}
+                    <p className="text-2xl font-light text-white">{dailyBalance}</p>
+                    <p className="text-xs text-white/30">of {planInfo.dailyCredits} &middot; Instant search only</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-white/60 flex items-center gap-1">
+                      <ShoppingCart className="h-3 w-3" /> Purchased
+                    </p>
+                    <p className="text-2xl font-light text-white">{extraCredits.toLocaleString()}</p>
+                    <p className="text-xs text-white/30">All task types &middot; Never expires</p>
+                  </div>
                 </div>
+
+                {balance < 20 && (
+                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-between">
+                    <p className="text-sm text-orange-400 flex items-center gap-1">
+                      <Zap className="h-4 w-4" />
+                      Low credits — claim daily credits or purchase more
+                    </p>
+                    <Button
+                      onClick={() => setShowCreditsModal(true)}
+                      size="sm"
+                      className="bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 border border-orange-500/20 text-xs"
+                    >
+                      Buy Now
+                    </Button>
+                  </div>
+                )}
 
                 <Separator className="bg-white/[0.08]" />
 
-                {/* Credit Breakdown */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="p-4 rounded-lg bg-white/[0.03]">
-                    <p className="text-sm text-white/60">Monthly Allocation</p>
-                    <p className="text-xl font-light text-white mt-1">
-                      {monthlyCredits.toLocaleString()} credits
-                    </p>
-                    <p className="text-xs text-white/40 mt-1">Resets each billing cycle</p>
+                {/* Daily Credits Claim */}
+                <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-white/[0.05] flex items-center justify-center">
+                        <Gift className="h-5 w-5 text-white/50" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">Daily Fresh Credits</p>
+                        <p className="text-xs text-white/40">
+                          Claim {planInfo.dailyCredits} credits every day &middot; Usable for instant search
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {creditSummary?.streak && creditSummary.streak > 1 && (
+                        <div className="flex items-center gap-1 text-orange-400">
+                          <Flame className="h-4 w-4" />
+                          <span className="text-sm font-medium">{creditSummary.streak}-day streak</span>
+                        </div>
+                      )}
+                      <Button
+                        onClick={handleClaimDaily}
+                        disabled={claimingDaily || dailyClaimed || !creditSummary?.daily_credits_available}
+                        className={cn(
+                          "text-sm",
+                          dailyClaimed || !creditSummary?.daily_credits_available
+                            ? "bg-white/[0.05] text-white/30"
+                            : "bg-white text-black hover:bg-white/90"
+                        )}
+                      >
+                        {dailyClaimed ? (
+                          <><CheckCircle className="h-4 w-4 mr-1" /> Claimed</>
+                        ) : !creditSummary?.daily_credits_available ? (
+                          <><Clock className="h-4 w-4 mr-1" /> Already Claimed</>
+                        ) : claimingDaily ? (
+                          'Claiming...'
+                        ) : (
+                          <><Gift className="h-4 w-4 mr-1" /> Claim Now</>
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="p-4 rounded-lg bg-white/[0.03]">
-                    <p className="text-sm text-white/60">Extra Credits</p>
-                    <p className="text-xl font-light text-white mt-1">
-                      {extraCredits.toLocaleString()} credits
-                    </p>
-                    <p className="text-xs text-white/40 mt-1">Never expires</p>
+                </div>
+
+                {/* Credit type explanation */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Search className="h-3.5 w-3.5 text-white/40" />
+                      <span className="text-xs font-medium text-white/60">Daily Fresh Credits</span>
+                    </div>
+                    <p className="text-[11px] text-white/30">Instant mode only. Refresh daily. Cannot be used for auto or agent mode tasks.</p>
                   </div>
+                  <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Brain className="h-3.5 w-3.5 text-white/40" />
+                      <span className="text-xs font-medium text-white/60">Purchased Credits</span>
+                    </div>
+                    <p className="text-[11px] text-white/30">All modes: auto, instant, agent. File exports included. Never expire.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Credit Cost Reference */}
+            <Card className="border-white/[0.08] bg-[#1A1A1A]">
+              <CardHeader>
+                <CardTitle className="text-lg font-medium flex items-center gap-2 text-white">
+                  <Zap className="h-5 w-5" />
+                  Credit Usage Guide
+                </CardTitle>
+                <CardDescription>How many credits each task type costs</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Search className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Auto Mode</p>
+                    <p className="text-xs text-white/40 mt-1">3-20 credits per task</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Smart routing, deep analysis, file exports</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Zap className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Instant Mode</p>
+                    <p className="text-xs text-white/40 mt-1">2-8 credits per task</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Fast answers, quick lookups</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
+                    <Brain className="h-5 w-5 mx-auto text-white/40 mb-2" />
+                    <p className="text-sm font-medium text-white">Agent Mode</p>
+                    <p className="text-xs text-white/40 mt-1">5-40 credits per task</p>
+                    <p className="text-[10px] text-white/30 mt-0.5">Multi-step reasoning, complex tasks</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 text-center">
+                  <Button
+                    onClick={() => setShowCreditsModal(true)}
+                    className="bg-white text-black hover:bg-white/90"
+                  >
+                    <ShoppingCart className="h-4 w-4 mr-2" />
+                    Purchase Credits
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -370,32 +516,32 @@ function BillingContent() {
                   <Receipt className="h-5 w-5" />
                   Recent Usage
                 </CardTitle>
-                <CardDescription>Your recent AI research activities</CardDescription>
+                <CardDescription>Your recent AI research activities (last 30 days) &middot; {totalConsumed} credits consumed</CardDescription>
               </CardHeader>
               <CardContent>
-                {usageTransactions.length === 0 ? (
+                {usageHistory.length === 0 ? (
                   <div className="text-center py-8">
                     <Coins className="h-12 w-12 mx-auto text-white/20 mb-3" />
                     <p className="text-white/60">No usage history yet</p>
-                    <p className="text-sm text-white/40 mt-1">
-                      Start using AI research to see your activity here
-                    </p>
+                    <p className="text-sm text-white/40 mt-1">Start using AI research to see your activity here</p>
                   </div>
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow className="border-white/[0.08]">
                         <TableHead className="text-white/60">Date</TableHead>
-                        <TableHead className="text-white/60">Action</TableHead>
+                        <TableHead className="text-white/60">Service</TableHead>
+                        <TableHead className="text-white/60">Operation</TableHead>
                         <TableHead className="text-right text-white/60">Credits</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {usageTransactions.slice(0, 10).map((tx) => (
-                        <TableRow key={tx.id} className="border-white/[0.08]">
-                          <TableCell className="text-white/60">{formatDate(tx.created_at)}</TableCell>
-                          <TableCell className="text-white">{getActionType(tx.description || '')}</TableCell>
-                          <TableCell className="text-right text-red-400">-{Math.abs(tx.amount)}</TableCell>
+                      {usageHistory.slice(0, 20).map((item, i) => (
+                        <TableRow key={i} className="border-white/[0.08]">
+                          <TableCell className="text-white/60">{formatDate(item.date)}</TableCell>
+                          <TableCell className="text-white capitalize">{item.api_service}</TableCell>
+                          <TableCell className="text-white/60">{item.api_operation}</TableCell>
+                          <TableCell className="text-right text-red-400">-{item.credits_consumed}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

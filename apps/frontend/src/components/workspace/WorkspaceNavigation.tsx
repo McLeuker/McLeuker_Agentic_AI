@@ -57,23 +57,23 @@ export function WorkspaceNavigation({
       const { data } = await supabase
         .from("users")
         .select("name, profile_image")
-        .eq("user_id", user.id)
+        .eq("id", user.id)
         .single();
       
       if (data) {
         setUserProfile(data);
       }
 
-      // Fetch subscription info
-      const { data: subData } = await supabase
-        .from("subscriptions")
-        .select("plan, credits_remaining")
-        .eq("user_id", user.id)
+      // Fetch subscription info from users table
+      const { data: userData } = await supabase
+        .from("users")
+        .select("subscription_tier, credits_balance")
+        .eq("id", user.id)
         .single();
 
-      if (subData) {
-        setPlan(subData.plan || "free");
-        setCreditBalance(subData.credits_remaining || 50);
+      if (userData) {
+        setPlan(userData.subscription_tier || "free");
+        setCreditBalance(userData.credits_balance || 50);
       }
     } catch (error) {
       console.error("Error fetching user profile:", error);
@@ -99,6 +99,14 @@ export function WorkspaceNavigation({
   const handleSectorClick = (sector: Sector) => {
     setSector(sector);
     if (sector === "all") {
+      // Clear any stored conversation so Global always goes to dashboard landing page
+      try {
+        localStorage.removeItem('mcleuker_last_conversation_id');
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('autoExecute');
+        sessionStorage.setItem('resetDashboard', 'true');
+      } catch (e) {}
+      // Navigate to dashboard landing page ("Where is my mind?" view)
       router.push("/dashboard");
     } else {
       router.push(`/domain/${sector}`);
@@ -136,8 +144,8 @@ export function WorkspaceNavigation({
         {/* Logo */}
         <div className="flex items-center gap-4 shrink-0">
           <Link href="/" className="flex items-center">
-            <span className="font-serif text-xl lg:text-2xl text-white tracking-[0.02em]">
-              McLeuker
+            <span className="font-editorial text-xl lg:text-[22px] text-white tracking-[0.02em]">
+              McLeuker<span className="text-white/30">.ai</span>
             </span>
           </Link>
         </div>

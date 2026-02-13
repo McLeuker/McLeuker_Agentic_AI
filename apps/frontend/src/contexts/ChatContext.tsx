@@ -40,7 +40,7 @@ export interface ActiveChat {
   messages: Message[];
   isStreaming: boolean;
   pendingMessage: string | null;
-  searchMode: 'quick' | 'deep';
+  searchMode: 'auto' | 'instant' | 'agent';
   sector: string;
 }
 
@@ -50,7 +50,7 @@ interface ChatContextType {
   updateMessages: (messages: Message[]) => void;
   setIsStreaming: (streaming: boolean) => void;
   setPendingMessage: (message: string | null) => void;
-  setSearchMode: (mode: 'quick' | 'deep') => void;
+  setSearchMode: (mode: 'auto' | 'instant' | 'agent') => void;
   setSector: (sector: string) => void;
   clearChat: () => void;
   abortController: AbortController | null;
@@ -70,7 +70,7 @@ const defaultChat: ActiveChat = {
   messages: [],
   isStreaming: false,
   pendingMessage: null,
-  searchMode: 'quick',
+  searchMode: 'auto',
   sector: 'all',
 };
 
@@ -162,7 +162,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const setSearchMode = useCallback((mode: 'quick' | 'deep') => {
+  const setSearchMode = useCallback((mode: 'auto' | 'instant' | 'agent') => {
     setActiveChatState(prev => ({
       ...prev,
       searchMode: mode,

@@ -40,14 +40,32 @@ import {
   File,
   FileDown,
   FileSpreadsheet,
-  Presentation
+  Presentation,
+  Bot,
+  Code2,
+  Palette,
+  Lock,
+  Crown,
+  TrendingUp,
+  ArrowRight,
+  ThumbsUp,
+  ThumbsDown,
+  Share2,
+  RotateCcw
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
+import { useDailyCredits } from "@/hooks/useDailyCredits";
 import { supabase } from "@/integrations/supabase/client";
+import { InlineModelPicker } from "@/components/chat/InlineModelPicker";
 import { useConversations, Conversation } from "@/hooks/useConversations";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { UpgradePlanModal } from "@/components/billing/UpgradePlanModal";
+import { BuyCreditsModal } from "@/components/billing/BuyCreditsModal";
+import { DomainTrends } from "@/components/trends/DomainTrends";
 import { formatDistanceToNow } from "date-fns";
+import { AgenticExecutionPanel } from "@/components/chat/AgenticExecutionPanel";
+import type { ExecutionStep, ExecutionArtifact } from "@/lib/agenticAPI";
 
 // =============================================================================
 // Types - Multi-Layer Agentic Reasoning
@@ -78,6 +96,13 @@ interface AttachedFile {
   base64?: string;
 }
 
+interface DownloadFile {
+  filename: string;
+  download_url: string;
+  file_id: string;
+  file_type: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -89,6 +114,14 @@ interface Message {
   isStreaming: boolean;
   is_favorite?: boolean;
   attachedFiles?: AttachedFile[];
+  downloads?: DownloadFile[];
+  toolStatus?: string;
+  toolProgress?: { message: string; tools: string[] }[];
+  searchSources?: { title: string; url: string; source: string }[];
+  taskSteps?: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[];
+  thinkingSteps?: string[];
+  _taskExpanded?: boolean;
+  _thinkingExpanded?: boolean;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -203,6 +236,142 @@ function ReasoningLayerItem({
 }
 
 // =============================================================================
+// Sources Section Component - Expandable with clickable "+N more"
+// =============================================================================
+
+function SourcesSection({ 
+  sources, 
+  ensureValidUrl 
+}: { 
+  sources: Source[]; 
+  ensureValidUrl: (url: string) => string;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const INITIAL_COUNT = 8;
+  const displayedSources = showAll ? sources : sources.slice(0, INITIAL_COUNT);
+  const hiddenCount = sources.length - INITIAL_COUNT;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-white/[0.04]">
+      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Sources ({sources.length})</p>
+      <div className="flex flex-wrap gap-1.5">
+        {displayedSources.map((source, i) => {
+          const validUrl = ensureValidUrl(source.url);
+          const isClickable = validUrl !== '#';
+          let favicon = '';
+          try {
+            favicon = isClickable ? `https://www.google.com/s2/favicons?domain=${new URL(validUrl).hostname}&sz=16` : '';
+          } catch { /* ignore */ }
+          return isClickable ? (
+            <a
+              key={i}
+              href={validUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/[0.12] rounded-lg text-[11px] text-white/50 hover:text-white/80 transition-all"
+            >
+              {favicon && <img src={favicon} alt="" className="w-3 h-3 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+              <span className="truncate max-w-[140px]">{source.title || 'Source'}</span>
+            </a>
+          ) : null; // Skip sources without valid URLs
+        })}
+        {!showAll && hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAll(true)}
+            className="flex items-center gap-1 px-2.5 py-1 bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] hover:border-[#5c6652]/40 rounded-lg text-[11px] text-[#8a9a7e] hover:text-[#aabaa0] transition-all cursor-pointer"
+          >
+            <span>+{hiddenCount} more</span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        )}
+        {showAll && hiddenCount > 0 && (
+          <button
+            onClick={() => setShowAll(false)}
+            className="flex items-center gap-1 px-2.5 py-1 bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] hover:border-[#5c6652]/40 rounded-lg text-[11px] text-[#8a9a7e] hover:text-[#aabaa0] transition-all cursor-pointer"
+          >
+            <span>Show less</span>
+            <ChevronUp className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Collapsible Table Component - for raw data sections
+// =============================================================================
+
+function CollapsibleTable({
+  headers,
+  rows,
+  isLargeTable,
+  processInlineFormatting
+}: {
+  headers: string[];
+  rows: string[][];
+  isLargeTable: boolean;
+  processInlineFormatting: (line: string) => React.ReactNode[] | React.ReactNode;
+}) {
+  const [isCollapsed, setIsCollapsed] = useState(isLargeTable);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  const toggleCollapse = () => {
+    // Save scroll position before toggle
+    const scrollY = window.scrollY;
+    setIsCollapsed(!isCollapsed);
+    // Restore scroll position after render
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+    });
+  };
+  
+  const visibleRows = isCollapsed ? rows.slice(0, 3) : rows;
+  const hiddenCount = rows.length - 3;
+  
+  return (
+    <div ref={containerRef} className="my-2">
+      <div className="overflow-x-auto rounded-lg border border-white/[0.08]">
+        <table className="w-full text-[12px] border-collapse">
+          <thead>
+            <tr className="bg-white/[0.06]">
+              {headers.map((cell, ci) => (
+                <th key={ci} className="px-2 py-1.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap text-[11px] uppercase tracking-wider">
+                  {processInlineFormatting(cell)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleRows.map((row, ri) => (
+              <tr key={ri} className={`${ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'} hover:bg-white/[0.04] transition-colors`}>
+                {row.map((cell, ci) => (
+                  <td key={ci} className="px-2 py-1.5 text-white/65 border-b border-white/[0.04] leading-tight">
+                    {processInlineFormatting(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {isLargeTable && (
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center gap-1.5 mt-1.5 px-3 py-1 text-[11px] text-[#7a8a6e] hover:text-[#9aaa8e] transition-colors rounded-md hover:bg-white/[0.03]"
+        >
+          {isCollapsed ? (
+            <>Show all {rows.length} rows <ChevronDown className="h-3 w-3" /></>
+          ) : (
+            <>Collapse table <ChevronUp className="h-3 w-3" /></>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // Message Content Component - Updated with McLeuker green
 // =============================================================================
 
@@ -210,17 +379,58 @@ function MessageContent({
   content, 
   sources, 
   followUpQuestions,
-  onFollowUpClick 
+  onFollowUpClick,
+  searchQuery = '',
+  messageId = ''
 }: { 
   content: string; 
   sources: Source[]; 
   followUpQuestions: string[];
   onFollowUpClick: (question: string) => void;
+  searchQuery?: string;
+  messageId?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
+  const [showShareToast, setShowShareToast] = useState(false);
+
+  const handleFeedback = async (type: 'like' | 'dislike') => {
+    const newFeedback = feedback === type ? null : type;
+    setFeedback(newFeedback);
+    try {
+      if (messageId) {
+        // Feedback stored locally only (message_feedback table removed during database restructure)
+        console.log('Feedback:', messageId, newFeedback);
+      }
+    } catch (e) { console.error('Feedback error:', e); }
+  };
+
+  const handleShare = async () => {
+    const shareUrl = `${window.location.origin}/share/${messageId || 'temp'}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShowShareToast(true);
+      setTimeout(() => setShowShareToast(false), 2000);
+    } catch {
+      // Fallback
+      const input = document.createElement('input');
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      setShowShareToast(true);
+      setTimeout(() => setShowShareToast(false), 2000);
+    }
+  };
+
+  const handleRegenerate = () => {
+    // Re-send the last query
+    if (searchQuery) onFollowUpClick(searchQuery);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);
@@ -235,12 +445,24 @@ function MessageContent({
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
       
       // Step 1: Generate the document and get the download URL
-      const generateResponse = await fetch(`${API_URL}/api/document/generate`, {
+      // Map frontend format names to backend FileType enum values
+      const formatMap: Record<string, string> = {
+        'pdf': 'pdf',
+        'docx': 'word',
+        'xlsx': 'excel',
+        'pptx': 'pptx',
+        'markdown': 'markdown',
+        'csv': 'csv',
+      };
+      const backendFileType = formatMap[format] || format;
+      
+      const generateResponse = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: content,
-          format: format,
+          file_type: backendFileType,
+          prompt: searchQuery || 'McLeuker AI Report',
           title: 'McLeuker AI Report'
         })
       });
@@ -282,29 +504,98 @@ function MessageContent({
     }
   };
 
-  // Enhanced markdown rendering with bullet points, numbered lists, and emojis
+  // Helper to validate and fix URLs
+  const ensureValidUrl = (url: string): string => {
+    if (!url || typeof url !== 'string') return '#';
+    const trimmed = url.trim();
+    // Already a valid absolute URL
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    // Protocol-relative URL
+    if (trimmed.startsWith('//')) return `https:${trimmed}`;
+    // Looks like a domain (e.g. "example.com/path")
+    if (/^[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z]{2,}/.test(trimmed)) return `https://${trimmed}`;
+    // Relative path or malformed - return as-is with hash fallback
+    return trimmed.startsWith('/') ? trimmed : '#';
+  };
+
+  // Helper: highlight search matches in a text string
+  const highlightSearchInText = (text: string, query: string): React.ReactNode[] => {
+    if (!query || !query.trim()) return [text];
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part)
+        ? <mark key={`hl-${i}`} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</mark>
+        : part
+    );
+  };
+
+  // Enhanced markdown rendering with bullet points, numbered lists, links, and emojis
   const renderContent = (text: string) => {
     const lines = text.split('\n');
     const elements: React.ReactNode[] = [];
     let listItems: string[] = [];
     let listType: 'ul' | 'ol' | null = null;
+    let inCodeBlock = false;
+    let consecutiveEmptyLines = 0;
+    const skipLines = new Set<number>();
     
     const processInlineFormatting = (line: string) => {
-      // Bold text
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      const parts = line.split(boldRegex);
-      return parts.map((part, j) => 
-        j % 2 === 1 ? <strong key={j} className="text-white font-medium">{part}</strong> : part
-      );
+      // Strip citation markers like [1], [2], [1,2], [1, 2] etc.
+      line = line.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
+      line = line.replace(/\s{2,}/g, ' ').trim();
+      
+      // Process markdown: links [text](url), bold **text**, italic *text*, inline code `code`, bold-italic ***text***
+      const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`/g;
+      const result: React.ReactNode[] = [];
+      let lastIndex = 0;
+      let match;
+      let keyIdx = 0;
+
+      while ((match = combinedRegex.exec(line)) !== null) {
+        if (match.index > lastIndex) {
+          const plainText = line.slice(lastIndex, match.index);
+          result.push(...highlightSearchInText(plainText, searchQuery));
+        }
+
+        if (match[1] && match[2]) {
+          const href = ensureValidUrl(match[2]);
+          result.push(
+            <a key={`link-${keyIdx++}`} href={href} target="_blank" rel="noopener noreferrer"
+              className="text-[#7a8a6e] hover:text-[#9aaa8e] underline underline-offset-2 inline-flex items-center gap-0.5">
+              {highlightSearchInText(match[1], searchQuery)}
+              <ExternalLink className="h-3 w-3 inline-block" />
+            </a>
+          );
+        } else if (match[3]) {
+          result.push(<strong key={`bi-${keyIdx++}`} className="text-white font-semibold italic">{highlightSearchInText(match[3], searchQuery)}</strong>);
+        } else if (match[4]) {
+          result.push(<strong key={`bold-${keyIdx++}`} className="text-white font-semibold">{highlightSearchInText(match[4], searchQuery)}</strong>);
+        } else if (match[5]) {
+          result.push(<em key={`italic-${keyIdx++}`} className="text-white/90 italic">{highlightSearchInText(match[5], searchQuery)}</em>);
+        } else if (match[6]) {
+          result.push(<code key={`code-${keyIdx++}`} className="px-1.5 py-0.5 bg-white/[0.06] rounded text-[13px] text-white/80 font-mono">{match[6]}</code>);
+        }
+
+        lastIndex = match.index + match[0].length;
+      }
+
+      if (lastIndex < line.length) {
+        const remaining = line.slice(lastIndex);
+        result.push(...highlightSearchInText(remaining, searchQuery));
+      }
+
+      return result.length > 0 ? result : highlightSearchInText(line, searchQuery);
     };
     
     const flushList = () => {
       if (listItems.length > 0 && listType) {
         const ListTag = listType === 'ul' ? 'ul' : 'ol';
         elements.push(
-          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-1 my-3 ml-2`}>
+          <ListTag key={`list-${elements.length}`} className={`${listType === 'ul' ? 'list-disc' : 'list-decimal'} list-inside space-y-1 my-2 ml-3`}>
             {listItems.map((item, idx) => (
-              <li key={idx} className="text-white/80 leading-relaxed">
+              <li key={idx} className="text-[14px] text-white/80 leading-relaxed">
                 {processInlineFormatting(item)}
               </li>
             ))}
@@ -316,27 +607,126 @@ function MessageContent({
     };
     
     lines.forEach((line, i) => {
-      // Empty line
+      if (skipLines.has(i)) return;
+
+      // Code block toggle
+      if (line.trim().startsWith('```')) {
+        flushList();
+        consecutiveEmptyLines = 0;
+        if (!inCodeBlock) {
+          inCodeBlock = true;
+          const lang = line.trim().slice(3).trim();
+          elements.push(
+            <div key={`cb-start-${i}`} className="mt-3 rounded-t-lg bg-white/[0.04] border border-white/[0.06] border-b-0 px-3 py-1.5 flex items-center gap-2">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 rounded-full bg-white/10" />
+                <span className="w-2 h-2 rounded-full bg-white/10" />
+                <span className="w-2 h-2 rounded-full bg-white/10" />
+              </div>
+              {lang && <span className="text-[10px] text-white/30 uppercase tracking-wider">{lang}</span>}
+            </div>
+          );
+        } else {
+          inCodeBlock = false;
+          elements.push(
+            <div key={`cb-end-${i}`} className="rounded-b-lg bg-[#111] border border-white/[0.06] border-t-0 h-2" />
+          );
+        }
+        return;
+      }
+
+      if (inCodeBlock) {
+        elements.push(
+          <pre key={i} className="text-[13px] text-white/70 font-mono bg-[#111] border-x border-white/[0.06] px-4 py-0.5 leading-relaxed overflow-x-auto">{line}</pre>
+        );
+        return;
+      }
+
+      // Empty line - collapse consecutive empty lines into a single spacer
       if (!line.trim()) {
         flushList();
-        elements.push(<br key={i} />);
+        consecutiveEmptyLines++;
+        if (consecutiveEmptyLines <= 1) {
+          elements.push(<div key={`spacer-${i}`} className="h-3" />);
+        }
+        return;
+      }
+      consecutiveEmptyLines = 0;
+      
+      // Horizontal rule (--- or ***)
+      if (/^\s*[-*_]{3,}\s*$/.test(line)) {
+        flushList();
+        elements.push(<hr key={i} className="border-white/[0.08] my-4" />);
+        return;
+      }
+
+      // Blockquote (> text)
+      if (line.trim().startsWith('> ')) {
+        flushList();
+        elements.push(
+          <blockquote key={i} className="border-l-2 border-[#5c6652]/50 pl-4 py-1 my-2 text-white/60 italic text-[14px]">
+            {processInlineFormatting(line.trim().slice(2))}
+          </blockquote>
+        );
         return;
       }
       
-      // Headers
+      // Markdown table row - render as collapsible
+      if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+        if (/^\|[\s\-:|]+\|$/.test(line.trim())) return;
+        
+        const tableRows: string[][] = [];
+        const cells = line.trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+        tableRows.push(cells);
+        
+        let j = i + 1;
+        while (j < lines.length && lines[j].trim().startsWith('|') && lines[j].trim().endsWith('|')) {
+          if (!/^\|[\s\-:|]+\|$/.test(lines[j].trim())) {
+            const rowCells = lines[j].trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map(c => c.trim());
+            tableRows.push(rowCells);
+          }
+          skipLines.add(j);
+          j++;
+        }
+        
+        if (tableRows.length > 0) {
+          const tableKey = `table-${i}`;
+          const dataRows = tableRows.slice(1);
+          const isLargeTable = dataRows.length > 5;
+          
+          // Use a self-contained collapsible table component
+          elements.push(
+            <CollapsibleTable
+              key={tableKey}
+              headers={tableRows[0]}
+              rows={dataRows}
+              isLargeTable={isLargeTable}
+              processInlineFormatting={processInlineFormatting}
+            />
+          );
+        }
+        return;
+      }
+      
+      // Headers with consistent spacing
+      if (line.startsWith('#### ')) {
+        flushList();
+        elements.push(<h4 key={i} className="text-[14px] font-semibold text-white/90 mt-4 mb-1.5">{processInlineFormatting(line.slice(5))}</h4>);
+        return;
+      }
       if (line.startsWith('### ')) {
         flushList();
-        elements.push(<h3 key={i} className="text-lg font-semibold text-white mt-4 mb-2">{line.slice(4)}</h3>);
+        elements.push(<h3 key={i} className="text-[15px] font-semibold text-white mt-5 mb-2">{processInlineFormatting(line.slice(4))}</h3>);
         return;
       }
       if (line.startsWith('## ')) {
         flushList();
-        elements.push(<h2 key={i} className="text-xl font-semibold text-white mt-5 mb-3">{line.slice(3)}</h2>);
+        elements.push(<h2 key={i} className="text-[17px] font-semibold text-white mt-6 mb-2">{processInlineFormatting(line.slice(3))}</h2>);
         return;
       }
       if (line.startsWith('# ')) {
         flushList();
-        elements.push(<h1 key={i} className="text-2xl font-bold text-white mt-6 mb-4">{line.slice(2)}</h1>);
+        elements.push(<h1 key={i} className="text-xl font-bold text-white mt-6 mb-3">{processInlineFormatting(line.slice(2))}</h1>);
         return;
       }
       
@@ -365,7 +755,7 @@ function MessageContent({
       // Regular paragraph
       flushList();
       elements.push(
-        <p key={i} className="text-white/80 leading-relaxed mb-2">
+        <p key={i} className="text-[14px] text-white/80 leading-relaxed mb-1.5">
           {processInlineFormatting(line)}
         </p>
       );
@@ -376,132 +766,109 @@ function MessageContent({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Action Buttons - ABOVE the answer text */}
-      <div className="flex items-center gap-1 mb-2">
-        {/* Copy Button */}
-        <button
-          onClick={handleCopy}
-          className="p-1.5 text-white/30 hover:text-white/60 transition-colors rounded"
-          title="Copy to clipboard"
-        >
-          {copied ? <Check className="h-3.5 w-3.5 text-[#5c6652]" /> : <Copy className="h-3.5 w-3.5" />}
-        </button>
-        
-        {/* Export Menu */}
-        <div className="relative">
-          <button
-            onClick={() => setShowExportMenu(!showExportMenu)}
-            className="p-1.5 text-white/30 hover:text-white/60 transition-colors rounded"
-            title="Export document"
-          >
-            <FileDown className="h-3.5 w-3.5" />
-          </button>
-          
-          {showExportMenu && (
-            <div className="absolute left-0 top-full mt-1 bg-[#1a1a1a] border border-white/10 rounded-lg shadow-xl z-50 min-w-[160px] py-1">
-              <button
-                onClick={() => handleExport('pdf')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-red-400" />}
-                Export as PDF
-              </button>
-              <button
-                onClick={() => handleExport('docx')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'docx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-blue-400" />}
-                Export as Word
-              </button>
-              <button
-                onClick={() => handleExport('xlsx')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'xlsx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-[#5c6652]" />}
-                Export as Excel
-              </button>
-              <button
-                onClick={() => handleExport('pptx')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4 text-orange-400" />}
-                Export as PowerPoint
-              </button>
-              <button
-                onClick={() => handleExport('markdown')}
-                disabled={!!exporting}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors disabled:opacity-50"
-              >
-                {exporting === 'markdown' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-white/60" />}
-                Export as Markdown
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
+    <div className="space-y-0">
       {/* Response Content */}
       <div className="relative">
-        <div className={cn(
-          "prose prose-invert prose-sm max-w-none",
-          !expanded && "max-h-[300px] overflow-hidden"
-        )}>
+        <div className="prose prose-invert prose-sm max-w-none">
           {renderContent(content)}
         </div>
         
-        {content.length > 1000 && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-xs text-[#5c6652] hover:text-[#7a8a6e] mt-2"
-          >
-            {expanded ? (
-              <>Show less <ChevronUp className="h-3 w-3" /></>
-            ) : (
-              <>Show more <ChevronDown className="h-3 w-3" /></>
-            )}
-          </button>
+        {content.length > 3000 && (
+          <div className="relative mt-0">
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center gap-1 text-xs text-[#7a8a6e] hover:text-[#9aaa8e] mt-2 transition-colors"
+            >
+              {expanded ? (
+                <>Show less <ChevronUp className="h-3 w-3" /></>
+              ) : (
+                <>Continue reading <ChevronDown className="h-3 w-3" /></>
+              )}
+            </button>
+          </div>
         )}
+      </div>
+
+      {/* Action Bar - ChatGPT-style buttons */}
+      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-white/[0.04]">
+        <button
+          onClick={handleCopy}
+          className="p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+          title={copied ? 'Copied!' : 'Copy'}
+        >
+          {copied ? <Check className="h-4 w-4 text-[#8a9a7e]" /> : <Copy className="h-4 w-4" />}
+        </button>
+
+        <button
+          onClick={() => handleFeedback('like')}
+          className={cn(
+            "p-1.5 rounded-md transition-all",
+            feedback === 'like'
+              ? "text-[#8a9a7e] bg-[#2E3524]/20"
+              : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+          )}
+          title="Good response"
+        >
+          <ThumbsUp className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={() => handleFeedback('dislike')}
+          className={cn(
+            "p-1.5 rounded-md transition-all",
+            feedback === 'dislike'
+              ? "text-red-400/80 bg-red-500/10"
+              : "text-white/30 hover:text-white/70 hover:bg-white/[0.05]"
+          )}
+          title="Bad response"
+        >
+          <ThumbsDown className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={handleRegenerate}
+          className="p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+          title="Regenerate response"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+
+        <div className="relative">
+          <button
+            onClick={handleShare}
+            className="p-1.5 rounded-md text-white/30 hover:text-white/70 hover:bg-white/[0.05] transition-all"
+            title="Share"
+          >
+            <Share2 className="h-4 w-4" />
+          </button>
+          {showShareToast && (
+            <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2.5 py-1 bg-[#1a1a1a] border border-white/10 rounded-lg text-[10px] text-white/70 whitespace-nowrap shadow-xl">
+              Link copied!
+            </div>
+          )}
+        </div>
+
+
       </div>
 
       {/* Sources */}
       {sources.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <p className="text-xs font-medium text-white/50 mb-2">Sources ({sources.length})</p>
-          <div className="flex flex-wrap gap-2">
-            {sources.map((source, i) => (
-              <a
-                key={i}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all"
-              >
-                <Globe className="h-3 w-3" />
-                <span className="truncate max-w-[150px]">{source.title}</span>
-                <ExternalLink className="h-3 w-3 flex-shrink-0" />
-              </a>
-            ))}
-          </div>
-        </div>
+        <SourcesSection sources={sources} ensureValidUrl={ensureValidUrl} />
       )}
 
       {/* Follow-up Questions */}
       {followUpQuestions.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-white/10">
-          <p className="text-xs font-medium text-white/50 mb-2">Continue exploring</p>
-          <div className="flex flex-wrap gap-2">
+        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+          <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Continue exploring</p>
+          <div className="flex flex-col gap-1.5">
             {followUpQuestions.map((question, i) => (
               <button
                 key={i}
                 onClick={() => onFollowUpClick(question)}
-                className="px-3 py-1.5 bg-white/5 hover:bg-[#2E3524]/10 border border-white/10 hover:border-[#2E3524]/30 rounded-lg text-xs text-white/70 hover:text-white transition-all text-left"
+                className="flex items-center gap-2 px-3 py-2 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.05] hover:border-white/[0.10] rounded-xl text-xs text-white/50 hover:text-white/80 transition-all text-left group"
               >
-                {question}
+                <Search className="h-3 w-3 text-white/20 group-hover:text-[#5c6652] transition-colors flex-shrink-0" />
+                <span className="line-clamp-1">{question}</span>
               </button>
             ))}
           </div>
@@ -523,6 +890,8 @@ interface ChatSidebarProps {
   onSelectConversation: (conv: Conversation) => void;
   onDeleteConversation: (id: string) => void;
   onNewConversation: () => void;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
 }
 
 function ChatSidebar({
@@ -533,14 +902,86 @@ function ChatSidebar({
   onSelectConversation,
   onDeleteConversation,
   onNewConversation,
+  searchQuery,
+  onSearchQueryChange,
 }: ChatSidebarProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const { user } = useAuth();
+  const setSearchQuery = onSearchQueryChange;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [messageMatchIds, setMessageMatchIds] = useState<Set<string>>(new Set());
+  const [messageSnippets, setMessageSnippets] = useState<Record<string, string>>({});
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const filteredConversations = conversations.filter((conv) =>
-    conv.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Debounced search across chat_messages content
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (!searchQuery.trim() || !user) {
+      setMessageMatchIds(new Set());
+      setMessageSnippets({});
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase
+          .from('chat_messages')
+          .select('conversation_id, content, role')
+          .eq('user_id', user.id)
+          .ilike('content', `%${searchQuery.trim()}%`)
+          .limit(200);
+
+        if (!error && data) {
+          const ids = new Set<string>();
+          const snippets: Record<string, string> = {};
+          data.forEach((msg: any) => {
+            ids.add(msg.conversation_id);
+            // Keep first matching snippet per conversation
+            if (!snippets[msg.conversation_id]) {
+              const idx = msg.content.toLowerCase().indexOf(searchQuery.toLowerCase());
+              const start = Math.max(0, idx - 30);
+              const end = Math.min(msg.content.length, idx + searchQuery.length + 30);
+              snippets[msg.conversation_id] = (start > 0 ? '...' : '') + msg.content.slice(start, end) + (end < msg.content.length ? '...' : '');
+            }
+          });
+          setMessageMatchIds(ids);
+          setMessageSnippets(snippets);
+        }
+      } catch (e) {
+        console.error('Search error:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [searchQuery, user]);
+
+  // Filter conversations by title match OR message content match
+  const filteredConversations = conversations.filter((conv) => {
+    if (!searchQuery.trim()) return true;
+    const titleMatch = conv.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const messageMatch = messageMatchIds.has(conv.id);
+    return titleMatch || messageMatch;
+  });
+
+  // Helper to highlight matching text
+  const highlightMatch = (text: string, query: string) => {
+    if (!query.trim()) return text;
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      regex.test(part)
+        ? <span key={i} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</span>
+        : part
+    );
+  };
 
   const handleDeleteClick = (e: React.MouseEvent, conversationId: string) => {
     e.stopPropagation();
@@ -625,6 +1066,9 @@ function ChatSidebar({
                 "transition-all"
               )}
             />
+            {isSearching && (
+              <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40 animate-spin" />
+            )}
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
@@ -670,8 +1114,13 @@ function ChatSidebar({
                   <MessageSquare className="h-4 w-4 text-white/50 flex-shrink-0" />
                   <div className="flex-1 min-w-0 pr-6">
                     <p className="text-[12px] font-medium text-white/90 line-clamp-2 leading-relaxed">
-                      {conv.title}
+                      {searchQuery ? highlightMatch(conv.title, searchQuery) : conv.title}
                     </p>
+                    {searchQuery && messageSnippets[conv.id] && (
+                      <p className="text-[10px] text-white/50 mt-1 line-clamp-2 leading-relaxed">
+                        {highlightMatch(messageSnippets[conv.id], searchQuery)}
+                      </p>
+                    )}
                     <p className="text-[10px] text-white/45 mt-1.5">
                       {formatDistanceToNow(conv.updatedAt, { addSuffix: true })}
                     </p>
@@ -728,33 +1177,76 @@ function ChatSidebar({
 // Domain Tabs Component - Non-scrollable, centered with olive glow underline
 // =============================================================================
 
+// Domain access rules per plan tier — all domains unlocked for all users
+const ALL_DOMAINS: Sector[] = ['all', 'fashion', 'beauty', 'skincare', 'sustainability', 'fashion-tech', 'catwalks', 'culture', 'textile', 'lifestyle'];
+const DOMAIN_ACCESS: Record<string, Sector[]> = {
+  free: ALL_DOMAINS,
+  standard: ALL_DOMAINS,
+  pro: ALL_DOMAINS,
+  enterprise: ALL_DOMAINS,
+};
+
 function DomainTabs() {
   const { currentSector, setSector } = useSector();
+  const { user } = useAuth();
   const router = useRouter();
+  const [userPlan, setUserPlan] = useState('free');
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [blockedDomain, setBlockedDomain] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('users')
+      .select('subscription_plan')
+      .eq('id', user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (!error && data?.subscription_plan) setUserPlan(data.subscription_plan);
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const accessibleDomains = DOMAIN_ACCESS[userPlan] || DOMAIN_ACCESS.free;
   
   const handleDomainClick = (sectorId: Sector) => {
+    if (!accessibleDomains.includes(sectorId)) {
+      setBlockedDomain(sectorId);
+      setShowUpgradeModal(true);
+      return;
+    }
     setSector(sectorId);
-    // Navigate to domain page for all tabs
-    router.push(`/domain/${sectorId}`);
+    // Stay on dashboard - don't navigate away
   };
 
   return (
-    <div className="flex items-center justify-center gap-1">
-      {SECTORS.map((sector) => (
-        <button
-          key={sector.id}
-          onClick={() => handleDomainClick(sector.id)}
-          className={cn(
-            "domain-tab relative px-3 py-1.5 text-[13px] font-medium transition-all whitespace-nowrap",
-            currentSector === sector.id
-              ? "domain-tab-active text-white"
-              : "text-white/50 hover:text-white/80"
-          )}
-        >
-          {sector.label}
-        </button>
-      ))}
-    </div>
+    <>
+      <div className="flex items-center justify-center gap-1">
+        {SECTORS.map((sector) => {
+          const isLocked = !accessibleDomains.includes(sector.id);
+          return (
+            <button
+              key={sector.id}
+              onClick={() => handleDomainClick(sector.id)}
+              className={cn(
+                "domain-tab relative px-3 py-1.5 text-[13px] font-medium transition-all whitespace-nowrap flex items-center gap-1",
+                currentSector === sector.id
+                  ? "domain-tab-active text-white"
+                  : isLocked
+                    ? "text-white/25 hover:text-white/40 cursor-not-allowed"
+                    : "text-white/50 hover:text-white/80"
+              )}
+            >
+              {sector.label}
+              {isLocked && <Lock className="w-2.5 h-2.5 text-white/20" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Upgrade Modal - uses professional pop-up */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
+    </>
   );
 }
 
@@ -770,6 +1262,8 @@ function ProfileDropdown() {
   const [creditBalance, setCreditBalance] = useState(50);
   const [plan, setPlan] = useState('free');
   const menuRef = useRef<HTMLDivElement>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -781,25 +1275,46 @@ function ProfileDropdown() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
+  const fetchUserData = useCallback(async () => {
     if (!user) return;
-    
-    const fetchUserData = async () => {
-      const { data } = await supabase
+    try {
+      // Fetch profile data from users table
+      const { data, error } = await supabase
         .from("users")
-        .select("name, profile_image, credit_balance, subscription_plan")
+        .select("name, profile_image, subscription_plan")
         .eq("id", user.id)
         .single();
       
-      if (data) {
+      if (data && !error) {
         setUserProfile({ name: data.name, profile_image: data.profile_image });
-        setCreditBalance(data.credit_balance || 50);
         setPlan(data.subscription_plan || 'free');
       }
-    };
-    
-    fetchUserData();
+      
+      // Fetch credit balance from user_credits table (source of truth)
+      const { data: creditData } = await supabase
+        .from("user_credits")
+        .select("balance")
+        .eq("user_id", user.id)
+        .single();
+      
+      if (creditData) {
+        setCreditBalance(creditData.balance ?? 50);
+      }
+    } catch (err) {
+      console.error('Error fetching user data:', err);
+    }
   }, [user]);
+
+  useEffect(() => {
+    fetchUserData();
+    
+    // Listen for profile updates from AccountOverview
+    const handleProfileUpdate = () => {
+      fetchUserData();
+    };
+    window.addEventListener('profile-updated', handleProfileUpdate);
+    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
+  }, [fetchUserData]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -858,10 +1373,41 @@ function ProfileDropdown() {
               )}>
                 {user?.email}
               </p>
-              <p className="text-xs text-white/50 capitalize mt-0.5">{plan} plan</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xs text-white/50 capitalize">{plan} plan</span>
+                {plan === 'free' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/40">Free</span>
+                )}
+                {plan === 'standard' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/20 text-blue-400">Standard</span>
+                )}
+                {plan === 'pro' && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-400">Pro</span>
+                )}
+              </div>
               <div className="text-xs text-white/50 mt-1">
                 <span className="font-medium text-[#5c6652]">{creditBalance}</span> credits available
               </div>
+            </div>
+
+            {/* Upgrade & Buy Credits Buttons */}
+            <div className="px-3 py-2 border-b border-white/10 space-y-1.5">
+              {(plan === 'free' || plan === 'standard') && (
+                <button
+                  onClick={() => { setIsOpen(false); setShowUpgradeModal(true); }}
+                  className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-white/90 transition-all"
+                >
+                  <Crown className="h-3.5 w-3.5" />
+                  {plan === 'free' ? 'Upgrade Plan' : 'Upgrade to Pro'}
+                </button>
+              )}
+              <button
+                onClick={() => { setIsOpen(false); setShowCreditsModal(true); }}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-white/[0.08] text-white/70 text-sm font-medium hover:bg-white/[0.05] transition-all"
+              >
+                <Coins className="h-3.5 w-3.5" />
+                Buy Credits
+              </button>
             </div>
             
             {/* Menu Items */}
@@ -915,6 +1461,9 @@ function ProfileDropdown() {
           </div>
         )}
       </div>
+      {/* Modals */}
+      <UpgradePlanModal open={showUpgradeModal} onOpenChange={setShowUpgradeModal} />
+      <BuyCreditsModal open={showCreditsModal} onOpenChange={setShowCreditsModal} />
     </div>
   );
 }
@@ -1097,7 +1646,7 @@ function ImageGenerationModal({
     setGeneratedImage(null);
     
     try {
-      const response = await fetch(`${API_URL}/api/image/generate`, {
+      const response = await fetch(`${API_URL}/api/v1/generate-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1288,6 +1837,9 @@ function DashboardContent() {
   const { currentSector } = useSector();
   const sectorConfig = SECTORS.find(s => s.id === currentSector) || SECTORS[0];
   
+  // Auto-claim daily credits on dashboard load
+  const { lastResult: dailyCreditResult } = useDailyCredits();
+  
   const {
     conversations,
     currentConversation,
@@ -1299,20 +1851,50 @@ function DashboardContent() {
     updateConversationTitle,
     loadConversations,
   } = useConversations();
+  const { session } = useAuth();
 
-  // State
-  const [input, setInput] = useState('');
+  // Core state
   const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [searchMode, setSearchMode] = useState<'quick' | 'deep'>('quick');
+  const [searchMode, setSearchMode] = useState<'auto' | 'instant' | 'agent'>('auto');
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [creditBalance, setCreditBalance] = useState(50);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
+  const [showDashUpgradeModal, setShowDashUpgradeModal] = useState(false);
+  const [showDashCreditsModal, setShowDashCreditsModal] = useState(false);
+  const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null);
+  
+  // Agentic execution state
+  const [agentExecutionSteps, setAgentExecutionSteps] = useState<ExecutionStep[]>([]);
+  const [agentExecutionStatus, setAgentExecutionStatus] = useState<'idle' | 'planning' | 'executing' | 'paused' | 'completed' | 'error'>('idle');
+  const [agentProgress, setAgentProgress] = useState(0);
+  const [agentContent, setAgentContent] = useState('');
+  const [agentReasoning, setAgentReasoning] = useState('');
+  const [agentArtifacts, setAgentArtifacts] = useState<ExecutionArtifact[]>([]);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentExecutionId, setAgentExecutionId] = useState<string | null>(null);
+  const [showAgentPanel, setShowAgentPanel] = useState(false);
+  const [credentialRequest, setCredentialRequest] = useState<{
+    type: string;
+    message: string;
+    execution_id: string;
+    field_label: string;
+  } | null>(null);
+  const [browserScreenshot, setBrowserScreenshot] = useState<{
+    screenshot: string;
+    url: string;
+    title: string;
+    step: number;
+    action: string;
+  } | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentConversationIdRef = useRef<string | null>(null);
+  const bgPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Track current conversation ID for abort handling
   useEffect(() => {
@@ -1323,6 +1905,196 @@ function DashboardContent() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  // Fetch credit balance from billing API
+  useEffect(() => {
+    const fetchCredits = async () => {
+      if (!session?.access_token) return;
+      try {
+        const res = await fetch(`${API_URL}/api/v1/billing/credits`, {
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.success) setCreditBalance(data.data?.balance ?? 0);
+      } catch (e) { console.error('Failed to fetch credits:', e); }
+    };
+    fetchCredits();
+    const interval = setInterval(fetchCredits, 60000); // refresh every 60s
+    return () => clearInterval(interval);
+  }, [session]);
+
+  // ===== BACKGROUND TASK PERSISTENCE =====
+  // On mount, check if there's an active background task from a previous session
+  useEffect(() => {
+    try {
+      const activeTaskId = localStorage.getItem('mcleuker_active_bg_task');
+      if (activeTaskId) {
+        setBackgroundTaskId(activeTaskId);
+        // Start polling for this task
+        const pollBgTask = async () => {
+          try {
+            const res = await fetch(`${API_URL}/api/v1/search/background/${activeTaskId}`);
+            if (!res.ok) {
+              localStorage.removeItem('mcleuker_active_bg_task');
+              setBackgroundTaskId(null);
+              return;
+            }
+            const data = await res.json();
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+              localStorage.removeItem('mcleuker_active_bg_task');
+              setBackgroundTaskId(null);
+              if (bgPollRef.current) {
+                clearInterval(bgPollRef.current);
+                bgPollRef.current = null;
+              }
+              // If completed, show the results as a message
+              if (data.status === 'completed' && data.content) {
+                const bgMessage: Message = {
+                  id: `bg-${activeTaskId}`,
+                  role: 'assistant',
+                  content: data.content,
+                  reasoning_layers: [],
+                  sources: (data.sources || []).filter((s: Source) => s.url?.startsWith('http')),
+                  follow_up_questions: data.follow_ups || [],
+                  timestamp: new Date(data.updated_at || Date.now()),
+                  isStreaming: false,
+                  downloads: data.downloads || undefined,
+                };
+                setMessages(prev => {
+                  // Don't add if already present
+                  if (prev.some(m => m.id === bgMessage.id)) return prev;
+                  return [...prev, bgMessage];
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Background task poll error:', e);
+          }
+        };
+        // Poll immediately then every 3 seconds
+        pollBgTask();
+        bgPollRef.current = setInterval(pollBgTask, 3000);
+      }
+    } catch (e) {}
+    return () => {
+      if (bgPollRef.current) {
+        clearInterval(bgPollRef.current);
+        bgPollRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ===== AGENT EXECUTION PERSISTENCE =====
+  // On mount, check if there's an active agent execution from a previous session
+  useEffect(() => {
+    try {
+      const activeExecId = localStorage.getItem('mcleuker_active_execution');
+      if (activeExecId) {
+        // Try to reconnect to the execution via V6 persistence endpoint
+        const recoverExecution = async () => {
+          try {
+            const res = await fetch(`${API_URL}/api/v2/execute/${activeExecId}/status`);
+            if (!res.ok) {
+              localStorage.removeItem('mcleuker_active_execution');
+              return;
+            }
+            const data = await res.json();
+            if (data.status === 'running' || data.status === 'pending') {
+              // Execution is still active — show the panel and reconnect
+              setAgentExecutionId(activeExecId);
+              setShowAgentPanel(true);
+              setAgentExecutionStatus('executing');
+              // Restore steps if available
+              if (data.steps && Array.isArray(data.steps)) {
+                setAgentExecutionSteps(data.steps.map((s: any) => ({
+                  id: s.id || `step-${Date.now()}`,
+                  phase: s.phase || 'execution',
+                  title: s.title || 'Processing...',
+                  status: s.status || 'active',
+                  detail: s.detail || '',
+                })));
+              }
+              // Connect to SSE event stream for live updates
+              try {
+                const evtSource = new EventSource(`${API_URL}/api/v2/execute/${activeExecId}/events`);
+                evtSource.onmessage = (event) => {
+                  try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'browser_screenshot') {
+                      setBrowserScreenshot(msg.data || msg);
+                    } else if (msg.type === 'step_update') {
+                      const stepUpdate = msg.data || msg;
+                      setAgentExecutionSteps(prev => {
+                        const idx = prev.findIndex(s => s.id === stepUpdate.id);
+                        if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], ...stepUpdate }; return u; }
+                        return [...prev, stepUpdate];
+                      });
+                    } else if (msg.type === 'execution_complete') {
+                      setAgentExecutionStatus('completed');
+                      setAgentProgress(100);
+                      localStorage.removeItem('mcleuker_active_execution');
+                      evtSource.close();
+                    } else if (msg.type === 'execution_error') {
+                      setAgentExecutionStatus('error');
+                      setAgentError(msg.data?.error || 'Execution failed');
+                      localStorage.removeItem('mcleuker_active_execution');
+                      evtSource.close();
+                    }
+                  } catch (e) {}
+                };
+                evtSource.onerror = () => {
+                  evtSource.close();
+                };
+              } catch (e) {}
+            } else {
+              // Execution already completed or failed
+              localStorage.removeItem('mcleuker_active_execution');
+              if (data.status === 'completed' && data.result) {
+                // Show completed result
+                setAgentExecutionId(activeExecId);
+                setShowAgentPanel(true);
+                setAgentExecutionStatus('completed');
+                setAgentProgress(100);
+              }
+            }
+          } catch (e) {
+            localStorage.removeItem('mcleuker_active_execution');
+          }
+        };
+        recoverExecution();
+      }
+    } catch (e) {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-restore last conversation on page load (skip if auto-execute pending or reset requested)
+  useEffect(() => {
+    if (conversations.length > 0 && !currentConversation && messages.length === 0) {
+      try {
+        // Don't restore old conversation if we're about to auto-execute a new prompt
+        const pendingAutoExecute = sessionStorage.getItem('autoExecute') === 'true' && sessionStorage.getItem('domainPrompt');
+        if (pendingAutoExecute) return;
+
+        // If Global button was clicked, reset to landing state (no conversation)
+        const shouldReset = sessionStorage.getItem('resetDashboard');
+        if (shouldReset) {
+          sessionStorage.removeItem('resetDashboard');
+          startNewChat();
+          return;
+        }
+
+        const lastConvId = localStorage.getItem('mcleuker_last_conversation_id');
+        if (lastConvId) {
+          const conv = conversations.find(c => c.id === lastConvId);
+          if (conv) {
+            handleSelectConversation(conv);
+          }
+        }
+      } catch (e) {
+        // localStorage not available
+      }
+    }
+  }, [conversations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -1336,6 +2108,38 @@ function DashboardContent() {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [input]);
+
+  // Auto-execute prompt from landing page / domain pages
+  const hasAutoExecuted = useRef(false);
+  useEffect(() => {
+    if (hasAutoExecuted.current) return;
+    try {
+      const pendingPrompt = sessionStorage.getItem('domainPrompt');
+      const shouldAutoExecute = sessionStorage.getItem('autoExecute');
+      const domainContext = sessionStorage.getItem('domainContext');
+
+      if (pendingPrompt && shouldAutoExecute === 'true' && user) {
+        // Clear immediately to prevent re-execution on re-render
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('autoExecute');
+        sessionStorage.removeItem('domainContext');
+        hasAutoExecuted.current = true;
+
+        // Start a fresh new chat, then auto-send the prompt
+        startNewChat();
+        setTimeout(() => {
+          handleSendMessage(pendingPrompt);
+        }, 400);
+      } else if (pendingPrompt && !shouldAutoExecute) {
+        // Legacy: just pre-fill the input without auto-executing
+        setInput(pendingPrompt);
+        sessionStorage.removeItem('domainPrompt');
+        sessionStorage.removeItem('domainContext');
+      }
+    } catch (e) {
+      // sessionStorage not available
+    }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle layer expansion
   const toggleLayerExpand = (messageId: string, layerId: string) => {
@@ -1414,6 +2218,7 @@ function DashboardContent() {
       const newConv = await createConversation(messageText.slice(0, 50));
       if (newConv) {
         conversationId = newConv.id;
+        try { localStorage.setItem('mcleuker_last_conversation_id', newConv.id); } catch (e) {}
       }
     }
 
@@ -1468,22 +2273,103 @@ function DashboardContent() {
     let currentSources: Source[] = [];
     let currentContent = '';
     let finalFollowUp: string[] = [];
+    let currentDownloads: DownloadFile[] = [];
+    let currentToolProgress: { message: string; tools: string[] }[] = [];
+    let currentSearchSources: { title: string; url: string; source: string }[] = [];
+    let currentTaskSteps: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[] = [];
+    let currentThinkingSteps: string[] = [];
 
     try {
-      const response = await fetch(`${API_URL}/api/chat/stream`, {
+      // Map frontend mode names to backend mode names
+      const modeMap: Record<string, string> = { 'auto': 'research', 'instant': 'instant', 'agent': 'agent' };
+      const backendMode = modeMap[searchMode] || 'research';
+      
+      // Build messages array with FULL conversation history for context continuity
+      // This is CRITICAL: without history, the AI cannot understand follow-ups like "more", "continue", "about that"
+      const chatMessages: Array<{role: string; content: string | Array<Record<string, unknown>>}> = [];
+      if (currentSector !== 'all') {
+        chatMessages.push({ role: 'system', content: `Focus on the ${currentSector} sector.` });
+      }
+      
+      // Include previous messages for context (last 10 exchanges = 20 messages max)
+      const previousMessages = messages.filter(m => !m.isStreaming);
+      const recentHistory = previousMessages.slice(-20); // Last 20 messages for context
+      for (const msg of recentHistory) {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          // Truncate very long assistant messages to save tokens but keep enough for context
+          const content = msg.role === 'assistant' && msg.content.length > 3000
+            ? msg.content.slice(0, 3000) + '...'
+            : msg.content;
+          if (content && content.trim()) {
+            chatMessages.push({ role: msg.role, content });
+          }
+        }
+      }
+      
+      // Handle multimodal content (files) for the CURRENT message
+      if (currentFiles.length > 0) {
+        const contentParts: Array<Record<string, unknown>> = [
+          { type: 'text', text: messageText }
+        ];
+        for (const f of currentFiles) {
+          if (f.base64) {
+            contentParts.push({ type: 'image_url', image_url: { url: `data:${f.type};base64,${f.base64}` } });
+          } else if (f.url) {
+            contentParts.push({ type: 'image_url', image_url: { url: f.url } });
+          }
+        }
+        chatMessages.push({ role: 'user', content: contentParts });
+      } else {
+        chatMessages.push({ role: 'user', content: messageText });
+      }
+      
+      const chatHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) {
+        chatHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      // Determine endpoint: agent mode uses v2 execution, others use v1 chat
+      const isAgentMode = backendMode === 'agent';
+      const endpoint = isAgentMode 
+        ? `${API_URL}/api/v2/execute/stream`
+        : `${API_URL}/api/v1/chat/stream`;
+      
+      const requestBody = isAgentMode
+        ? {
+            task: messageText,
+            user_id: user?.id || undefined,
+            conversation_id: currentConversation?.id || undefined,
+            mode: 'agent',
+            context: {
+              sector: currentSector !== 'all' ? currentSector : undefined,
+              history: chatMessages.slice(-10),
+            },
+          }
+        : {
+            messages: chatMessages,
+            mode: backendMode,
+            stream: true,
+            enable_tools: true,
+            user_id: user?.id || undefined,
+            conversation_id: currentConversation?.id || undefined,
+          };
+
+      // Show agent execution panel when in agent mode
+      if (isAgentMode) {
+        setShowAgentPanel(true);
+        setAgentExecutionStatus('planning');
+        setAgentExecutionSteps([]);
+        setAgentProgress(0);
+        setAgentContent('');
+        setAgentReasoning('');
+        setAgentArtifacts([]);
+        setAgentError(null);
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          mode: searchMode,
-          sector: currentSector === 'all' ? null : currentSector,
-          files: currentFiles.length > 0 ? currentFiles.map(f => ({
-            name: f.name,
-            type: f.type,
-            base64: f.base64,
-            url: f.url
-          })) : undefined,
-        }),
+        headers: chatHeaders,
+        body: JSON.stringify(requestBody),
         signal: currentAbortController.signal,
       });
 
@@ -1513,7 +2399,185 @@ function DashboardContent() {
               const eventType = data.type;
               const eventData = data.data || {};
 
-              if (eventType === 'layer_start') {
+              if (eventType === 'start') {
+                // Connection established - capture conversation ID
+                // Nothing to display yet
+              } else if (eventType === 'execution_start') {
+                // V2 Agent execution started
+                const execId = eventData.execution_id || null;
+                setAgentExecutionId(execId);
+                setAgentExecutionStatus('planning');
+                // Persist execution ID so we can reconnect after navigation
+                if (execId) {
+                  try { localStorage.setItem('mcleuker_active_execution', execId); } catch (e) {}
+                }
+              } else if (eventType === 'step_update') {
+                // V2 Agent step update - update the execution panel
+                const stepUpdate: ExecutionStep = {
+                  id: eventData.step_id || eventData.id || `step-${Date.now()}`,
+                  phase: eventData.phase || 'execution',
+                  title: eventData.title || 'Processing...',
+                  status: eventData.status || 'active',
+                  detail: eventData.detail || '',
+                  progress: eventData.progress,
+                  subSteps: eventData.sub_steps?.map((s: any) => ({ label: s.label || s.step || s, status: s.status || 'pending' })),
+                  artifacts: eventData.artifacts,
+                };
+                setAgentExecutionSteps(prev => {
+                  const idx = prev.findIndex(s => s.id === stepUpdate.id);
+                  if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = stepUpdate;
+                    return updated;
+                  }
+                  return [...prev, stepUpdate];
+                });
+                if (stepUpdate.status === 'active') {
+                  setAgentExecutionStatus('executing');
+                }
+              } else if (eventType === 'execution_progress') {
+                // V2 Agent overall progress update
+                setAgentProgress(eventData.progress || 0);
+                if (eventData.status) {
+                  setAgentExecutionStatus(eventData.status);
+                }
+              } else if (eventType === 'execution_reasoning') {
+                // V2 Agent reasoning output
+                const chunk = eventData.chunk || eventData.content || '';
+                setAgentReasoning(prev => prev + chunk);
+              } else if (eventType === 'execution_artifact') {
+                // V2 Agent produced an artifact
+                const artifact: ExecutionArtifact = {
+                  type: eventData.artifact_type || 'file',
+                  name: eventData.name || 'artifact',
+                  url: eventData.url,
+                  content: eventData.content,
+                  mimeType: eventData.mime_type,
+                };
+                setAgentArtifacts(prev => [...prev, artifact]);
+              } else if (eventType === 'execution_complete') {
+                // V2 Agent execution completed
+                setAgentExecutionStatus('completed');
+                setAgentProgress(100);
+                setAgentExecutionSteps(prev => prev.map(s => ({ ...s, status: s.status === 'active' ? 'complete' : s.status } as ExecutionStep)));
+                try { localStorage.removeItem('mcleuker_active_execution'); } catch (e) {}
+                // The content/downloads from execution_complete are handled by the normal content/download events below
+              } else if (eventType === 'execution_error') {
+                // V2 Agent execution error
+                setAgentExecutionStatus('error');
+                setAgentError(eventData.message || eventData.error || 'Execution failed');
+                try { localStorage.removeItem('mcleuker_active_execution'); } catch (e) {}
+              } else if (eventType === 'credential_request') {
+                // Agent needs credentials from the user (e.g., GitHub token)
+                setCredentialRequest({
+                  type: eventData.credential_type || 'github_token',
+                  message: eventData.message || 'The agent needs access credentials to perform this action.',
+                  execution_id: eventData.execution_id || '',
+                  field_label: eventData.field_label || 'Access Token',
+                });
+              } else if (eventType === 'browser_screenshot') {
+                // Live browser screenshot from Playwright engine
+                setBrowserScreenshot({
+                  screenshot: eventData.screenshot || '',
+                  url: eventData.url || '',
+                  title: eventData.title || '',
+                  step: eventData.step || 0,
+                  action: eventData.action || '',
+                });
+              } else if (eventType === 'status') {
+                // Legacy status handler - convert to task_progress format
+                const statusMsg = eventData.message || 'Processing...';
+                const stepData = {
+                  step: `step-${currentTaskSteps.length + 1}`,
+                  title: statusMsg,
+                  status: 'active' as const,
+                  detail: '',
+                };
+                currentTaskSteps = currentTaskSteps.map(s => 
+                  s.status === 'active' ? { ...s, status: 'complete' as const } : s
+                );
+                currentTaskSteps.push(stepData);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, taskSteps: [...currentTaskSteps], toolStatus: statusMsg }
+                    : m
+                ));
+              } else if (eventType === 'task_progress') {
+                // Real-time task progress (ChatGPT/Manus-style)
+                const progressId = eventData.id;
+                const progressTitle = eventData.title || 'Processing...';
+                const progressStatus = eventData.status || 'active';
+                const progressDetail = eventData.detail || '';
+                
+                // Update existing step or add new one
+                const existingIdx = currentTaskSteps.findIndex(s => s.step === progressId);
+                if (existingIdx >= 0) {
+                  currentTaskSteps[existingIdx] = {
+                    ...currentTaskSteps[existingIdx],
+                    title: progressTitle,
+                    status: progressStatus as 'active' | 'complete' | 'pending',
+                    detail: progressDetail,
+                  };
+                } else {
+                  currentTaskSteps.push({
+                    step: progressId,
+                    title: progressTitle,
+                    status: progressStatus as 'active' | 'complete' | 'pending',
+                    detail: progressDetail,
+                  });
+                }
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, taskSteps: [...currentTaskSteps], toolStatus: progressTitle }
+                    : m
+                ));
+              } else if (eventType === 'credits_exhausted') {
+                // Show credit purchase popup instead of error
+                setShowDashCreditsModal(true);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, isStreaming: false, content: '' }
+                    : m
+                ));
+                // Remove the empty assistant message
+                setMessages(prev => prev.filter(m => m.id !== assistantId || m.content.trim() !== ''));
+                break;
+              } else if (eventType === 'conclusion') {
+                // Manus-style conclusion
+                const conclusionContent = eventData.content || '';
+                if (conclusionContent) {
+                  currentContent += '\n\n---\n\n' + conclusionContent;
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, content: currentContent }
+                      : m
+                  ));
+                }
+              } else if (eventType === 'file_error') {
+                // File generation error
+                const errorMsg = eventData.error || 'File generation failed';
+                currentContent += `\n\n> **File Error:** ${errorMsg}`;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, content: currentContent }
+                    : m
+                ));
+              } else if (eventType === 'error') {
+                // General error - check if it's a credit error
+                const errorMsg = eventData.message || 'An error occurred';
+                if (errorMsg.toLowerCase().includes('credit') || errorMsg.toLowerCase().includes('insufficient')) {
+                  // Show buy credits modal instead of error text
+                  setShowDashCreditsModal(true);
+                  setMessages(prev => prev.filter(m => m.id !== assistantId || m.content.trim() !== ''));
+                  break;
+                }
+                currentContent += `\n\n**Error:** ${errorMsg}`;
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, content: currentContent }
+                    : m
+                ));
+              } else if (eventType === 'layer_start') {
                 const newLayer: ReasoningLayer = {
                   id: eventData.layer_id,
                   layer_num: eventData.layer_num,
@@ -1577,6 +2641,113 @@ function DashboardContent() {
                     ? { ...m, content: currentContent }
                     : m
                 ));
+                // Also update agent panel content when in agent mode
+                if (isAgentMode) {
+                  setAgentContent(currentContent);
+                }
+              } else if (eventType === 'download') {
+                // Handle file download events from tool execution
+                const downloadInfo: DownloadFile = {
+                  filename: eventData.filename || 'file',
+                  download_url: eventData.download_url || '',
+                  file_id: eventData.file_id || '',
+                  file_type: eventData.file_type || 'unknown',
+                };
+                currentDownloads.push(downloadInfo);
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, downloads: [...currentDownloads] }
+                    : m
+                ));
+              } else if (eventType === 'tool_call') {
+                // Handle tool execution progress from backend
+                const toolMsg = eventData.message || 'Processing...';
+                const toolNames = eventData.tools || [];
+                currentToolProgress.push({ message: toolMsg, tools: toolNames });
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, toolStatus: toolMsg, toolProgress: [...currentToolProgress] }
+                    : m
+                ));
+              } else if (eventType === 'search_sources') {
+                // Handle search sources from backend real-time search
+                const sources = Array.isArray(eventData.sources) ? eventData.sources : (Array.isArray(eventData) ? eventData : []);
+                currentSearchSources = [...currentSearchSources, ...sources];
+                // Also add to currentSources for the existing source display
+                for (const src of sources) {
+                  if (src.title && src.url && !currentSources.some(s => s.url === src.url)) {
+                    currentSources.push({
+                      title: src.title,
+                      url: src.url,
+                      snippet: src.source || '',
+                    });
+                  }
+                }
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, sources: [...currentSources], searchSources: [...currentSearchSources] }
+                    : m
+                ));
+              } else if (eventType === 'task_progress') {
+                // Manus AI-style task progress tracking
+                const stepData = {
+                  step: eventData.step || 'unknown',
+                  title: eventData.title || 'Processing...',
+                  status: eventData.status || 'active' as const,
+                  detail: eventData.detail,
+                };
+                // Update existing step or add new one
+                const existingIdx = currentTaskSteps.findIndex(s => s.step === stepData.step);
+                if (existingIdx >= 0) {
+                  currentTaskSteps[existingIdx] = stepData;
+                } else {
+                  // Mark all previous active steps as complete
+                  currentTaskSteps = currentTaskSteps.map(s => 
+                    s.status === 'active' ? { ...s, status: 'complete' as const } : s
+                  );
+                  currentTaskSteps.push(stepData);
+                }
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, taskSteps: [...currentTaskSteps] }
+                    : m
+                ));
+              } else if (eventType === 'thinking') {
+                // ChatGPT-style thinking thoughts
+                const thought = eventData.thought || '';
+                if (thought) {
+                  currentThinkingSteps.push(thought);
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, thinkingSteps: [...currentThinkingSteps] }
+                      : m
+                  ));
+                }
+              } else if (eventType === 'reasoning') {
+                // Handle reasoning_content from thinking mode
+                const reasoningChunk = eventData.chunk || eventData || '';
+                if (typeof reasoningChunk === 'string' && reasoningChunk) {
+                  // Create or update a reasoning layer for thinking content
+                  if (currentLayers.length === 0) {
+                    currentLayers.push({
+                      id: 'thinking-1',
+                      layer_num: 1,
+                      type: 'analysis',
+                      title: 'Thinking',
+                      content: reasoningChunk,
+                      sub_steps: [],
+                      status: 'active',
+                      expanded: true,
+                    });
+                  } else {
+                    currentLayers[currentLayers.length - 1].content += reasoningChunk;
+                  }
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId
+                      ? { ...m, reasoning_layers: [...currentLayers] }
+                      : m
+                  ));
+                }
               } else if (eventType === 'follow_up') {
                 finalFollowUp = eventData.questions || [];
                 setMessages(prev => prev.map(m =>
@@ -1584,12 +2755,32 @@ function DashboardContent() {
                     ? { ...m, follow_up_questions: finalFollowUp }
                     : m
                 ));
+              } else if (eventType === 'credit_update') {
+                // Real-time credit deduction during task execution
+                if (eventData.credits_deducted && eventData.credits_deducted > 0) {
+                  setCreditBalance(prev => Math.max(0, prev - eventData.credits_deducted));
+                }
               } else if (eventType === 'complete') {
-                const finalContent = eventData.content || currentContent;
-                const creditsUsed = eventData.credits_used || (searchMode === 'quick' ? 2 : 5);
+                // CRITICAL: Never overwrite streamed content with empty or shorter content from complete event
+                const finalContent = (eventData.content && eventData.content.length > currentContent.length) 
+                  ? eventData.content 
+                  : currentContent;
+                const creditsUsed = eventData.credits_used || 0;
                 const followUpQuestions = eventData.follow_up_questions || finalFollowUp;
 
                 currentLayers = currentLayers.map(l => ({ ...l, status: 'complete' as const }));
+                currentTaskSteps = currentTaskSteps.map(s => ({ ...s, status: 'complete' as const }));
+
+                // Merge downloads from complete event and from stream
+                const completeDownloads = eventData.downloads || [];
+                const allDownloads = [...currentDownloads, ...completeDownloads.filter(
+                  (d: DownloadFile) => !currentDownloads.some(cd => cd.file_id === d.file_id)
+                )];
+
+                // Filter sources to only include those with valid URLs
+                const finalSources = (eventData.sources || currentSources).filter(
+                  (s: Source) => s.url && s.url.startsWith('http')
+                );
 
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
@@ -1597,14 +2788,24 @@ function DashboardContent() {
                         ...m,
                         content: finalContent,
                         reasoning_layers: currentLayers,
-                        sources: eventData.sources || currentSources,
+                        sources: finalSources,
                         follow_up_questions: followUpQuestions,
+                        downloads: allDownloads.length > 0 ? allDownloads : undefined,
+                        searchSources: currentSearchSources.length > 0 ? currentSearchSources : undefined,
+                        toolStatus: undefined,
+                        toolProgress: currentToolProgress.length > 0 ? currentToolProgress : undefined,
+                        taskSteps: currentTaskSteps.length > 0 ? currentTaskSteps : undefined,
+                        thinkingSteps: currentThinkingSteps.length > 0 ? currentThinkingSteps : undefined,
                         isStreaming: false,
                       }
                     : m
                 ));
 
-                setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+                // Balance already updated via credit_update events during execution
+                // Only use this as fallback if no real-time updates were received
+                if (creditsUsed > 0) {
+                  setCreditBalance(prev => Math.max(0, prev - creditsUsed));
+                }
 
                 // Save assistant message to database with full metadata
                 if (requestConversationId && user) {
@@ -1624,6 +2825,7 @@ function DashboardContent() {
                       })),
                       follow_up_questions: followUpQuestions,
                       search_mode: searchMode,
+                      downloads: allDownloads.length > 0 ? allDownloads : undefined,
                     });
                     
                     await supabase.from('chat_messages').insert({
@@ -1631,7 +2833,7 @@ function DashboardContent() {
                       user_id: user.id,
                       role: 'assistant',
                       content: finalContent,
-                      model_used: 'grok-4',
+                      model_used: 'kimi-k2.5',
                       credits_used: creditsUsed,
                       metadata: JSON.parse(messageMetadata),
                     });
@@ -1665,12 +2867,20 @@ function DashboardContent() {
       
       console.error('Error:', error);
       
+      // Restore the user's input so they can retry
+      setInput(messageText);
+      
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setMessages(prev => prev.map(m =>
         m.id === assistantId
           ? {
               ...m,
-              content: 'I apologize, but there was an error processing your request. Please try again.',
+              content: `Something went wrong: ${errorMessage}. Your message has been restored — you can try again.`,
               isStreaming: false,
+              taskSteps: currentTaskSteps.length > 0 
+                ? [...currentTaskSteps.map(s => ({...s, status: 'complete' as const})), { step: 'error', title: 'Error occurred', status: 'complete' as const, detail: errorMessage }]
+                : undefined,
+              thinkingSteps: currentThinkingSteps.length > 0 ? [...currentThinkingSteps, `Error: ${errorMessage}`] : undefined,
             }
           : m
       ));
@@ -1679,8 +2889,92 @@ function DashboardContent() {
       if (globalAbortController === currentAbortController) {
         globalAbortController = null;
       }
+
+      // CRITICAL: Save partial content to Supabase if streaming was interrupted
+      // This ensures messages survive page navigation, tab switching, etc.
+      if (currentContent && requestConversationId && user) {
+        try {
+          // Check if the message was already saved (by the 'complete' event handler)
+          const { data: existing } = await supabase
+            .from('chat_messages')
+            .select('id')
+            .eq('conversation_id', requestConversationId)
+            .eq('role', 'assistant')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          // Only save if no assistant message exists yet for this conversation turn
+          const userMsgCount = messages.filter(m => m.role === 'user').length + 1;
+          const { count: assistantCount } = await supabase
+            .from('chat_messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', requestConversationId)
+            .eq('role', 'assistant');
+
+          if ((assistantCount || 0) < userMsgCount) {
+            await supabase.from('chat_messages').insert({
+              conversation_id: requestConversationId,
+              user_id: user.id,
+              role: 'assistant',
+              content: currentContent || '(Response interrupted — please retry)',
+              model_used: 'kimi-k2.5',
+              credits_used: 0,
+              metadata: {
+                interrupted: true,
+                task_steps: currentTaskSteps,
+                reasoning_layers: currentLayers.map(l => ({
+                  id: l.id, layer_num: l.layer_num, type: l.type,
+                  title: l.title, content: l.content, status: l.status,
+                })),
+              },
+            });
+          }
+        } catch (e) {
+          console.error('Error saving interrupted message:', e);
+        }
+      }
+
+      // Mark the assistant message as no longer streaming in the UI
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId && m.isStreaming
+          ? { ...m, isStreaming: false }
+          : m
+      ));
     }
   };
+
+  // ===== STOP SEARCH =====
+  const handleStopSearch = useCallback(() => {
+    // Abort the streaming connection
+    if (globalAbortController) {
+      globalAbortController.abort();
+      globalAbortController = null;
+    }
+    setIsStreaming(false);
+    
+    // Reset agent panel if active
+    if (agentExecutionStatus !== 'idle' && agentExecutionStatus !== 'completed') {
+      setAgentExecutionStatus('idle');
+      setAgentExecutionSteps([]);
+    }
+    
+    // Cancel any background tasks
+    try {
+      const activeTaskId = localStorage.getItem('mcleuker_active_bg_task');
+      if (activeTaskId) {
+        fetch(`${API_URL}/api/v1/search/background/${activeTaskId}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }).catch(() => {});
+        localStorage.removeItem('mcleuker_active_bg_task');
+      }
+    } catch (e) {}
+    
+    // Mark the last assistant message as done
+    setMessages(prev => prev.map(m =>
+      m.isStreaming ? { ...m, isStreaming: false, content: m.content || 'Search stopped by user.' } : m
+    ));
+  }, []);
 
   const handleNewChat = () => {
     // Abort any ongoing stream
@@ -1690,7 +2984,18 @@ function DashboardContent() {
     }
     setMessages([]);
     setIsStreaming(false);
+    // Reset agent panel
+    setShowAgentPanel(false);
+    setAgentExecutionStatus('idle');
+    setAgentExecutionSteps([]);
+    setAgentProgress(0);
+    setAgentContent('');
+    setAgentReasoning('');
+    setAgentArtifacts([]);
+    setAgentError(null);
+    setAgentExecutionId(null);
     startNewChat();
+    try { localStorage.removeItem('mcleuker_last_conversation_id'); } catch (e) {}
   };
 
   const handleSelectConversation = async (conv: Conversation) => {
@@ -1710,6 +3015,7 @@ function DashboardContent() {
     }
     
     await selectConversation(conv);
+    try { localStorage.setItem('mcleuker_last_conversation_id', conv.id); } catch (e) {}
     // Load messages for this conversation
     const { data, error } = await supabase
       .from("chat_messages")
@@ -1743,6 +3049,14 @@ function DashboardContent() {
           expanded: false,
         }));
         
+        // Parse downloads from metadata
+        const downloads: DownloadFile[] = (metadata.downloads || []).map((dl: any) => ({
+          filename: dl.filename || '',
+          download_url: dl.download_url || '',
+          file_id: dl.file_id || '',
+          file_type: dl.file_type || '',
+        }));
+
         return {
           id: msg.id,
           role: msg.role as 'user' | 'assistant',
@@ -1753,6 +3067,7 @@ function DashboardContent() {
           timestamp: new Date(msg.created_at),
           isStreaming: false,
           is_favorite: msg.is_favorite,
+          downloads: downloads.length > 0 ? downloads : undefined,
         };
       });
       setMessages(loadedMessages);
@@ -1808,12 +3123,18 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-[#070707] flex w-full">
+      {/* Modals */}
+      <UpgradePlanModal open={showDashUpgradeModal} onOpenChange={setShowDashUpgradeModal} />
+      <BuyCreditsModal open={showDashCreditsModal} onOpenChange={setShowDashCreditsModal} />
+
       {/* Header - Fixed at top, full width */}
       <header className="h-[60px] border-b border-white/[0.08] flex items-center justify-between px-4 bg-[#0A0A0A] fixed top-0 left-0 right-0 z-40">
-        {/* Left: McLeuker Logo */}
+        {/* Left: McLeuker.ai Logo */}
         <div className="flex items-center gap-4 w-48">
-          <Link href="/" className="font-editorial text-xl text-white tracking-wide">
-            McLeuker
+          <Link href="/" className="flex items-center">
+            <span className="font-editorial text-xl lg:text-[22px] text-white tracking-[0.02em]">
+              McLeuker<span className="text-white/30">.ai</span>
+            </span>
           </Link>
         </div>
         
@@ -1826,7 +3147,16 @@ function DashboardContent() {
         </div>
         
         {/* Right: Credits & Profile */}
-        <div className="w-48 flex justify-end">
+        <div className="w-48 flex items-center justify-end gap-3">
+          <button
+            onClick={() => setShowDashCreditsModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-colors"
+          >
+            <Coins className="w-3.5 h-3.5 text-white/50" />
+            <span className="text-sm text-white/70 font-medium">
+              {creditBalance !== null ? creditBalance.toLocaleString() : '...'}
+            </span>
+          </button>
           <ProfileDropdown />
         </div>
       </header>
@@ -1840,109 +3170,110 @@ function DashboardContent() {
         onSelectConversation={handleSelectConversation}
         onDeleteConversation={deleteConversation}
         onNewConversation={handleNewChat}
+        searchQuery={sidebarSearchQuery}
+        onSearchQueryChange={setSidebarSearchQuery}
       />
 
       {/* Main Content */}
       <main className={cn(
         "flex-1 flex flex-col min-h-screen transition-all duration-200 pt-[60px]",
-        sidebarOpen ? "lg:ml-64" : "lg:ml-14"
+        sidebarOpen ? "lg:ml-64" : "lg:ml-14",
+        showAgentPanel && agentExecutionSteps.length > 0 ? "lg:mr-[400px]" : ""
       )}>
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
-              /* STATE A: Empty State - "Where is my mind?" with search bar and suggestions */
-              <div className="flex flex-col items-center justify-center min-h-[70vh]">
-                {/* Title - 3x larger, no subtitle */}
-                <h1 className="text-6xl md:text-7xl lg:text-8xl font-editorial text-white/90 mb-8 text-center tracking-tight">
-                  Where is my mind?
-                </h1>
+              /* STATE A: Empty State - "Where is my mind?" with search bar at bottom */
+              <div className="relative flex flex-col min-h-[calc(100vh-120px)]">
+                {/* Ambient glow */}
+                <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-[#2E3524]/[0.04] blur-[120px] pointer-events-none" />
                 
-                {/* Search Bar - Directly under title */}
-                <div className="w-full max-w-xl mb-6">
-                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-[#2E3524]/30 transition-all">
-                    <FileUploadButton
-                      onFileSelect={handleFileSelect}
-                      onOpenImageGenerator={() => setShowImageGenerator(true)}
-                      attachedFiles={attachedFiles}
-                      onRemoveFile={handleRemoveFile}
-                    />
-                    <input
-                      type="text"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Ask me anything..."
-                      className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none text-sm"
-                    />
-                    <button
-                      onClick={() => handleSendMessage()}
-                      disabled={!input.trim() || isStreaming}
-                      className={cn(
-                        "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                        input.trim() && !isStreaming
-                          ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                          : "bg-white/[0.05] text-white/30"
-                      )}
-                    >
-                      {isStreaming ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                    </button>
-                  </div>
-                  
-                  {/* Quick/Deep Mode Toggle - Under search bar */}
-                  <div className="flex justify-center mt-3">
-                    <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
-                      <button
-                        onClick={() => setSearchMode('quick')}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                          searchMode === 'quick'
-                            ? "bg-[#2E3524]/20 text-white"
-                            : "text-white/50 hover:text-white/70"
-                        )}
-                      >
-                        <Zap className="h-3 w-3" />
-                        Quick
-                      </button>
-                      <button
-                        onClick={() => setSearchMode('deep')}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                          searchMode === 'deep'
-                            ? "bg-[#2E3524]/20 text-white"
-                            : "text-white/50 hover:text-white/70"
-                        )}
-                      >
-                        <Brain className="h-3 w-3" />
-                        Deep
-                      </button>
+                {/* Domain Trends - Only shown for non-Global domains (no search box) */}
+                {currentSector !== 'all' && (
+                  <>
+                    {/* Title for domain */}
+                    <div className="pt-8 pb-4 flex flex-col items-center justify-center gap-2">
+                      <h1 className="relative text-2xl md:text-3xl lg:text-4xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                        {sectorConfig.label} Intelligence
+                      </h1>
+                      <p className="text-sm text-white/40 font-light tracking-wide">
+                        {sectorConfig.tagline}
+                      </p>
                     </div>
-                  </div>
-                </div>
+                    <div className="flex-1 overflow-y-auto px-1 py-4 scrollbar-thin scrollbar-thumb-white/5">
+                      <DomainTrends domain={currentSector} />
+                    </div>
+                  </>
+                )}
                 
-                {/* Suggestion Cards - Under search bar */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-xl">
-                  {starterQuestions.map((question, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSendMessage(question)}
-                      className={cn(
-                        "text-left p-3 rounded-xl transition-all",
-                        "mcleuker-bubble",
-                        i % 4 === 0 && "mcleuker-bubble-v1",
-                        i % 4 === 1 && "mcleuker-bubble-v2",
-                        i % 4 === 2 && "mcleuker-bubble-v3",
-                        i % 4 === 3 && "mcleuker-bubble-v4"
-                      )}
-                    >
-                      <p className="text-xs sm:text-sm text-white/80 line-clamp-2">{question}</p>
-                    </button>
-                  ))}
-                </div>
+                {/* Global domain: "Where is my mind?" centered vertically with search bar */}
+                {currentSector === 'all' && (
+                  <>
+                    <div className="flex-1 flex flex-col items-center justify-center">
+                      <h1 className="relative text-3xl md:text-4xl lg:text-5xl font-editorial text-white/[0.85] text-center tracking-tight leading-[1.1]">
+                        Where is my mind?
+                      </h1>
+                    </div>
+                
+                    {/* Search Bar - Only shown for Global domain */}
+                    <div className="w-full max-w-3xl mx-auto pb-8">
+                      <div className="relative">
+                        <div className="relative flex items-end gap-2 p-2.5 rounded-2xl bg-[#141414] border border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18] transition-all">
+                          <FileUploadButton
+                            onFileSelect={handleFileSelect}
+                            onOpenImageGenerator={() => setShowImageGenerator(true)}
+                            attachedFiles={attachedFiles}
+                            onRemoveFile={handleRemoveFile}
+                          />
+                          <textarea
+                            value={input}
+                            onChange={(e) => {
+                              setInput(e.target.value);
+                              const el = e.target;
+                              el.style.height = 'auto';
+                              el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                            }}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Ask me anything..."
+                            rows={1}
+                            className="flex-1 bg-transparent text-white placeholder:text-white/30 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none text-sm px-1 min-h-[40px] max-h-[200px] py-2.5 leading-relaxed"
+                          />
+                          <div className="flex items-center gap-2 flex-shrink-0 self-center">
+                            <InlineModelPicker
+                              value={searchMode}
+                              onChange={setSearchMode}
+                              disabled={isStreaming}
+                            />
+                            {isStreaming ? (
+                              <button
+                                onClick={handleStopSearch}
+                                className="h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                                title="Stop search"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleSendMessage()}
+                                disabled={!input.trim()}
+                                className={cn(
+                                  "h-9 w-9 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                                  input.trim()
+                                    ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                                    : "bg-white/[0.05] text-white/30"
+                                )}
+                              >
+                                <Send className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-white/20 text-[11px] text-center mt-2">McLeukerAI can be wrong. Please verify important details.</p>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               /* STATE B: Chat Messages */
@@ -1974,44 +3305,241 @@ function DashboardContent() {
                               ))}
                             </div>
                           )}
-                          <p className="text-white text-sm leading-relaxed">{message.content}</p>
+                          <p className="text-white text-sm leading-relaxed">{sidebarSearchQuery ? (() => {
+                            const escaped = sidebarSearchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            const regex = new RegExp(`(${escaped})`, 'gi');
+                            const parts = message.content.split(regex);
+                            return parts.map((part: string, idx: number) =>
+                              regex.test(part)
+                                ? <mark key={idx} className="bg-[#2E3524]/60 text-white rounded-sm px-0.5">{part}</mark>
+                                : part
+                            );
+                          })() : message.content}</p>
                         </div>
                       )}
                       
                       {/* Assistant message */}
                       {message.role === 'assistant' && (
-                        <div className="space-y-3">
-                          {/* Reasoning Layers */}
+                        <div className="space-y-0">
+                          {/* ===== THINKING STEPS - ChatGPT-style reasoning display ===== */}
+                          {(message.thinkingSteps && message.thinkingSteps.length > 0) && (() => {
+                            const isExpanded = message._thinkingExpanded !== undefined ? message._thinkingExpanded : message.isStreaming;
+                            const toggleExpanded = () => {
+                              setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _thinkingExpanded: !isExpanded } : m));
+                            };
+                            const lastThought = message.thinkingSteps[message.thinkingSteps.length - 1];
+                            
+                            return (
+                              <div className="mb-3">
+                                <button
+                                  onClick={toggleExpanded}
+                                  className="flex items-center gap-2 w-full text-left group"
+                                >
+                                  {message.isStreaming && !message.content ? (
+                                    <Sparkles className="h-4 w-4 text-[#8a9a7e] animate-pulse flex-shrink-0" />
+                                  ) : (
+                                    <Sparkles className="h-4 w-4 text-[#5c6652] flex-shrink-0" />
+                                  )}
+                                  <span className="text-[13px] text-white/50 group-hover:text-white/70 transition-colors truncate">
+                                    {message.isStreaming && !message.content
+                                      ? (lastThought || 'Thinking...')
+                                      : `Reasoned through ${message.thinkingSteps.length} steps`
+                                    }
+                                  </span>
+                                  <ChevronDown className={cn(
+                                    "h-3 w-3 text-white/20 transition-transform ml-auto flex-shrink-0",
+                                    isExpanded && "rotate-180"
+                                  )} />
+                                </button>
+                                
+                                {isExpanded && (
+                                  <div className="mt-2 ml-2 pl-4 border-l border-white/[0.06] max-h-[300px] overflow-y-auto">
+                                    {message.thinkingSteps.map((thought, idx) => (
+                                      <div key={idx} className="py-0.5">
+                                        <p className={cn(
+                                          "text-[12px] leading-relaxed",
+                                          idx === message.thinkingSteps!.length - 1 && message.isStreaming
+                                            ? "text-white/60"
+                                            : "text-white/35"
+                                        )}>
+                                          {thought}
+                                        </p>
+                                      </div>
+                                    ))}
+                                    {message.isStreaming && !message.content && (
+                                      <div className="flex items-center gap-1 py-1">
+                                        <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                                        <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                                        <span className="w-1 h-1 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* ===== REASONING LAYERS (Thinking mode) ===== */}
                           {message.reasoning_layers.length > 0 && (
-                            <div className="space-y-1 mb-4">
-                              <p className="text-xs text-white/40 mb-2">Reasoning...</p>
-                              {message.reasoning_layers.map((layer, layerIndex) => (
-                                <ReasoningLayerItem
-                                  key={layer.id}
-                                  layer={layer}
-                                  isLatest={layerIndex === message.reasoning_layers.length - 1}
-                                  onToggleExpand={() => toggleLayerExpand(message.id, layer.id)}
-                                />
-                              ))}
+                            <div className="mb-4">
+                              <button
+                                onClick={() => {
+                                  setMessages(prev => prev.map(m => {
+                                    if (m.id !== message.id) return m;
+                                    const allExpanded = m.reasoning_layers.every(l => l.expanded);
+                                    return { ...m, reasoning_layers: m.reasoning_layers.map(l => ({ ...l, expanded: !allExpanded })) };
+                                  }));
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.06] transition-all w-full text-left group"
+                              >
+                                <Brain className="h-3.5 w-3.5 text-[#5c6652]" />
+                                <span className="text-xs text-white/50 font-medium flex-1">
+                                  {message.isStreaming ? 'Thinking...' : `Thought for ${Math.max(1, Math.round(message.reasoning_layers.reduce((a, l) => a + l.content.length, 0) / 200))}s`}
+                                </span>
+                                <ChevronDown className={cn(
+                                  "h-3 w-3 text-white/30 transition-transform",
+                                  message.reasoning_layers.some(l => l.expanded) && "rotate-180"
+                                )} />
+                              </button>
+                              {message.reasoning_layers.some(l => l.expanded) && (
+                                <div className="mt-2 px-3 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] max-h-[200px] overflow-y-auto">
+                                  <p className="text-xs text-white/40 leading-relaxed whitespace-pre-wrap">
+                                    {message.reasoning_layers.map(l => l.content).join('\n')}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* ===== STREAMING INDICATOR ===== */}
+                          {message.isStreaming && !message.content && !message.thinkingSteps?.length && !message.taskSteps?.length && !message.reasoning_layers.length && (
+                            <div className="py-2 space-y-1.5">
+                              <div className="flex items-center gap-2 text-white/50">
+                                <Loader2 className="h-4 w-4 animate-spin text-[#8a9a7e]" />
+                                <span className="text-sm font-medium text-white/60">Starting execution...</span>
+                              </div>
+                              <div className="pl-6 space-y-0.5">
+                                <span className="text-[10px] text-white/25 block">Analyzing your request and creating an execution plan</span>
+                                <span className="text-[10px] text-white/20 block">Determining the best approach and tools needed</span>
+                                <span className="text-[10px] text-white/15 block">This usually takes a few seconds</span>
+                              </div>
                             </div>
                           )}
                           
-                          {/* Streaming indicator */}
-                          {message.isStreaming && !message.content && (
-                            <div className="flex items-center gap-2 text-white/50">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              <span className="text-sm">Thinking...</span>
+                          {/* ===== TASK PROGRESS STEPS (ChatGPT/Manus-style) ===== */}
+                          {message.taskSteps && message.taskSteps.length > 0 && (
+                            <div className="mb-3 pl-1">
+                              <div className="relative">
+                                {/* Vertical line connector */}
+                                <div className="absolute left-[7px] top-2 bottom-2 w-[1px] bg-white/[0.06]" />
+                                <div className="space-y-0.5">
+                                  {message.taskSteps.map((step, idx) => (
+                                    <div key={idx} className="flex items-start gap-2.5 py-1.5 relative">
+                                      <div className="relative z-10 mt-0.5">
+                                        {step.status === 'complete' ? (
+                                          <div className="h-[15px] w-[15px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
+                                            <CheckCircle2 className="h-3 w-3 text-[#7a8a6e]" />
+                                          </div>
+                                        ) : step.status === 'active' ? (
+                                          <div className="h-[15px] w-[15px] rounded-full bg-[#8a9a7e]/15 flex items-center justify-center">
+                                            <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
+                                          </div>
+                                        ) : (
+                                          <div className="h-[15px] w-[15px] rounded-full bg-white/[0.04] flex items-center justify-center">
+                                            <Circle className="h-2.5 w-2.5 text-white/15" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <span className={cn(
+                                          "text-[12px] leading-tight block",
+                                          step.status === 'active' ? "text-white/75 font-medium" : step.status === 'complete' ? "text-white/45" : "text-white/20"
+                                        )}>
+                                          {step.title}
+                                        </span>
+                                        {step.detail && step.status === 'active' && (
+                                          <div className="mt-1 space-y-[2px]">
+                                            {step.detail.split('. ').filter(Boolean).slice(0, 3).map((line, lineIdx) => (
+                                              <span key={lineIdx} className="text-[10px] block leading-relaxed text-white/25">
+                                                {line.trim().endsWith('.') ? line.trim() : `${line.trim()}.`}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {step.detail && step.status === 'complete' && (
+                                          <span className="text-[10px] block mt-0.5 leading-relaxed text-white/20">
+                                            {step.detail}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Streaming content indicator */}
+                          {message.isStreaming && message.content && (
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-pulse" />
+                              <span className="text-[10px] text-white/30">Writing...</span>
                             </div>
                           )}
                           
-                          {/* Content */}
+                          {/* ===== MAIN CONTENT (conclusion/analysis) ===== */}
                           {message.content && (
                             <MessageContent
                               content={message.content}
                               sources={message.sources}
                               followUpQuestions={message.follow_up_questions}
                               onFollowUpClick={handleSendMessage}
+                              searchQuery={sidebarSearchQuery}
                             />
+                          )}
+                          
+                          {/* ===== DOWNLOAD FILES (shown AFTER content) ===== */}
+                          {message.downloads && message.downloads.length > 0 && (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Generated Files</p>
+                              {message.downloads.map((dl, dlIdx) => {
+                                const getFileIcon = (ft: string) => {
+                                  if (ft.includes('excel') || ft.includes('xlsx') || ft.includes('csv')) return <FileSpreadsheet className="h-5 w-5 text-[#5c6652]" />;
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return <Presentation className="h-5 w-5 text-orange-400" />;
+                                  if (ft.includes('pdf')) return <FileText className="h-5 w-5 text-red-400" />;
+                                  return <File className="h-5 w-5 text-blue-400" />;
+                                };
+                                const getFileColor = (ft: string) => {
+                                  if (ft.includes('excel') || ft.includes('xlsx')) return 'border-[#5c6652]/30 hover:border-[#5c6652]/60';
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return 'border-orange-400/30 hover:border-orange-400/60';
+                                  if (ft.includes('pdf')) return 'border-red-400/30 hover:border-red-400/60';
+                                  return 'border-blue-400/30 hover:border-blue-400/60';
+                                };
+                                return (
+                                  <a
+                                    key={dlIdx}
+                                    href={`${API_URL}${dl.download_url}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={cn(
+                                      "flex items-center gap-3 px-4 py-3 bg-white/[0.03] hover:bg-white/[0.06] border rounded-xl transition-all group cursor-pointer",
+                                      getFileColor(dl.file_type)
+                                    )}
+                                  >
+                                    <div className="flex-shrink-0 p-2.5 bg-white/[0.04] rounded-lg">
+                                      {getFileIcon(dl.file_type)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-white/90 truncate">{dl.filename}</p>
+                                      <p className="text-[10px] text-white/30 uppercase tracking-wider mt-0.5">{dl.file_type} document</p>
+                                    </div>
+                                    <div className="flex-shrink-0 p-2 rounded-lg bg-white/[0.04] group-hover:bg-white/[0.08] transition-colors">
+                                      <Download className="h-4 w-4 text-white/40 group-hover:text-white/80 transition-colors" />
+                                    </div>
+                                  </a>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       )}
@@ -2034,38 +3562,8 @@ function DashboardContent() {
                 onRemove={handleRemoveFile} 
               />
               
-              {/* Quick/Deep Mode Toggle - Centered (no credit numbers) */}
-              <div className="flex justify-center mb-3">
-                <div className="flex items-center gap-1 p-1 bg-white/[0.03] rounded-full border border-white/[0.08]">
-                  <button
-                    onClick={() => setSearchMode('quick')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                      searchMode === 'quick'
-                        ? "bg-[#2E3524]/20 text-white"
-                        : "text-white/50 hover:text-white/70"
-                    )}
-                  >
-                    <Zap className="h-3 w-3" />
-                    Quick
-                  </button>
-                  <button
-                    onClick={() => setSearchMode('deep')}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all",
-                      searchMode === 'deep'
-                        ? "bg-[#2E3524]/20 text-white"
-                        : "text-white/50 hover:text-white/70"
-                    )}
-                  >
-                    <Brain className="h-3 w-3" />
-                    Deep
-                  </button>
-                </div>
-              </div>
-              
-              {/* Input Container */}
-              <div className="flex items-end gap-2 p-2 rounded-2xl border transition-all bg-[#141414] border-white/[0.08]">
+              {/* Input Container — with inline model picker */}
+              <div className="flex items-end gap-2 p-2 rounded-2xl border transition-all bg-[#141414] border-white/[0.08] hover:border-white/[0.14] focus-within:border-white/[0.18]">
                 {/* Plus Button */}
                 <FileUploadButton
                   onFileSelect={handleFileSelect}
@@ -2089,35 +3587,188 @@ function DashboardContent() {
                   )}
                 />
                 
-                {/* Send Button */}
-                <button
-                  onClick={() => handleSendMessage()}
-                  disabled={!input.trim() || isStreaming}
-                  className={cn(
-                    "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
-                    input.trim() && !isStreaming
-                      ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
-                      : "bg-white/[0.05] text-white/30"
-                  )}
-                >
-                  {isStreaming ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
+                {/* Inline Model Picker — Grok-style */}
+                <div className="flex-shrink-0 self-center">
+                  <InlineModelPicker
+                    value={searchMode}
+                    onChange={setSearchMode}
+                    disabled={isStreaming}
+                    compact
+                  />
+                </div>
+                
+                {/* Send / Stop Button */}
+                {isStreaming ? (
+                  <button
+                    onClick={handleStopSearch}
+                    className="h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                    title="Stop search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleSendMessage()}
+                    disabled={!input.trim()}
+                    className={cn(
+                      "h-10 w-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0",
+                      input.trim()
+                        ? "bg-[#2E3524] text-white hover:bg-[#3a4530]"
+                        : "bg-white/[0.05] text-white/30"
+                    )}
+                  >
                     <Send className="h-4 w-4" />
-                  )}
-                </button>
+                  </button>
+                )}
               </div>
               
               {/* Helper Text */}
-              <div className="flex items-center justify-center gap-4 mt-2">
+              <div className="flex items-center justify-center gap-4 mt-1.5">
                 <p className="text-[10px] text-white/30">
                   Press Enter to send • Shift + Enter for new line
                 </p>
               </div>
+              <p className="text-white/20 text-[11px] text-center mt-1">McLeukerAI can be wrong. Please verify important details.</p>
             </div>
           </div>
         )}
       </main>
+
+      {/* Agent Execution Panel - Right side panel */}
+      {showAgentPanel && (
+        <aside className={cn(
+          "fixed top-[60px] right-0 bottom-0 z-30 transition-all duration-300 ease-in-out",
+          "w-[360px] lg:w-[400px]",
+          agentExecutionStatus === 'idle' && agentExecutionSteps.length === 0 ? "translate-x-full" : "translate-x-0"
+        )}>
+          <AgenticExecutionPanel
+            steps={agentExecutionSteps}
+            status={agentExecutionStatus}
+            progress={agentProgress}
+            content={agentContent}
+            reasoning={agentReasoning}
+            artifacts={agentArtifacts}
+            error={agentError}
+            browserScreenshot={browserScreenshot}
+            onPause={() => {
+              if (agentExecutionId) {
+                fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/pause`, { method: 'POST' }).catch(() => {});
+                setAgentExecutionStatus('paused');
+              }
+            }}
+            onResume={() => {
+              if (agentExecutionId) {
+                fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/resume`, { method: 'POST' }).catch(() => {});
+                setAgentExecutionStatus('executing');
+              }
+            }}
+            onCancel={() => {
+              // Cancel the execution but DON'T kill the conversation or messages
+              if (agentExecutionId) {
+                fetch(`${API_URL}/api/v2/execute/${agentExecutionId}/cancel`, { method: 'POST' }).catch(() => {});
+              }
+              // Only abort the stream, don't clear messages
+              if (globalAbortController) {
+                globalAbortController.abort();
+                globalAbortController = null;
+              }
+              setIsStreaming(false);
+              setAgentExecutionStatus('idle');
+              setAgentExecutionSteps(prev => prev.map(s => ({ ...s, status: s.status === 'active' ? 'complete' : s.status } as any)));
+              // Mark the last assistant message as done
+              setMessages(prev => prev.map(m =>
+                m.isStreaming ? { ...m, isStreaming: false, content: m.content || 'Execution cancelled by user.' } : m
+              ));
+            }}
+            onClose={() => {
+              // Just hide the panel - DON'T cancel or stop anything
+              setShowAgentPanel(false);
+            }}
+            className="h-full"
+          />
+        </aside>
+      )}
+
+      {/* Reopen Agent Panel Button - shown when panel is hidden but execution data exists */}
+      {!showAgentPanel && agentExecutionSteps.length > 0 && (
+        <button
+          onClick={() => setShowAgentPanel(true)}
+          className="fixed bottom-24 right-4 z-30 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1a1a1a] border border-white/[0.08] hover:border-white/[0.15] hover:bg-[#222] transition-all shadow-lg"
+          title="Show execution panel"
+        >
+          <Sparkles className="h-4 w-4 text-[#5c6652]" />
+          <span className="text-xs text-white/60">Agent Panel</span>
+          {agentExecutionStatus === 'executing' && (
+            <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+          )}
+        </button>
+      )}
+
+      {/* Credential Request Dialog */}
+      {credentialRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1a1a1a] border border-white/[0.1] rounded-2xl p-6 w-[420px] max-w-[90vw] shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white/90">Credentials Required</h3>
+                <p className="text-xs text-white/40">The agent needs access to perform this action</p>
+              </div>
+            </div>
+            <p className="text-xs text-white/50 mb-4 leading-relaxed">{credentialRequest.message}</p>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const input = (e.currentTarget.elements.namedItem('credential') as HTMLInputElement);
+              if (!input?.value) return;
+              try {
+                await fetch(`${API_URL}/api/v2/execute/credential`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    execution_id: credentialRequest.execution_id,
+                    type: credentialRequest.type,
+                    value: input.value,
+                  }),
+                });
+                setCredentialRequest(null);
+              } catch (err) {
+                console.error('Failed to send credential:', err);
+              }
+            }}>
+              <label className="block text-[10px] text-white/30 uppercase tracking-wider mb-1.5">
+                {credentialRequest.field_label}
+              </label>
+              <input
+                name="credential"
+                type="password"
+                autoFocus
+                placeholder="Paste your token here..."
+                className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/[0.1] rounded-xl text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-white/[0.2] focus:ring-1 focus:ring-white/[0.1] font-mono"
+              />
+              <p className="text-[10px] text-white/20 mt-1.5 mb-4">Your token is sent securely and used only for this execution session.</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCredentialRequest(null)}
+                  className="flex-1 px-4 py-2 rounded-xl border border-white/[0.08] text-xs text-white/50 hover:bg-white/[0.04] transition"
+                >
+                  Skip
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 rounded-xl bg-[#5c6652] hover:bg-[#6b7760] text-white text-xs font-medium transition"
+                >
+                  Authorize
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Image Generation Modal */}
       <ImageGenerationModal

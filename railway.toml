@@ -1,0 +1,27 @@
+# Railway Configuration for McLeuker AI
+# https://railway.app
+
+[build]
+builder = "nixpacks"
+
+[build.nixpacks]
+# Install Playwright browsers during build
+phases.setup.nixPkgs = ["..."]
+
+[deploy]
+# Health check endpoint
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+
+# Restart policy
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# Start command
+startCommand = "python main.py"
+
+# Environment variables (set in Railway dashboard)
+# KIMI_API_KEY
+# SUPABASE_URL
+# SUPABASE_KEY
+# ENVIRONMENT=production

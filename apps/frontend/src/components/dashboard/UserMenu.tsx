@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UserMenuProps {
   collapsed?: boolean;
@@ -23,7 +24,21 @@ export function UserMenu({ collapsed = false }: UserMenuProps) {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch profile image from users table
+  const fetchProfileImage = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('users')
+      .select('profile_image')
+      .eq('id', user.id)
+      .single();
+    if (data?.profile_image) {
+      setProfileImage(data.profile_image);
+    }
+  }, [user]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -36,6 +51,14 @@ export function UserMenu({ collapsed = false }: UserMenuProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Fetch profile image on mount and listen for updates
+  useEffect(() => {
+    fetchProfileImage();
+    const handleProfileUpdate = () => fetchProfileImage();
+    window.addEventListener('profile-updated', handleProfileUpdate);
+    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
+  }, [fetchProfileImage]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -74,14 +97,18 @@ export function UserMenu({ collapsed = false }: UserMenuProps) {
         <button
           onClick={() => setIsOpen(!isOpen)}
           className={cn(
-            'w-10 h-10 rounded-full flex items-center justify-center',
-            'bg-gradient-to-br from-purple-600/30 to-pink-600/30',
+            'w-10 h-10 rounded-full flex items-center justify-center overflow-hidden',
+            'bg-gradient-to-br from-[#2E3524] to-[#2A3021]',
             'border border-white/[0.12] hover:border-white/30',
             'transition-all duration-200',
-            isOpen && 'ring-2 ring-purple-500/30'
+            isOpen && 'ring-2 ring-[#2E3524]/30'
           )}
         >
-          <span className="text-sm font-medium text-white">{initials}</span>
+          {profileImage || user?.user_metadata?.avatar_url ? (
+            <img src={profileImage || user?.user_metadata?.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-sm font-medium text-white">{initials}</span>
+          )}
         </button>
 
         {isOpen && (
@@ -137,8 +164,12 @@ export function UserMenu({ collapsed = false }: UserMenuProps) {
         )}
       >
         {/* Avatar */}
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600/30 to-pink-600/30 border border-white/[0.12] flex items-center justify-center flex-shrink-0">
-          <span className="text-sm font-medium text-white">{initials}</span>
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#2E3524] to-[#2A3021] border border-white/[0.12] flex items-center justify-center flex-shrink-0 overflow-hidden">
+          {profileImage || user?.user_metadata?.avatar_url ? (
+            <img src={profileImage || user?.user_metadata?.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-sm font-medium text-white">{initials}</span>
+          )}
         </div>
 
         {/* User Info */}
