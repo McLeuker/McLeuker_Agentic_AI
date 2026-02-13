@@ -4546,8 +4546,15 @@ async def generate_file_endpoint(request: FileGenRequest):
         if not prompt:
             raise HTTPException(status_code=400, detail="No prompt or content provided")
         
-        # Search for data
-        search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15)
+        # Search for data (with timeout)
+        try:
+            search_results = await asyncio.wait_for(
+                SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15),
+                timeout=45.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"Search timed out for file generation: {prompt[:50]}")
+            search_results = {"structured_data": {}, "results": {}}
         structured_data = search_results.get("structured_data", {})
         
         file_type_val = None
@@ -4615,7 +4622,14 @@ async def generate_file_endpoint(request: FileGenRequest):
             direct_content = request.content
         
         if not direct_content:
-            search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15)
+            try:
+                search_results = await asyncio.wait_for(
+                    SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15),
+                    timeout=45.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Second search timed out for file generation: {prompt[:50]}")
+                search_results = {"structured_data": {}, "results": {}}
             structured_data = search_results.get("structured_data", {})
         
         full_data_for_excel = {
@@ -4625,16 +4639,19 @@ async def generate_file_endpoint(request: FileGenRequest):
         
         content_for_doc = direct_content or await ChatHandler._generate_content(prompt, structured_data)
         
-        if file_type == "excel":
-            result = await FileEngine.generate_excel(prompt, full_data_for_excel, request.user_id)
-        elif file_type == "word":
-            result = await FileEngine.generate_word(prompt, content_for_doc, request.user_id)
-        elif file_type == "pdf":
-            result = await FileEngine.generate_pdf(prompt, content_for_doc, request.user_id)
-        elif file_type == "pptx":
-            result = await FileEngine.generate_pptx(prompt, content_for_doc, request.user_id)
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown file type: {file_type}")
+        try:
+            if file_type == "excel":
+                result = await asyncio.wait_for(FileEngine.generate_excel(prompt, full_data_for_excel, request.user_id), timeout=90.0)
+            elif file_type == "word":
+                result = await asyncio.wait_for(FileEngine.generate_word(prompt, content_for_doc, request.user_id), timeout=90.0)
+            elif file_type == "pdf":
+                result = await asyncio.wait_for(FileEngine.generate_pdf(prompt, content_for_doc, request.user_id), timeout=90.0)
+            elif file_type == "pptx":
+                result = await asyncio.wait_for(FileEngine.generate_pptx(prompt, content_for_doc, request.user_id), timeout=90.0)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unknown file type: {file_type}")
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"File generation timed out after 90 seconds. Please try again.")
         
         if result.get("success"):
             return {"success": True, "file_id": result["file_id"], "filename": result["filename"], "download_url": result["download_url"]}
