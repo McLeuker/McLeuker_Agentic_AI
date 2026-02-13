@@ -733,6 +733,59 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# ============================================================================
+# V5 AGENT SWARM — 124 Specialized Agents with Intelligent Routing
+# ============================================================================
+SWARM_AVAILABLE = False
+swarm_coordinator = None
+swarm_router_instance = None
+try:
+    from agent_swarm import initialize_swarm, get_agent_count, get_category_counts
+    from agent_swarm.api.routes import router as swarm_api_router
+    from agent_swarm.core.router import AgentRouter
+    
+    # Initialize swarm with the same LLM clients used by V4
+    swarm_llm = None
+    swarm_reasoning = None
+    if KIMI_API_KEY:
+        swarm_llm = openai.OpenAI(
+            api_key=KIMI_API_KEY,
+            base_url="https://api.moonshot.ai/v1",
+        )
+    if GROK_API_KEY:
+        swarm_reasoning = openai.OpenAI(
+            api_key=GROK_API_KEY,
+            base_url="https://api.x.ai/v1",
+        )
+    elif swarm_llm:
+        swarm_reasoning = swarm_llm
+    
+    if swarm_llm:
+        swarm_coordinator = initialize_swarm(
+            llm_client=swarm_llm,
+            reasoning_client=swarm_reasoning,
+            tool_registry=None,  # Will be wired in startup_event
+            memory_manager=None,
+        )
+        swarm_router_instance = AgentRouter(
+            llm_client=swarm_llm,
+            reasoning_client=swarm_reasoning,
+            coordinator=swarm_coordinator,
+        )
+        # Store in app state for route access
+        app.state.swarm_coordinator = swarm_coordinator
+        app.state.swarm_router = swarm_router_instance
+        # Include swarm API routes
+        app.include_router(swarm_api_router)
+        SWARM_AVAILABLE = True
+        logger.info(f"V5 Agent Swarm initialized — {get_agent_count()} agents across {len(get_category_counts())} categories")
+    else:
+        logger.warning("V5 Agent Swarm: no LLM client available (KIMI_API_KEY missing)")
+except Exception as e:
+    logger.warning(f"V5 Agent Swarm not available: {e}")
+    import traceback
+    traceback.print_exc()
+
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -1007,6 +1060,19 @@ class FileType(str, Enum):
     MARKDOWN = "markdown"
     DOCX = "docx"
 
+# Import structured mode configs from dedicated module
+try:
+    from src.core.mode_config import (
+        get_mode_config, get_mode_capabilities, get_all_modes_info,
+        MODE_REGISTRY, ModeConfig, ModeCapabilities,
+        INSTANT_MODE, AUTO_MODE, AGENT_MODE, SWARM_MODE,
+    )
+    STRUCTURED_MODES_AVAILABLE = True
+except Exception as mode_err:
+    logger.warning(f"Structured mode configs not available: {mode_err}")
+    STRUCTURED_MODES_AVAILABLE = False
+
+# Legacy MODE_CONFIGS for backward compatibility
 MODE_CONFIGS = {
     ChatMode.INSTANT: {"primary_model": "grok", "temperature": 0.7, "max_tokens": 16384, "show_reasoning": False, "enable_tools": True},
     ChatMode.THINKING: {"primary_model": "kimi", "temperature": 0.6, "max_tokens": 16384, "show_reasoning": True, "enable_tools": True},
@@ -6903,7 +6969,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "8.0.0",
+        "version": "9.0.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -6950,6 +7016,9 @@ async def health_check():
             "v4_browser_v3": v4_browser_engine is not None,
             "v4_rag": v4_orchestrator is not None and getattr(v4_orchestrator, 'rag_system', None) is not None,
             "v4_stream_manager": v4_stream_manager is not None,
+            "v5_agent_swarm": SWARM_AVAILABLE,
+            "v5_swarm_agents": swarm_coordinator._metrics.get('agents_registered', 0) if swarm_coordinator else 0,
+            "v5_swarm_router": swarm_router_instance is not None,
         },
         "upload_config": {
             "max_size_mb": MAX_UPLOAD_SIZE_MB,
@@ -6958,6 +7027,33 @@ async def health_check():
             "document_formats": ["PDF", "XLSX", "XLS", "DOCX", "DOC", "CSV", "TXT", "JSON", "MD", "PPTX"]
         }
     }
+
+@app.get("/api/v1/modes")
+async def get_modes():
+    """Get all available modes with capabilities and credit costs."""
+    if STRUCTURED_MODES_AVAILABLE:
+        return {
+            "modes": get_all_modes_info(),
+            "default_mode": "thinking",
+            "version": "2.0",
+        }
+    else:
+        return {
+            "modes": [
+                {"name": "instant", "display_name": "Instant", "description": "Fast answers", "credit_cost": 1.0},
+                {"name": "thinking", "display_name": "Auto", "description": "Balanced with search and file gen", "credit_cost": 3.0},
+                {"name": "agent", "display_name": "Agent", "description": "Full agentic AI", "credit_cost": 5.0},
+            ],
+            "default_mode": "thinking",
+            "version": "1.0",
+        }
+
+@app.get("/api/v1/modes/{mode_name}/capabilities")
+async def get_mode_caps(mode_name: str):
+    """Get capabilities for a specific mode."""
+    if STRUCTURED_MODES_AVAILABLE:
+        return get_mode_capabilities(mode_name)
+    return {"error": "Structured modes not available"}
 
 @app.get("/")
 async def root():
