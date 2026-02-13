@@ -786,6 +786,20 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# ============================================================================
+# V6 TASK PERSISTENCE — Background tasks that survive page navigation
+# ============================================================================
+task_persistence = None
+try:
+    from src.core.task_persistence import TaskPersistenceManager, ExecutionStatus
+    task_persistence = TaskPersistenceManager(
+        supabase=supabase if supabase else None,
+        ws_manager=ws_manager if 'ws_manager' in dir() else None,
+    )
+    logger.info("V6 TaskPersistenceManager initialized")
+except Exception as e:
+    logger.warning(f"V6 TaskPersistenceManager not available: {e}")
+
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -6969,7 +6983,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "9.0.0",
+        "version": "10.0.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -7019,6 +7033,7 @@ async def health_check():
             "v5_agent_swarm": SWARM_AVAILABLE,
             "v5_swarm_agents": swarm_coordinator._metrics.get('agents_registered', 0) if swarm_coordinator else 0,
             "v5_swarm_router": swarm_router_instance is not None,
+            "v6_task_persistence": task_persistence is not None,
         },
         "upload_config": {
             "max_size_mb": MAX_UPLOAD_SIZE_MB,
@@ -7839,37 +7854,6 @@ async def browser_execute_endpoint(
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
     )
 
-# V2 WebSocket endpoint for LiveScreen
-@app.websocket("/api/v2/ws/execute/{execution_id}")
-async def websocket_v2_execution(websocket: WebSocket, execution_id: str):
-    """V2 WebSocket endpoint for LiveScreen component."""
-    if not ws_manager:
-        await websocket.close(code=1003, reason="WebSocket manager not available")
-        return
-
-    await ws_manager.connect(websocket, execution_id)
-
-    try:
-        while True:
-            data = await websocket.receive_text()
-            try:
-                message = json.loads(data)
-                msg_type = message.get("type", "")
-
-                if msg_type == "ping":
-                    await websocket.send_json({"type": "pong", "timestamp": datetime.now().isoformat()})
-                elif msg_type == "cancel":
-                    if execution_orchestrator:
-                        await execution_orchestrator.cancel_execution(execution_id)
-                        await ws_manager.broadcast_completion(execution_id, success=False, result={"cancelled": True})
-            except json.JSONDecodeError:
-                pass
-    except WebSocketDisconnect:
-        await ws_manager.disconnect(websocket, execution_id)
-    except Exception as e:
-        logger.error(f"V2 WebSocket error: {e}")
-        await ws_manager.disconnect(websocket, execution_id)
-
 # ============================================================================
 # V4 AGENT ORCHESTRATOR — WebSocket + API Endpoints
 # ============================================================================
@@ -8012,6 +7996,147 @@ async def v4_add_knowledge(request: Request):
         content=content, source=source, metadata=metadata, user_id=user_id,
     )
     return {"success": True, "document_ids": doc_ids}
+
+
+# ============================================================================
+# V6 TASK PERSISTENCE — Background task API endpoints
+# ============================================================================
+
+@app.post("/api/v2/execute/start")
+async def v2_execute_start_background(request: Request):
+    """Start a task as a background execution that survives page navigation.
+    Returns execution_id immediately. Use /api/v2/execute/{id}/events to stream events."""
+    if not task_persistence:
+        raise HTTPException(status_code=503, detail="Task persistence not available")
+    
+    body = await request.json()
+    task_desc = body.get("task", "")
+    user_id = body.get("user_id", "anonymous")
+    mode = body.get("mode", "agent")
+    conversation_id = body.get("conversation_id")
+    context = body.get("context", {})
+    execution_id = body.get("execution_id")
+    
+    if not task_desc:
+        raise HTTPException(status_code=400, detail="task is required")
+    
+    # Create the execution record
+    eid = await task_persistence.create_execution(
+        user_id=user_id,
+        task_description=task_desc,
+        mode=mode,
+        conversation_id=conversation_id,
+        execution_id=execution_id,
+    )
+    
+    # Build the execution generator based on available orchestrators
+    async def _execution_generator():
+        # PRIMARY: Use real ExecutionOrchestrator
+        if execution_orchestrator:
+            async for evt in execution_orchestrator.execute_stream(
+                user_request=task_desc,
+                context=context,
+                execution_id=eid,
+            ):
+                yield evt
+        else:
+            # FALLBACK: Use ChatHandler
+            chat_messages = []
+            if context.get("history"):
+                for h in context["history"][-10:]:
+                    if isinstance(h, dict) and h.get("role") and h.get("content"):
+                        content_val = h["content"]
+                        if isinstance(content_val, str) and len(content_val) > 3000:
+                            content_val = content_val[:3000] + "..."
+                        chat_messages.append(ChatMessage(role=h["role"], content=content_val))
+            chat_messages.append(ChatMessage(role="user", content=task_desc))
+            
+            chat_request = ChatRequest(
+                messages=chat_messages,
+                mode=ChatMode.AGENT,
+                stream=True,
+                enable_tools=True,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            
+            async for raw_event in ChatHandler.handle_chat(chat_request):
+                try:
+                    if raw_event.startswith("data: "):
+                        evt_json = json.loads(raw_event[6:].strip())
+                        yield {"event": evt_json.get("type", "raw"), "data": evt_json.get("data", {})}
+                except (json.JSONDecodeError, Exception):
+                    pass
+    
+    # Run as background task
+    await task_persistence.run_execution(
+        execution_id=eid,
+        coroutine_factory=_execution_generator,
+    )
+    
+    return {
+        "success": True,
+        "execution_id": eid,
+        "status": "running",
+        "events_url": f"/api/v2/execute/{eid}/events",
+        "status_url": f"/api/v2/execute/{eid}/status",
+    }
+
+
+@app.get("/api/v2/execute/{execution_id}/events")
+async def v2_execution_events_stream(execution_id: str, from_seq: int = 0):
+    """SSE stream of execution events. Supports reconnection via from_seq parameter.
+    When reconnecting after page navigation, pass the last received sequence number."""
+    if not task_persistence:
+        raise HTTPException(status_code=503, detail="Task persistence not available")
+    
+    async def event_generator():
+        async for buffered_evt in task_persistence.subscribe(execution_id, from_sequence=from_seq):
+            evt_data = {
+                "type": buffered_evt.event_type,
+                "data": buffered_evt.data,
+                "sequence": buffered_evt.sequence,
+                "timestamp": buffered_evt.timestamp,
+            }
+            yield f"data: {json.dumps(evt_data)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/v2/execute/{execution_id}/full-status")
+async def v2_execution_full_status(execution_id: str):
+    """Get full execution status including steps, files, and event count."""
+    if not task_persistence:
+        raise HTTPException(status_code=503, detail="Task persistence not available")
+    
+    status = await task_persistence.get_status(execution_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return {"success": True, **status}
+
+
+@app.get("/api/v2/user/{user_id}/executions")
+async def v2_user_executions(user_id: str, limit: int = 20):
+    """List all executions for a user (active + historical)."""
+    if not task_persistence:
+        return {"success": True, "executions": []}
+    
+    executions = await task_persistence.list_user_executions(user_id, limit)
+    return {"success": True, "executions": executions}
+
+
+@app.post("/api/v2/execute/{execution_id}/cancel-bg")
+async def v2_cancel_background_execution(execution_id: str):
+    """Cancel a background execution."""
+    if not task_persistence:
+        raise HTTPException(status_code=503, detail="Task persistence not available")
+    
+    await task_persistence.cancel_execution(execution_id)
+    return {"success": True, "message": f"Execution {execution_id} cancelled"}
 
 
 # ============================================================================
@@ -8583,11 +8708,21 @@ async def startup_event():
         except Exception as e:
             logger.error(f"V4 tool wiring error: {e}")
 
-    logger.info(f"Startup complete \u2013 McLeuker AI V8.0 with Agentic AI ready.")
+    # Start V6 Task Persistence Manager
+    global task_persistence
+    if task_persistence:
+        # Re-wire ws_manager in case it was initialized after task_persistence
+        task_persistence.ws_manager = ws_manager if 'ws_manager' in dir() else None
+        await task_persistence.start()
+        logger.info("V6 TaskPersistenceManager started")
+
+    logger.info(f"Startup complete \u2013 McLeuker AI V10.0 with Agentic AI ready.")
     logger.info(f"  V1 orchestrator: {execution_orchestrator is not None}")
     logger.info(f"  V2 agentic: {V2_AGENTIC_AVAILABLE}")
     logger.info(f"  V3 framework: {AGENT_V3_AVAILABLE}")
     logger.info(f"  V4 orchestrator: {V4_ORCHESTRATOR_AVAILABLE}")
+    logger.info(f"  V5 swarm: {SWARM_AVAILABLE}")
+    logger.info(f"  V6 persistence: {task_persistence is not None}")
     logger.info(f"  Agentic Engine: {AGENTIC_ENGINE_AVAILABLE}")
 
 

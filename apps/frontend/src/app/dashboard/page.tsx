@@ -1985,6 +1985,88 @@ function DashboardContent() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ===== AGENT EXECUTION PERSISTENCE =====
+  // On mount, check if there's an active agent execution from a previous session
+  useEffect(() => {
+    try {
+      const activeExecId = localStorage.getItem('mcleuker_active_execution');
+      if (activeExecId) {
+        // Try to reconnect to the execution via V6 persistence endpoint
+        const recoverExecution = async () => {
+          try {
+            const res = await fetch(`${API_URL}/api/v2/execute/${activeExecId}/status`);
+            if (!res.ok) {
+              localStorage.removeItem('mcleuker_active_execution');
+              return;
+            }
+            const data = await res.json();
+            if (data.status === 'running' || data.status === 'pending') {
+              // Execution is still active — show the panel and reconnect
+              setAgentExecutionId(activeExecId);
+              setShowAgentPanel(true);
+              setAgentExecutionStatus('executing');
+              // Restore steps if available
+              if (data.steps && Array.isArray(data.steps)) {
+                setAgentExecutionSteps(data.steps.map((s: any) => ({
+                  id: s.id || `step-${Date.now()}`,
+                  phase: s.phase || 'execution',
+                  title: s.title || 'Processing...',
+                  status: s.status || 'active',
+                  detail: s.detail || '',
+                })));
+              }
+              // Connect to SSE event stream for live updates
+              try {
+                const evtSource = new EventSource(`${API_URL}/api/v2/execute/${activeExecId}/events`);
+                evtSource.onmessage = (event) => {
+                  try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'browser_screenshot') {
+                      setBrowserScreenshot(msg.data || msg);
+                    } else if (msg.type === 'step_update') {
+                      const stepUpdate = msg.data || msg;
+                      setAgentExecutionSteps(prev => {
+                        const idx = prev.findIndex(s => s.id === stepUpdate.id);
+                        if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], ...stepUpdate }; return u; }
+                        return [...prev, stepUpdate];
+                      });
+                    } else if (msg.type === 'execution_complete') {
+                      setAgentExecutionStatus('completed');
+                      setAgentProgress(100);
+                      localStorage.removeItem('mcleuker_active_execution');
+                      evtSource.close();
+                    } else if (msg.type === 'execution_error') {
+                      setAgentExecutionStatus('error');
+                      setAgentError(msg.data?.error || 'Execution failed');
+                      localStorage.removeItem('mcleuker_active_execution');
+                      evtSource.close();
+                    }
+                  } catch (e) {}
+                };
+                evtSource.onerror = () => {
+                  evtSource.close();
+                };
+              } catch (e) {}
+            } else {
+              // Execution already completed or failed
+              localStorage.removeItem('mcleuker_active_execution');
+              if (data.status === 'completed' && data.result) {
+                // Show completed result
+                setAgentExecutionId(activeExecId);
+                setShowAgentPanel(true);
+                setAgentExecutionStatus('completed');
+                setAgentProgress(100);
+              }
+            }
+          } catch (e) {
+            localStorage.removeItem('mcleuker_active_execution');
+          }
+        };
+        recoverExecution();
+      }
+    } catch (e) {}
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-restore last conversation on page load (skip if auto-execute pending or reset requested)
   useEffect(() => {
     if (conversations.length > 0 && !currentConversation && messages.length === 0) {
@@ -2322,8 +2404,13 @@ function DashboardContent() {
                 // Nothing to display yet
               } else if (eventType === 'execution_start') {
                 // V2 Agent execution started
-                setAgentExecutionId(eventData.execution_id || null);
+                const execId = eventData.execution_id || null;
+                setAgentExecutionId(execId);
                 setAgentExecutionStatus('planning');
+                // Persist execution ID so we can reconnect after navigation
+                if (execId) {
+                  try { localStorage.setItem('mcleuker_active_execution', execId); } catch (e) {}
+                }
               } else if (eventType === 'step_update') {
                 // V2 Agent step update - update the execution panel
                 const stepUpdate: ExecutionStep = {
@@ -2373,11 +2460,13 @@ function DashboardContent() {
                 setAgentExecutionStatus('completed');
                 setAgentProgress(100);
                 setAgentExecutionSteps(prev => prev.map(s => ({ ...s, status: s.status === 'active' ? 'complete' : s.status } as ExecutionStep)));
+                try { localStorage.removeItem('mcleuker_active_execution'); } catch (e) {}
                 // The content/downloads from execution_complete are handled by the normal content/download events below
               } else if (eventType === 'execution_error') {
                 // V2 Agent execution error
                 setAgentExecutionStatus('error');
                 setAgentError(eventData.message || eventData.error || 'Execution failed');
+                try { localStorage.removeItem('mcleuker_active_execution'); } catch (e) {}
               } else if (eventType === 'credential_request') {
                 // Agent needs credentials from the user (e.g., GitHub token)
                 setCredentialRequest({
