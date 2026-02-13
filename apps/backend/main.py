@@ -7278,6 +7278,124 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
         logger.error(f"WebSocket error: {e}")
         await ws_manager.disconnect(websocket, execution_id)
 
+# ============================================================================
+# V2 WebSocket Endpoint (matches frontend LiveScreen.tsx path)
+# ============================================================================
+@app.websocket("/api/v2/ws/execute/{execution_id}")
+async def websocket_execute_v2(websocket: WebSocket, execution_id: str):
+    """V2 WebSocket endpoint for real-time execution updates.
+    
+    FIXED: This path matches what the frontend LiveScreen.tsx expects:
+    - Frontend connects to: ws://backend/api/v2/ws/execute/{execution_id}
+    - Supports: browser screenshots, execution progress, file generation events
+    """
+    if not ws_manager:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "data": {"error": "WebSocket manager not available"}})
+        await websocket.close()
+        return
+    
+    await ws_manager.connect(websocket, execution_id)
+    logger.info(f"V2 WebSocket connected: execution_id={execution_id}")
+    
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type", "")
+                
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": datetime.now().isoformat()})
+                elif msg_type == "cancel" and execution_orchestrator:
+                    await execution_orchestrator.cancel_execution(execution_id)
+                    await ws_manager.broadcast(execution_id, "execution.cancelled", {"execution_id": execution_id})
+                elif msg_type == "status":
+                    status = {"execution_id": execution_id, "connected": True, "timestamp": datetime.now().isoformat()}
+                    if execution_orchestrator:
+                        exec_status = execution_orchestrator.get_execution_status(execution_id)
+                        if exec_status:
+                            status.update(exec_status)
+                    await websocket.send_json({"type": "status", "data": status})
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        logger.info(f"V2 WebSocket disconnected: execution_id={execution_id}")
+        await ws_manager.disconnect(websocket, execution_id)
+    except Exception as e:
+        logger.error(f"V2 WebSocket error for {execution_id}: {e}")
+        await ws_manager.disconnect(websocket, execution_id)
+
+# ============================================================================
+# Browser Automation Endpoint with WebSocket Streaming
+# ============================================================================
+@app.post("/api/v1/browser/execute")
+async def browser_execute_endpoint(
+    task: str = Form(...),
+    start_url: Optional[str] = Form(None),
+    execution_id: Optional[str] = Form(None)
+):
+    """Execute a browser automation task with real-time WebSocket streaming.
+    
+    Screenshots are streamed via WebSocket to the LiveScreen panel.
+    Also returns SSE stream as fallback.
+    """
+    if not browser_engine_instance:
+        raise HTTPException(status_code=503, detail="Browser engine not available")
+    
+    execution_id = execution_id or str(uuid.uuid4())
+    
+    async def stream_browser_events():
+        try:
+            # Emit start event
+            start_data = {"type": "browser.started", "data": {"execution_id": execution_id, "task": task, "url": start_url or "about:blank"}}
+            if ws_manager:
+                await ws_manager.broadcast(execution_id, "browser.started", start_data["data"])
+            yield f"data: {json.dumps(start_data)}\n\n"
+            
+            # Navigate to URL if provided
+            if start_url:
+                nav_result = await browser_engine_instance.navigate(start_url)
+                screenshot = await browser_engine_instance.take_screenshot()
+                
+                nav_data = {"type": "browser.navigated", "data": {"url": start_url, "title": nav_result.get("title", ""), "screenshot": screenshot[:100] + "..." if screenshot else None}}
+                if ws_manager and screenshot:
+                    await ws_manager.broadcast(execution_id, "browser.screenshot", {"image": screenshot, "url": start_url, "title": nav_result.get("title", ""), "timestamp": datetime.now().isoformat()})
+                yield f"data: {json.dumps(nav_data)}\n\n"
+            
+            # Execute the task using CUA loop
+            if hasattr(browser_engine_instance, 'execute_cua_loop'):
+                result = await browser_engine_instance.execute_cua_loop(task, max_steps=30)
+            elif hasattr(browser_engine_instance, 'execute_task'):
+                result = await browser_engine_instance.execute_task(task, start_url=start_url, max_steps=30)
+            else:
+                result = {"success": True, "message": "Browser navigation completed"}
+            
+            # Final screenshot
+            final_screenshot = await browser_engine_instance.take_screenshot()
+            if ws_manager and final_screenshot:
+                await ws_manager.broadcast(execution_id, "browser.screenshot", {"image": final_screenshot, "url": start_url or "about:blank", "title": "Task Complete", "timestamp": datetime.now().isoformat()})
+            
+            # Completion event
+            completion_data = {"type": "execution_complete", "data": {"success": True, "result": result, "execution_id": execution_id}}
+            if ws_manager:
+                await ws_manager.broadcast(execution_id, "execution.completed", completion_data["data"])
+            yield f"data: {json.dumps(completion_data)}\n\n"
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            logger.error(f"Browser execution error: {e}")
+            error_data = {"type": "error", "data": {"error": str(e), "execution_id": execution_id}}
+            if ws_manager:
+                await ws_manager.broadcast(execution_id, "execution.error", error_data["data"])
+            yield f"data: {json.dumps(error_data)}\n\n"
+            yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        stream_browser_events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+    )
 
 # V2 WebSocket endpoint for LiveScreen
 @app.websocket("/api/v2/ws/execute/{execution_id}")
