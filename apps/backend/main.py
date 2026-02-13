@@ -6918,6 +6918,24 @@ async def v2_execute_stream(request: ExecutionRequest):
                     ):
                         evt_name = evt.get("event", "")
                         evt_data = evt.get("data", {})
+                        
+                        # FIXED: Forward key events to WebSocket clients too
+                        if ws_manager:
+                            try:
+                                if evt_name == "browser_screenshot":
+                                    await ws_manager.broadcast_screenshot(
+                                        execution_id=execution_id,
+                                        image_base64=evt_data.get("screenshot", evt_data.get("image", "")),
+                                        url=evt_data.get("url", ""),
+                                        title=evt_data.get("title", ""),
+                                        action=evt_data.get("action", ""),
+                                        step=evt_data.get("step", 0),
+                                    )
+                                elif evt_name in ("step_update", "execution_progress", "execution_reasoning", "execution_artifact", "execution_complete", "execution_error"):
+                                    await ws_manager.broadcast(execution_id, evt_name, evt_data)
+                            except Exception as ws_err:
+                                logger.debug(f"WS forward error (non-fatal): {ws_err}")
+                        
                         yield event(evt_name, evt_data)
                     return
                 except Exception as orch_err:
@@ -6998,8 +7016,36 @@ async def v2_execute_stream(request: ExecutionRequest):
                         yield raw_event
                     elif evt_type == "download":
                         filename = evt_data.get("filename", "file")
-                        yield event("execution_artifact", {"artifact_type": "file", "name": filename, "url": evt_data.get("download_url", ""), "mime_type": evt_data.get("file_type", "")})
+                        file_id = evt_data.get("file_id", "")
+                        download_url = evt_data.get("download_url", "")
+                        file_type = evt_data.get("file_type", "")
+                        
+                        # Emit execution_artifact with full metadata
+                        artifact_data = {
+                            "artifact_type": "file",
+                            "name": filename,
+                            "file_id": file_id,
+                            "url": download_url,
+                            "download_url": download_url,
+                            "mime_type": file_type,
+                            "file_type": file_type,
+                        }
+                        yield event("execution_artifact", artifact_data)
                         yield event("step_update", {"id": f"step-file-{filename}", "phase": "delivery", "title": f"Generated: {filename}", "status": "complete"})
+                        
+                        # FIXED: Also forward file event to WebSocket clients
+                        if ws_manager:
+                            try:
+                                await ws_manager.broadcast_file_generated(
+                                    execution_id=execution_id,
+                                    file_id=file_id,
+                                    filename=filename,
+                                    file_type=file_type,
+                                    download_url=download_url,
+                                )
+                            except Exception:
+                                pass
+                        
                         yield raw_event
                     elif evt_type == "complete":
                         if content_started:
@@ -7241,7 +7287,9 @@ async def v2_trending(category: Optional[str] = None, location: Optional[str] = 
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# WebSocket endpoint for real-time execution streaming
+# ============================================================================
+# WebSocket endpoint for real-time execution streaming (V1)
+# ============================================================================
 @app.websocket("/ws/execution/{execution_id}")
 async def websocket_execution(websocket: WebSocket, execution_id: str):
     """WebSocket endpoint for real-time execution progress."""
@@ -7269,7 +7317,7 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     status = execution_orchestrator.get_execution_status(execution_id)
                     await ws_manager.broadcast(execution_id, "execution.status", status or {})
                 elif msg_type == "ping":
-                    await ws_manager.broadcast(execution_id, "pong", {"timestamp": datetime.now().isoformat()})
+                    await websocket.send_json({"type": "pong", "timestamp": datetime.now().isoformat()})
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
@@ -7285,9 +7333,8 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
 async def websocket_execute_v2(websocket: WebSocket, execution_id: str):
     """V2 WebSocket endpoint for real-time execution updates.
     
-    FIXED: This path matches what the frontend LiveScreen.tsx expects:
-    - Frontend connects to: ws://backend/api/v2/ws/execute/{execution_id}
-    - Supports: browser screenshots, execution progress, file generation events
+    FIXED v2: This path matches what the frontend LiveScreen.tsx expects.
+    Now uses the generic broadcast() method which actually exists.
     """
     if not ws_manager:
         await websocket.accept()
@@ -7311,12 +7358,19 @@ async def websocket_execute_v2(websocket: WebSocket, execution_id: str):
                     await execution_orchestrator.cancel_execution(execution_id)
                     await ws_manager.broadcast(execution_id, "execution.cancelled", {"execution_id": execution_id})
                 elif msg_type == "status":
-                    status = {"execution_id": execution_id, "connected": True, "timestamp": datetime.now().isoformat()}
+                    status = {"execution_id": execution_id, "connected": True, "ws_connections": ws_manager.get_connection_count(execution_id), "timestamp": datetime.now().isoformat()}
                     if execution_orchestrator:
                         exec_status = execution_orchestrator.get_execution_status(execution_id)
                         if exec_status:
                             status.update(exec_status)
                     await websocket.send_json({"type": "status", "data": status})
+                elif msg_type == "start_browser" and browser_engine_instance:
+                    # Allow frontend to trigger browser execution via WebSocket
+                    task_text = message.get("task", "")
+                    start_url = message.get("url", "")
+                    if task_text:
+                        asyncio.create_task(_run_browser_task_with_ws(execution_id, task_text, start_url))
+                        await websocket.send_json({"type": "browser.started", "data": {"execution_id": execution_id, "task": task_text}})
             except json.JSONDecodeError:
                 pass
     except WebSocketDisconnect:
@@ -7326,8 +7380,116 @@ async def websocket_execute_v2(websocket: WebSocket, execution_id: str):
         logger.error(f"V2 WebSocket error for {execution_id}: {e}")
         await ws_manager.disconnect(websocket, execution_id)
 
+
+async def _run_browser_task_with_ws(execution_id: str, task: str, start_url: str = ""):
+    """Run a browser task and stream screenshots to WebSocket clients.
+    
+    FIXED: This bridges the BrowserEngine event system to WebSocket manager.
+    The browser engine emits events via sub_events list, and this function
+    forwards them to WebSocket clients in real-time.
+    """
+    if not browser_engine_instance or not ws_manager:
+        return
+    
+    try:
+        sub_events = []
+        
+        # Execute the browser task
+        if hasattr(browser_engine_instance, 'execute_task'):
+            # Start the task in background and poll sub_events
+            task_coro = browser_engine_instance.execute_task(
+                task=task,
+                start_url=start_url or None,
+                max_steps=20,
+                sub_events=sub_events,
+            )
+            
+            # Run task and forward events concurrently
+            result_holder = {}
+            
+            async def run_task():
+                result_holder['result'] = await task_coro
+            
+            async def forward_events():
+                last_idx = 0
+                while 'result' not in result_holder:
+                    await asyncio.sleep(0.3)
+                    # Forward new events
+                    while last_idx < len(sub_events):
+                        evt = sub_events[last_idx]
+                        last_idx += 1
+                        evt_name = evt.get("event", "")
+                        evt_data = evt.get("data", {})
+                        
+                        if evt_name == "browser_screenshot":
+                            await ws_manager.broadcast_screenshot(
+                                execution_id=execution_id,
+                                image_base64=evt_data.get("screenshot", ""),
+                                url=evt_data.get("url", ""),
+                                title=evt_data.get("title", ""),
+                                action=evt_data.get("action", ""),
+                                step=evt_data.get("step", 0),
+                            )
+                        elif evt_name == "execution_reasoning":
+                            await ws_manager.broadcast_reasoning(
+                                execution_id=execution_id,
+                                content=evt_data.get("chunk", ""),
+                            )
+                        else:
+                            await ws_manager.broadcast(execution_id, evt_name, evt_data)
+                
+                # Forward any remaining events
+                while last_idx < len(sub_events):
+                    evt = sub_events[last_idx]
+                    last_idx += 1
+                    evt_name = evt.get("event", "")
+                    evt_data = evt.get("data", {})
+                    if evt_name == "browser_screenshot":
+                        await ws_manager.broadcast_screenshot(
+                            execution_id=execution_id,
+                            image_base64=evt_data.get("screenshot", ""),
+                            url=evt_data.get("url", ""),
+                            title=evt_data.get("title", ""),
+                            action=evt_data.get("action", ""),
+                            step=evt_data.get("step", 0),
+                        )
+                    elif evt_name == "execution_reasoning":
+                        await ws_manager.broadcast_reasoning(
+                            execution_id=execution_id,
+                            content=evt_data.get("chunk", ""),
+                        )
+                    else:
+                        await ws_manager.broadcast(execution_id, evt_name, evt_data)
+            
+            # Run both concurrently
+            await asyncio.gather(run_task(), forward_events())
+            
+            result = result_holder.get('result', {})
+        else:
+            # Fallback: just navigate
+            if start_url:
+                nav_result = await browser_engine_instance.navigate(start_url)
+                screenshot = await browser_engine_instance.take_screenshot()
+                if screenshot:
+                    await ws_manager.broadcast_screenshot(
+                        execution_id=execution_id,
+                        image_base64=screenshot,
+                        url=start_url,
+                        title=nav_result.get("title", ""),
+                        action="Navigated to URL",
+                    )
+            result = {"success": True, "message": "Navigation completed"}
+        
+        # Send completion
+        await ws_manager.broadcast_completion(execution_id, True, result)
+        
+    except Exception as e:
+        logger.error(f"Browser task with WS error: {e}")
+        await ws_manager.broadcast_error(execution_id, str(e))
+
+
 # ============================================================================
-# Browser Automation Endpoint with WebSocket Streaming
+# Browser Automation Endpoint with WebSocket Streaming (REST + SSE)
 # ============================================================================
 @app.post("/api/v1/browser/execute")
 async def browser_execute_endpoint(
@@ -7353,33 +7515,66 @@ async def browser_execute_endpoint(
                 await ws_manager.broadcast(execution_id, "browser.started", start_data["data"])
             yield f"data: {json.dumps(start_data)}\n\n"
             
-            # Navigate to URL if provided
+            # Execute using the bridge function which handles event forwarding
+            sub_events = []
+            
             if start_url:
                 nav_result = await browser_engine_instance.navigate(start_url)
                 screenshot = await browser_engine_instance.take_screenshot()
                 
-                nav_data = {"type": "browser.navigated", "data": {"url": start_url, "title": nav_result.get("title", ""), "screenshot": screenshot[:100] + "..." if screenshot else None}}
                 if ws_manager and screenshot:
-                    await ws_manager.broadcast(execution_id, "browser.screenshot", {"image": screenshot, "url": start_url, "title": nav_result.get("title", ""), "timestamp": datetime.now().isoformat()})
+                    await ws_manager.broadcast_screenshot(
+                        execution_id=execution_id,
+                        image_base64=screenshot,
+                        url=start_url,
+                        title=nav_result.get("title", ""),
+                        action="Navigated to URL",
+                    )
+                
+                nav_data = {"type": "browser.navigated", "data": {"url": start_url, "title": nav_result.get("title", "")}}
                 yield f"data: {json.dumps(nav_data)}\n\n"
             
-            # Execute the task using CUA loop
-            if hasattr(browser_engine_instance, 'execute_cua_loop'):
-                result = await browser_engine_instance.execute_cua_loop(task, max_steps=30)
-            elif hasattr(browser_engine_instance, 'execute_task'):
-                result = await browser_engine_instance.execute_task(task, start_url=start_url, max_steps=30)
+            # Execute the task
+            if hasattr(browser_engine_instance, 'execute_task'):
+                result = await browser_engine_instance.execute_task(task, start_url=start_url, max_steps=20, sub_events=sub_events)
+                
+                # Forward sub_events as SSE
+                for evt in sub_events:
+                    evt_name = evt.get("event", "")
+                    evt_data = evt.get("data", {})
+                    
+                    if evt_name == "browser_screenshot" and ws_manager:
+                        await ws_manager.broadcast_screenshot(
+                            execution_id=execution_id,
+                            image_base64=evt_data.get("screenshot", ""),
+                            url=evt_data.get("url", ""),
+                            title=evt_data.get("title", ""),
+                            action=evt_data.get("action", ""),
+                            step=evt_data.get("step", 0),
+                        )
+                    
+                    # Don't send full screenshots in SSE (too large)
+                    if evt_name != "browser_screenshot":
+                        sse_payload = json.dumps({"type": evt_name, "data": evt_data})
+                        yield f"data: {sse_payload}\n\n"
             else:
                 result = {"success": True, "message": "Browser navigation completed"}
             
-            # Final screenshot
+            # Final screenshot via WebSocket
             final_screenshot = await browser_engine_instance.take_screenshot()
             if ws_manager and final_screenshot:
-                await ws_manager.broadcast(execution_id, "browser.screenshot", {"image": final_screenshot, "url": start_url or "about:blank", "title": "Task Complete", "timestamp": datetime.now().isoformat()})
+                await ws_manager.broadcast_screenshot(
+                    execution_id=execution_id,
+                    image_base64=final_screenshot,
+                    url=start_url or "about:blank",
+                    title="Task Complete",
+                    action="Task completed",
+                )
             
             # Completion event
-            completion_data = {"type": "execution_complete", "data": {"success": True, "result": result, "execution_id": execution_id}}
+            completion_data = {"type": "execution_complete", "data": {"success": True, "result": {k: v for k, v in result.items() if k != 'final_screenshot'}, "execution_id": execution_id}}
             if ws_manager:
-                await ws_manager.broadcast(execution_id, "execution.completed", completion_data["data"])
+                await ws_manager.broadcast_completion(execution_id, True, result)
             yield f"data: {json.dumps(completion_data)}\n\n"
             yield "data: [DONE]\n\n"
             
@@ -7387,7 +7582,7 @@ async def browser_execute_endpoint(
             logger.error(f"Browser execution error: {e}")
             error_data = {"type": "error", "data": {"error": str(e), "execution_id": execution_id}}
             if ws_manager:
-                await ws_manager.broadcast(execution_id, "execution.error", error_data["data"])
+                await ws_manager.broadcast_error(execution_id, str(e))
             yield f"data: {json.dumps(error_data)}\n\n"
             yield "data: [DONE]\n\n"
     

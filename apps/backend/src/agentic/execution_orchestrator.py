@@ -1415,17 +1415,47 @@ Respond in JSON:
         response = await self._llm_call([{"role": "user", "content": write_prompt}], max_tokens=8192)
 
         try:
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
-            file_data = json.loads(response.strip())
-        except (json.JSONDecodeError, IndexError):
-            return {"type": "github_error", "error": "Could not parse file operation details", "success": False}
+            # FIXED: Robust JSON parsing with multiple strategies
+            cleaned = response.strip()
+            if "```json" in cleaned:
+                cleaned = cleaned.split("```json")[1].split("```")[0]
+            elif "```" in cleaned:
+                cleaned = cleaned.split("```")[1].split("```")[0]
+            
+            # Try direct parse first
+            try:
+                file_data = json.loads(cleaned.strip())
+            except json.JSONDecodeError:
+                # Try to find JSON object in the response
+                json_match = re.search(r'\{[\s\S]*"file_path"[\s\S]*\}', cleaned, re.DOTALL)
+                if json_match:
+                    try:
+                        file_data = json.loads(json_match.group(0))
+                    except json.JSONDecodeError:
+                        # Last resort: extract fields with regex
+                        path_match = re.search(r'"file_path"\s*:\s*"([^"]+)"', cleaned)
+                        content_match = re.search(r'"content"\s*:\s*"([\s\S]*?)"\s*[,}]', cleaned)
+                        msg_match = re.search(r'"commit_message"\s*:\s*"([^"]+)"', cleaned)
+                        if path_match:
+                            file_data = {
+                                "file_path": path_match.group(1),
+                                "content": content_match.group(1) if content_match else "",
+                                "commit_message": msg_match.group(1) if msg_match else "Update file",
+                            }
+                        else:
+                            raise ValueError("No file_path found")
+                else:
+                    raise ValueError("No JSON object found")
+        except (json.JSONDecodeError, IndexError, ValueError, AttributeError) as parse_err:
+            logger.error(f"GitHub write parse error: {parse_err}. Response preview: {response[:300]}")
+            sub_events.append({"event": "execution_reasoning", "data": {
+                "chunk": f"- Could not parse file operation details from LLM response\n"
+            }})
+            return {"type": "github_error", "error": f"Could not parse file operation details: {str(parse_err)}", "raw_response": response[:500], "success": False}
 
-        file_path = file_data.get("file_path", "")
-        content = file_data.get("content", "")
-        message = file_data.get("commit_message", f"Update {file_path}")
+        file_path = file_data.get("file_path", "") or file_data.get("path", "")
+        content = file_data.get("content", "") or file_data.get("file_content", "")
+        message = file_data.get("commit_message", "") or file_data.get("message", f"Update {file_path}")
 
         if not file_path or not content:
             return {"type": "github_error", "error": "Missing file path or content", "success": False}

@@ -1,15 +1,22 @@
 """
-WebSocket Handler for Real-time Browser Screenshots
+WebSocket Handler for Real-time Execution Streaming
 ====================================================
 
-Handles WebSocket connections for live browser screenshot streaming
-to the frontend LiveScreen component.
+FIXED v2: Added generic broadcast() method that routes events properly.
+All WebSocket communication now goes through this manager.
+
+Handles:
+- Browser screenshot streaming to LiveScreen component
+- Execution step updates
+- Reasoning/thinking content
+- File generation events
+- Error and completion events
 """
 
 import asyncio
 import json
 import logging
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -25,6 +32,7 @@ class ScreenshotMessage:
     url: str = ""
     title: str = ""
     action: str = ""
+    step: int = 0
     timestamp: str = ""
     
     def __post_init__(self):
@@ -39,6 +47,7 @@ class ScreenshotMessage:
                 "url": self.url,
                 "title": self.title,
                 "action": self.action,
+                "step": self.step,
                 "timestamp": self.timestamp,
             }
         }
@@ -102,8 +111,11 @@ class ExecutionWebSocketManager:
     """
     Manages WebSocket connections for execution streaming.
     
+    FIXED v2: Added generic broadcast() method that all code can call.
+    
     Features:
     - Multi-client support per execution
+    - Generic broadcast() for any event type
     - Automatic reconnection handling
     - Heartbeat/ping-pong
     - Message queuing for offline clients
@@ -177,14 +189,47 @@ class ExecutionWebSocketManager:
             pass
         
         logger.info(f"WebSocket disconnected for execution {execution_id}")
-    
+
+    # ========================================================================
+    # FIXED: Generic broadcast method — this is what all code calls
+    # ========================================================================
+
+    async def broadcast(self, execution_id: str, event_type: str, data: Any = None):
+        """
+        Generic broadcast method for any event type.
+        
+        FIXED: This was the missing method that caused all WebSocket broadcasts to fail.
+        All code in main.py calls ws_manager.broadcast(execution_id, event_type, data)
+        but this method didn't exist before.
+        
+        Args:
+            execution_id: The execution to broadcast to
+            event_type: Event type string (e.g., "browser.screenshot", "execution.completed")
+            data: Event data (dict, string, or any JSON-serializable value)
+        """
+        if data is None:
+            data = {}
+        
+        message = {
+            "type": event_type,
+            "data": data if isinstance(data, dict) else {"value": data},
+            "timestamp": datetime.now().isoformat(),
+        }
+        
+        await self._broadcast(execution_id, message)
+
+    # ========================================================================
+    # Typed broadcast methods (convenience wrappers)
+    # ========================================================================
+
     async def broadcast_screenshot(
         self,
         execution_id: str,
         image_base64: str,
         url: str = "",
         title: str = "",
-        action: str = ""
+        action: str = "",
+        step: int = 0,
     ):
         """Broadcast a screenshot to all connected clients."""
         message = ScreenshotMessage(
@@ -192,6 +237,7 @@ class ExecutionWebSocketManager:
             url=url,
             title=title,
             action=action,
+            step=step,
         ).to_dict()
         
         await self._broadcast(execution_id, message)
@@ -248,7 +294,34 @@ class ExecutionWebSocketManager:
             }
         }
         await self._broadcast(execution_id, message)
-    
+
+    async def broadcast_file_generated(
+        self,
+        execution_id: str,
+        file_id: str,
+        filename: str,
+        file_type: str,
+        download_url: str,
+        size_bytes: int = 0,
+    ):
+        """Broadcast a file generation event."""
+        message = {
+            "type": "file_generated",
+            "data": {
+                "file_id": file_id,
+                "filename": filename,
+                "file_type": file_type,
+                "download_url": download_url,
+                "size_bytes": size_bytes,
+                "timestamp": datetime.now().isoformat(),
+            }
+        }
+        await self._broadcast(execution_id, message)
+
+    # ========================================================================
+    # Internal broadcast with queue fallback
+    # ========================================================================
+
     async def _broadcast(self, execution_id: str, message: dict):
         """Internal broadcast method with queue fallback."""
         if execution_id not in self.connections or not self.connections[execution_id]:
@@ -281,7 +354,7 @@ class ExecutionWebSocketManager:
                 await asyncio.sleep(30)  # Check every 30 seconds
                 
                 now = datetime.now()
-                stale_threshold = 60  # 60 seconds without heartbeat
+                stale_threshold = 120  # 120 seconds without heartbeat
                 
                 for execution_id, websockets in list(self.connections.items()):
                     stale = set()
@@ -298,6 +371,12 @@ class ExecutionWebSocketManager:
                 break
             except Exception as e:
                 logger.error(f"Cleanup loop error: {e}")
+
+    def get_connection_count(self, execution_id: str = None) -> int:
+        """Get the number of active connections."""
+        if execution_id:
+            return len(self.connections.get(execution_id, set()))
+        return sum(len(conns) for conns in self.connections.values())
 
 
 # Global WebSocket manager instance
