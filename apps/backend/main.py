@@ -3521,13 +3521,13 @@ class ChatHandler:
         yield event("start", {"conversation_id": conversation_id, "mode": request.mode.value})
         
         # REASONING FIRST: Always show reasoning step before any API calls
-        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "active", "detail": "Analyzing intent, context, and the best approach..."})
+        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "active", "detail": "Analyzing intent, context, and the best approach...", "phase": "reasoning"})
         
         # Save user message
         await MemoryManager.save_message(conversation_id, "user", user_message)
         
         # Mark reasoning as complete
-        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "complete", "detail": "Determined optimal approach"})
+        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "complete", "detail": "Determined optimal approach", "phase": "reasoning"})
         
         # Determine if search is needed — mode-aware
         # INSTANT mode: minimal API calls, reasoning-first, protect margin
@@ -3548,16 +3548,16 @@ class ChatHandler:
         structured_data = {"data_points": [], "sources": []}
         
         if needs_search:
-            yield event("task_progress", {"id": "analyze", "title": "Understanding your request", "status": "complete", "detail": "Identified key topics and search strategy"})
+            yield event("task_progress", {"id": "analyze", "title": "Understanding your request", "status": "complete", "detail": "Identified key topics and search strategy", "phase": "reasoning"})
             
             # Mode-specific search configuration
             if current_mode == "instant":
                 # Instant: minimal sources (1-2 APIs), fewer results, fast response
-                yield event("task_progress", {"id": "search", "title": "Quick lookup", "status": "active", "detail": "Checking latest information..."})
+                yield event("task_progress", {"id": "search", "title": "Quick lookup", "status": "active", "detail": "Checking latest information...", "phase": "research"})
                 search_results = await SearchLayer.search(user_message, sources=["web"], num_results=5)
             else:
                 # Auto/Research: full search across all sources
-                yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "active", "detail": "Querying web, news, and social sources..."})
+                yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "active", "detail": "Querying web, news, and social sources...", "phase": "research"})
                 search_results = await SearchLayer.search(user_message, sources=["web", "news", "social"], num_results=15)
             structured_data = search_results.get("structured_data", {})
             
@@ -3580,15 +3580,15 @@ class ChatHandler:
             
             num_sources = len(structured_data.get("sources", []))
             num_data_points = len(structured_data.get("data_points", []))
-            yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "complete", "detail": f"Found {num_sources} sources with {num_data_points} data points"})
-            yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "active", "detail": "Processing and verifying information..."})
+            yield event("task_progress", {"id": "search", "title": "Searching across multiple sources", "status": "complete", "detail": f"Found {num_sources} sources with {num_data_points} data points", "phase": "research"})
+            yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "active", "detail": "Processing and verifying information...", "phase": "analysis"})
             
             # Emit sources with REAL names (not API tool names)
             sources_for_ui = clean_sources_for_output(structured_data.get("sources", []))
             if sources_for_ui:
                 yield event("search_sources", {"sources": sources_for_ui})
         else:
-            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "active", "detail": "Analyzing your query..."})
+            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "active", "detail": "Analyzing your query...", "phase": "reasoning"})
         
         # Build context for LLM
         search_context = ""
@@ -3653,8 +3653,9 @@ CORE PRINCIPLE: Reason internally before answering. Your response should reflect
 RESPONSE LENGTH:
 - Trivial questions ("hi", "what's 2+2", greetings): 1 sentence. Be warm and natural.
 - Simple questions (definitions, quick facts): 2-4 sentences. Direct answer with one key insight.
-- Moderate questions (analysis, comparisons): 2-3 short paragraphs. Lead with the answer, then the reasoning.
-- NEVER exceed 3 paragraphs in instant mode. If the topic needs more, suggest the user switch to agent mode.
+- Moderate questions (analysis, comparisons): 2-4 paragraphs. Lead with the answer, then the reasoning.
+- Complex questions: As many paragraphs as needed. NEVER artificially truncate your response.
+- ALWAYS complete your full answer. Do NOT cut off mid-thought or suggest switching modes.
 
 STYLE:
 - Write like a sharp, knowledgeable colleague — not a textbook.
@@ -3740,11 +3741,11 @@ FILE GENERATION:
         
         # Stream LLM response
         if needs_search:
-            yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "complete"})
-            yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "active", "detail": "Generating comprehensive analysis..."})
+            yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "complete", "phase": "analysis"})
+            yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "active", "detail": "Generating comprehensive analysis...", "phase": "execution"})
         else:
-            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "complete"})
-            yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "active"})
+            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "complete", "phase": "reasoning"})
+            yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "active", "phase": "execution"})
         
         full_response = ""
         # Enable Kimi tools when the query involves URLs, search, or analysis needs
@@ -3778,10 +3779,10 @@ FILE GENERATION:
         if file_types_needed:
             # Mark response generation as complete
             if needs_search:
-                yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete"})
+                yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete", "phase": "execution"})
             else:
-                yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete"})
-            yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "active", "detail": "Preparing high-quality document..."})
+                yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete", "phase": "execution"})
+            yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "active", "detail": "Preparing high-quality document...", "phase": "file_generation"})
             
             # NEW: If no search data exists, do a search first to get real data for file generation
             # CRITICAL FIX: Resolve file_topic FIRST before searching, so we search for the right topic
@@ -3806,7 +3807,7 @@ FILE GENERATION:
                 logger.info(f"Resolved topic reference (early): '{user_message}' -> '{file_topic}'")
             
             if not search_context and not uploaded_file_context:
-                yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data for comprehensive file..."})
+                yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data for comprehensive file...", "phase": "research"})
                 try:
                     # CRITICAL FIX: Search using the resolved file_topic, NOT the raw user_message
                     # Add 45-second timeout to prevent hanging
@@ -3826,13 +3827,13 @@ FILE GENERATION:
                                 answer = search_results["results"][source_name].get("answer", "")
                                 if answer:
                                     search_context += f"\n{answer[:1500]}\n"
-                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Data gathered successfully"})
+                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Data gathered successfully", "phase": "research"})
                 except asyncio.TimeoutError:
                     logger.warning(f"Pre-file-generation search timed out after 45s for: {file_topic}")
-                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Using available data (search timed out)"})
+                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Using available data (search timed out)", "phase": "research"})
                 except Exception as e:
                     logger.warning(f"Pre-file-generation search failed: {e}")
-                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Proceeding with available data"})
+                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Proceeding with available data", "phase": "research"})
             
             # file_topic was already resolved above (before the search)
             # CRITICAL: ALWAYS inject full_response as context for file generation
@@ -3896,6 +3897,25 @@ FILE GENERATION:
                         continue
                     
                     if result.get("success"):
+                        # FILE TYPE VALIDATION: Ensure the generated file matches the requested type
+                        generated_filepath = result.get("filepath", result.get("filename", ""))
+                        expected_ext = {"pdf": ".pdf", "excel": ".xlsx", "word": ".docx", "pptx": ".pptx"}.get(file_type, "")
+                        if expected_ext and generated_filepath and not generated_filepath.lower().endswith(expected_ext):
+                            logger.warning(f"File type mismatch: requested {file_type} but got {generated_filepath}. Regenerating...")
+                            yield event("task_progress", {"id": f"fix_{file_type}", "title": f"Fixing file format (expected {file_type})", "status": "active", "phase": "file_generation"})
+                            try:
+                                if file_type == "pdf":
+                                    result = await asyncio.wait_for(FileEngine.generate_pdf(file_topic, content_for_file, request.user_id), timeout=90.0)
+                                elif file_type == "excel":
+                                    result = await asyncio.wait_for(FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id), timeout=90.0)
+                                elif file_type == "word":
+                                    result = await asyncio.wait_for(FileEngine.generate_word(file_topic, content_for_file, request.user_id), timeout=90.0)
+                                elif file_type == "pptx":
+                                    result = await asyncio.wait_for(FileEngine.generate_pptx(file_topic, content_for_file, request.user_id), timeout=90.0)
+                                yield event("task_progress", {"id": f"fix_{file_type}", "title": f"File format corrected", "status": "complete", "phase": "file_generation"})
+                            except Exception as fix_err:
+                                logger.error(f"File type fix failed: {fix_err}")
+                        
                         # Quality double-check with timeout
                         quality_ok = True
                         try:
@@ -3949,7 +3969,36 @@ FILE GENERATION:
                                 logger.warning(f"File billing failed (non-blocking): {e}")
                 except Exception as e:
                     logger.error(f"File generation error for {file_type}: {e}")
-                    yield event("file_error", {"file_type": file_type, "error": str(e)})
+                    # RETRY LOGIC: Try once more with simpler content
+                    try:
+                        logger.info(f"Retrying {file_type} generation with simplified approach...")
+                        yield event("task_progress", {"id": f"retry_{file_type}", "title": f"Retrying {file_type} generation", "status": "active", "phase": "file_generation"})
+                        retry_content = full_response[:3000] if full_response else f"Report on: {file_topic}"
+                        if file_type == "excel":
+                            result = await asyncio.wait_for(FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id), timeout=90.0)
+                        elif file_type == "word":
+                            result = await asyncio.wait_for(FileEngine.generate_word(file_topic, retry_content, request.user_id), timeout=90.0)
+                        elif file_type == "pdf":
+                            result = await asyncio.wait_for(FileEngine.generate_pdf(file_topic, retry_content, request.user_id), timeout=90.0)
+                        elif file_type == "pptx":
+                            result = await asyncio.wait_for(FileEngine.generate_pptx(file_topic, retry_content, request.user_id), timeout=90.0)
+                        else:
+                            raise Exception(f"Unknown file type: {file_type}")
+                        
+                        if result.get("success"):
+                            yield event("task_progress", {"id": f"retry_{file_type}", "title": f"Retry successful", "status": "complete", "phase": "file_generation"})
+                            yield event("download", {
+                                "file_id": result["file_id"],
+                                "filename": result["filename"],
+                                "download_url": result["download_url"],
+                                "file_type": file_type,
+                                "quality_verified": False
+                            })
+                        else:
+                            yield event("file_error", {"file_type": file_type, "error": f"{file_type} generation failed after retry"})
+                    except Exception as retry_err:
+                        logger.error(f"Retry also failed for {file_type}: {retry_err}")
+                        yield event("file_error", {"file_type": file_type, "error": str(e)})
         
         # Bill for conclusion generation
         if billing_session_id and credit_service:
@@ -3960,13 +4009,13 @@ FILE GENERATION:
         
         # Mark all progress as complete
         if file_types_needed:
-            yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "complete", "detail": "Files ready for download"})
+            yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "complete", "detail": "Files ready for download", "phase": "file_generation"})
         elif needs_search:
-            yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete"})
+            yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete", "phase": "execution"})
         else:
-            yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete"})
+            yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete", "phase": "execution"})
         
-        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "active", "detail": "Preparing conclusion and follow-ups..."})
+        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "active", "detail": "Preparing conclusion and follow-ups...", "phase": "complete"})
         
         # Generate Manus-style conclusion
         conclusion = await ChatHandler._generate_conclusion(user_message, full_response, file_types_needed, structured_data)
@@ -3994,7 +4043,7 @@ FILE GENERATION:
             except Exception as e:
                 logger.warning(f"Billing session end failed (non-blocking): {e}")
         
-        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "complete"})
+        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "complete", "phase": "complete"})
         
         yield event("complete", {
             "content": full_response[:500],

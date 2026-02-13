@@ -103,6 +103,16 @@ interface DownloadFile {
   file_type: string;
 }
 
+interface ExecutionPhase {
+  id: string;
+  name: string;
+  icon: 'search' | 'brain' | 'code' | 'globe' | 'file' | 'check' | 'sparkles';
+  status: 'pending' | 'active' | 'complete' | 'error';
+  steps: { label: string; status: 'pending' | 'active' | 'complete'; detail?: string }[];
+  startedAt?: number;
+  completedAt?: number;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -120,6 +130,9 @@ interface Message {
   searchSources?: { title: string; url: string; source: string }[];
   taskSteps?: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[];
   thinkingSteps?: string[];
+  executionPhases?: ExecutionPhase[];
+  browserScreenshot?: { screenshot: string; url: string; title: string };
+  mode?: 'instant' | 'auto' | 'agent';
   _taskExpanded?: boolean;
   _thinkingExpanded?: boolean;
 }
@@ -2265,6 +2278,7 @@ function DashboardContent() {
       follow_up_questions: [],
       timestamp: new Date(),
       isStreaming: true,
+      mode: searchMode as 'instant' | 'auto' | 'agent',
     };
     setMessages(prev => [...prev, assistantMessage]);
 
@@ -2278,6 +2292,8 @@ function DashboardContent() {
     let currentSearchSources: { title: string; url: string; source: string }[] = [];
     let currentTaskSteps: { step: string; title: string; status: 'active' | 'complete' | 'pending'; detail?: string }[] = [];
     let currentThinkingSteps: string[] = [];
+    let currentExecutionPhases: ExecutionPhase[] = [];
+    let currentBrowserScreenshot: { screenshot: string; url: string; title: string } | undefined;
 
     try {
       // Map frontend mode names to backend mode names
@@ -2477,13 +2493,25 @@ function DashboardContent() {
                 });
               } else if (eventType === 'browser_screenshot') {
                 // Live browser screenshot from Playwright engine
-                setBrowserScreenshot({
+                const screenshotData = {
                   screenshot: eventData.screenshot || '',
                   url: eventData.url || '',
                   title: eventData.title || '',
                   step: eventData.step || 0,
                   action: eventData.action || '',
-                });
+                };
+                setBrowserScreenshot(screenshotData);
+                // Also store in message for inline Manus-style display
+                currentBrowserScreenshot = {
+                  screenshot: screenshotData.screenshot,
+                  url: screenshotData.url,
+                  title: screenshotData.title,
+                };
+                setMessages(prev => prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, browserScreenshot: currentBrowserScreenshot }
+                    : m
+                ));
               } else if (eventType === 'status') {
                 // Legacy status handler - convert to task_progress format
                 const statusMsg = eventData.message || 'Processing...';
@@ -2508,6 +2536,7 @@ function DashboardContent() {
                 const progressTitle = eventData.title || 'Processing...';
                 const progressStatus = eventData.status || 'active';
                 const progressDetail = eventData.detail || '';
+                const progressPhase = eventData.phase || '';
                 
                 // Update existing step or add new one
                 const existingIdx = currentTaskSteps.findIndex(s => s.step === progressId);
@@ -2532,9 +2561,50 @@ function DashboardContent() {
                     detail: progressDetail,
                   });
                 }
+                
+                // Build execution phases for Manus-style inline panel
+                if (progressPhase) {
+                  const phaseIconMap: Record<string, 'search' | 'brain' | 'code' | 'globe' | 'file' | 'check' | 'sparkles'> = {
+                    'reasoning': 'brain', 'thinking': 'brain', 'analysis': 'brain',
+                    'search': 'search', 'research': 'search', 'gathering': 'search',
+                    'execution': 'code', 'processing': 'code', 'generating': 'code',
+                    'browsing': 'globe', 'web': 'globe', 'navigation': 'globe',
+                    'file': 'file', 'document': 'file', 'download': 'file',
+                    'complete': 'check', 'done': 'check', 'verification': 'check',
+                  };
+                  const phaseIcon = Object.entries(phaseIconMap).find(([key]) => progressPhase.toLowerCase().includes(key))?.[1] || 'sparkles';
+                  const existingPhaseIdx = currentExecutionPhases.findIndex(p => p.id === progressPhase);
+                  if (existingPhaseIdx >= 0) {
+                    const phase = currentExecutionPhases[existingPhaseIdx];
+                    const stepExists = phase.steps.find(s => s.label === progressTitle);
+                    if (!stepExists) {
+                      phase.steps.push({ label: progressTitle, status: progressStatus as 'active' | 'complete' | 'pending', detail: progressDetail });
+                    } else {
+                      stepExists.status = progressStatus as 'active' | 'complete' | 'pending';
+                    }
+                    if (progressStatus === 'complete') {
+                      phase.status = 'complete';
+                      phase.completedAt = Date.now();
+                    }
+                  } else {
+                    // Mark previous phases as complete
+                    currentExecutionPhases = currentExecutionPhases.map(p => 
+                      p.status === 'active' ? { ...p, status: 'complete' as const, completedAt: Date.now() } : p
+                    );
+                    currentExecutionPhases.push({
+                      id: progressPhase,
+                      name: progressPhase.charAt(0).toUpperCase() + progressPhase.slice(1),
+                      icon: phaseIcon,
+                      status: 'active',
+                      steps: [{ label: progressTitle, status: progressStatus as 'active' | 'complete' | 'pending', detail: progressDetail }],
+                      startedAt: Date.now(),
+                    });
+                  }
+                }
+                
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
-                    ? { ...m, taskSteps: [...currentTaskSteps], toolStatus: progressTitle }
+                    ? { ...m, taskSteps: [...currentTaskSteps], executionPhases: [...currentExecutionPhases], toolStatus: progressTitle }
                     : m
                 ));
               } else if (eventType === 'credits_exhausted') {
@@ -3408,62 +3478,116 @@ function DashboardContent() {
                             </div>
                           )}
                           
-                          {/* ===== TASK PROGRESS STEPS (ChatGPT/Manus-style) ===== */}
-                          {message.taskSteps && message.taskSteps.length > 0 && (
-                            <div className="mb-3 pl-1">
-                              <div className="relative">
-                                {/* Vertical line connector */}
-                                <div className="absolute left-[7px] top-2 bottom-2 w-[1px] bg-white/[0.06]" />
-                                <div className="space-y-0.5">
-                                  {message.taskSteps.map((step, idx) => (
-                                    <div key={idx} className="flex items-start gap-2.5 py-1.5 relative">
-                                      <div className="relative z-10 mt-0.5">
-                                        {step.status === 'complete' ? (
-                                          <div className="h-[15px] w-[15px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
-                                            <CheckCircle2 className="h-3 w-3 text-[#7a8a6e]" />
-                                          </div>
-                                        ) : step.status === 'active' ? (
-                                          <div className="h-[15px] w-[15px] rounded-full bg-[#8a9a7e]/15 flex items-center justify-center">
-                                            <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
-                                          </div>
-                                        ) : (
-                                          <div className="h-[15px] w-[15px] rounded-full bg-white/[0.04] flex items-center justify-center">
-                                            <Circle className="h-2.5 w-2.5 text-white/15" />
-                                          </div>
-                                        )}
+                          {/* ===== MANUS-STYLE INLINE EXECUTION PANEL ===== */}
+                          {/* Only show for auto/agent modes, NOT instant mode */}
+                          {message.mode !== 'instant' && message.taskSteps && message.taskSteps.length > 0 && (
+                            <div className="mb-3">
+                              {/* Collapsible execution panel */}
+                              {(() => {
+                                const isExpanded = message._taskExpanded !== undefined ? message._taskExpanded : message.isStreaming;
+                                const completedCount = message.taskSteps.filter(s => s.status === 'complete').length;
+                                const totalCount = message.taskSteps.length;
+                                const hasActiveStep = message.taskSteps.some(s => s.status === 'active');
+                                const activeStep = message.taskSteps.find(s => s.status === 'active');
+                                
+                                return (
+                                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                                    {/* Header bar */}
+                                    <button
+                                      onClick={() => setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _taskExpanded: !isExpanded } : m))}
+                                      className="flex items-center gap-2.5 w-full px-3 py-2 hover:bg-white/[0.02] transition-colors"
+                                    >
+                                      {hasActiveStep ? (
+                                        <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0" />
+                                      ) : (
+                                        <CheckCircle2 className="h-3.5 w-3.5 text-[#7a8a6e] flex-shrink-0" />
+                                      )}
+                                      <span className="text-[12px] text-white/60 flex-1 text-left truncate">
+                                        {hasActiveStep ? (activeStep?.title || 'Processing...') : `Completed ${completedCount} steps`}
+                                      </span>
+                                      {/* Progress indicator */}
+                                      <div className="flex items-center gap-1.5">
+                                        <div className="w-16 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                                          <div 
+                                            className="h-full rounded-full bg-[#5c6652] transition-all duration-500"
+                                            style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }}
+                                          />
+                                        </div>
+                                        <span className="text-[10px] text-white/30">{completedCount}/{totalCount}</span>
                                       </div>
-                                      <div className="flex-1 min-w-0">
-                                        <span className={cn(
-                                          "text-[12px] leading-tight block",
-                                          step.status === 'active' ? "text-white/75 font-medium" : step.status === 'complete' ? "text-white/45" : "text-white/20"
-                                        )}>
-                                          {step.title}
-                                        </span>
-                                        {step.detail && step.status === 'active' && (
-                                          <div className="mt-1 space-y-[2px]">
-                                            {step.detail.split('. ').filter(Boolean).slice(0, 3).map((line, lineIdx) => (
-                                              <span key={lineIdx} className="text-[10px] block leading-relaxed text-white/25">
-                                                {line.trim().endsWith('.') ? line.trim() : `${line.trim()}.`}
-                                              </span>
+                                      <ChevronDown className={cn(
+                                        "h-3 w-3 text-white/20 transition-transform flex-shrink-0",
+                                        isExpanded && "rotate-180"
+                                      )} />
+                                    </button>
+                                    
+                                    {/* Expanded steps list */}
+                                    {isExpanded && (
+                                      <div className="px-3 pb-2.5 border-t border-white/[0.04]">
+                                        <div className="relative mt-2">
+                                          {/* Vertical connector line */}
+                                          <div className="absolute left-[6px] top-1 bottom-1 w-[1px] bg-white/[0.06]" />
+                                          <div className="space-y-0">
+                                            {message.taskSteps.map((step, idx) => (
+                                              <div key={idx} className="flex items-start gap-2 py-1 relative">
+                                                <div className="relative z-10 mt-[3px] flex-shrink-0">
+                                                  {step.status === 'complete' ? (
+                                                    <div className="h-[13px] w-[13px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
+                                                      <CheckCircle2 className="h-[10px] w-[10px] text-[#7a8a6e]" />
+                                                    </div>
+                                                  ) : step.status === 'active' ? (
+                                                    <div className="h-[13px] w-[13px] rounded-full bg-[#8a9a7e]/15 flex items-center justify-center">
+                                                      <Loader2 className="h-[10px] w-[10px] text-[#8a9a7e] animate-spin" />
+                                                    </div>
+                                                  ) : (
+                                                    <div className="h-[13px] w-[13px] rounded-full bg-white/[0.04] flex items-center justify-center">
+                                                      <Circle className="h-[9px] w-[9px] text-white/15" />
+                                                    </div>
+                                                  )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                  <span className={cn(
+                                                    "text-[11px] leading-tight block",
+                                                    step.status === 'active' ? "text-white/70 font-medium" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                                  )}>
+                                                    {step.title}
+                                                  </span>
+                                                  {step.detail && step.status === 'active' && (
+                                                    <span className="text-[10px] block mt-0.5 text-white/25 truncate">
+                                                      {step.detail}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
                                             ))}
                                           </div>
-                                        )}
-                                        {step.detail && step.status === 'complete' && (
-                                          <span className="text-[10px] block mt-0.5 leading-relaxed text-white/20">
-                                            {step.detail}
-                                          </span>
+                                        </div>
+                                        
+                                        {/* Inline browser screenshot preview */}
+                                        {message.browserScreenshot?.screenshot && (
+                                          <div className="mt-2 rounded-lg border border-white/[0.06] overflow-hidden">
+                                            <div className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] border-b border-white/[0.04]">
+                                              <Globe className="h-3 w-3 text-white/30" />
+                                              <span className="text-[9px] text-white/30 truncate flex-1">{message.browserScreenshot.url || 'Browser'}</span>
+                                            </div>
+                                            <img 
+                                              src={`data:image/png;base64,${message.browserScreenshot.screenshot}`}
+                                              alt="Browser preview"
+                                              className="w-full h-auto max-h-[200px] object-cover object-top"
+                                            />
+                                          </div>
                                         )}
                                       </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
 
                           {/* Streaming content indicator */}
                           {message.isStreaming && message.content && (
-                            <div className="flex items-center gap-1.5 mb-2">
+                            <div className="flex items-center gap-1.5 mb-1.5">
                               <div className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-pulse" />
                               <span className="text-[10px] text-white/30">Writing...</span>
                             </div>
