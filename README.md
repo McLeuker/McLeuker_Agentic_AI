@@ -1,19 +1,54 @@
-# McLeuker AI Monorepo
+# McLeuker AI V9.0 — Agentic Execution Platform
 
-A unified repository containing both the frontend and backend for McLeuker AI - the Fashion Intelligence Platform.
+A unified monorepo containing the full-stack McLeuker AI platform: an end-to-end agentic AI system with multi-layer reasoning, web automation, domain agents, and real-time execution streaming.
 
 ## Architecture
 
 ```
-mcleuker-ai/
+McLeuker_Agentic_AI/
 ├── apps/
-│   ├── frontend/          # Next.js 16 + TypeScript + Tailwind CSS
-│   └── backend/           # FastAPI + Python (V5.1 API)
+│   ├── frontend/                    # Next.js 16 + TypeScript + Tailwind CSS
+│   │   ├── src/
+│   │   │   ├── app/                 # App Router pages (dashboard, auth, domains, etc.)
+│   │   │   ├── components/
+│   │   │   │   ├── agent/           # ExecutionPanel, LiveScreen, AgentSwarmPanel
+│   │   │   │   ├── chat/            # AgenticExecutionPanel, ModeSelector
+│   │   │   │   ├── reasoning/       # Multi-layer reasoning display
+│   │   │   │   ├── workspace/       # DomainStarterPanel, WorkspaceNavigation
+│   │   │   │   └── ui/             # 40+ reusable UI components
+│   │   │   ├── hooks/               # useExecutionWebSocket, useConversations, etc.
+│   │   │   ├── lib/                 # api.ts, agenticAPI.ts (V9 execution client)
+│   │   │   ├── contexts/            # AuthContext, ChatContext, SectorContext
+│   │   │   └── stores/              # Zustand state management
+│   │   └── public/                  # Static assets
+│   │
+│   └── backend/                     # FastAPI + Python (V9 Agentic API)
+│       ├── src/
+│       │   ├── api/                 # main.py (V9), v2/ (legacy endpoints)
+│       │   ├── core/                # ReasoningOrchestrator, settings
+│       │   ├── enhancement/         # V9 Enhancement System
+│       │   │   ├── domain_agents/   # Fashion, Beauty, Tech, Culture, etc.
+│       │   │   ├── execution/       # ExecutionEngine, TaskDecomposer, WebExecutor
+│       │   │   ├── file_analysis/   # Document, Image, Code, Data analyzers
+│       │   │   └── tool_stability/  # StabilityManager, StatePersistence
+│       │   ├── agentic/             # Execution orchestrator, schemas
+│       │   ├── agents/              # Agent Swan, reasoning agent
+│       │   ├── layers/              # Intent, Search, Action, Output layers
+│       │   ├── memory/              # MemoryManager, KnowledgeGraph
+│       │   ├── providers/           # Kimi provider
+│       │   ├── services/            # NanoBanana, FileGeneration
+│       │   ├── specialized_agents/  # DeepResearch, Document, Excel, Slides
+│       │   ├── tools/               # Browser, Code, Search, File tools
+│       │   └── workspace/           # ArtifactStore, CodeSandbox
+│       ├── Dockerfile
+│       └── requirements.txt
+│
 ├── packages/
-│   └── shared-types/      # Shared TypeScript types (V5.1 Response Contract)
-├── turbo.json             # Turborepo configuration
-├── pnpm-workspace.yaml    # PNPM workspace config
-└── package.json           # Root package.json
+│   └── shared-types/                # Shared TypeScript types
+├── .github/workflows/deploy.yml     # CI/CD pipeline
+├── turbo.json
+├── pnpm-workspace.yaml
+└── package.json
 ```
 
 ## Tech Stack
@@ -21,23 +56,72 @@ mcleuker-ai/
 | Component | Technology | Deployment |
 |-----------|------------|------------|
 | **Frontend** | Next.js 16, TypeScript, Tailwind CSS, Zustand | Vercel |
-| **Backend** | FastAPI, Python, Grok AI | Railway |
-| **Shared Types** | TypeScript | Internal package |
-| **Build System** | Turborepo, PNPM | - |
+| **Backend** | FastAPI, Python 3.11, Grok AI (grok-4-1-fast-reasoning) | Railway |
+| **Database** | Supabase (PostgreSQL + Auth + RLS) | Supabase Cloud |
+| **AI Models** | Grok 4.1, Kimi 2.5, Gemini (Nano Banana) | xAI, Moonshot, Google |
+| **Browser** | Playwright, Browserless | Railway |
+| **Build** | Turborepo, PNPM | GitHub Actions |
 
-## Design System
+## V9 Capabilities
 
-The frontend uses a premium dark theme inspired by OpenAI's ChatGPT:
+### Execution Engine
+- **Task Decomposition** — Grok-powered planning that breaks user requests into executable steps
+- **Web Automation** — Full Playwright-based browser control (navigate, click, type, scroll, screenshot)
+- **Credential Management** — Encrypted credential storage for third-party service automation
+- **Real-time Streaming** — SSE-based execution progress with live screenshots
+- **Error Recovery** — Automatic retry with fallback strategies
 
-- **Colors:** Grayscale with graphite glass effects
-- **Typography:** Inter (sans-serif) + Cormorant Garamond (editorial)
-- **Components:** Minimal, clean, with subtle animations
-- **UI Library:** Radix UI primitives (shadcn/ui style)
+### Domain Agents
+Specialized agents for fashion industry intelligence:
+- Fashion, Beauty, Skincare, Sustainability, Tech, Catwalk, Culture, Textile, Lifestyle
+
+### Multi-Layer Reasoning
+- Understanding → Planning → Research → Analysis → Synthesis → Writing
+- Real-time reasoning transparency with sub-step display
+
+### File Generation
+- Excel, Word, PowerPoint, PDF, Markdown
+- Persistent file storage with download URLs
+
+### Image Generation
+- Nano Banana (Gemini-powered) image generation, editing, and analysis
+
+## API Endpoints
+
+### Core
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check with feature flags |
+| `/api/capabilities` | GET | Full system capabilities |
+| `/api/enhancement/status` | GET | Enhancement system status |
+
+### Chat & Reasoning
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/chat` | POST | Non-streaming chat with reasoning |
+| `/api/chat/stream` | POST | SSE streaming chat |
+
+### Execution Engine (V9)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/execute` | POST | Execute task (non-streaming) |
+| `/api/execute/stream` | POST | Execute task with SSE streaming |
+| `/api/execute/{task_id}` | GET | Get execution status |
+| `/api/execute/active/list` | GET | List active executions |
+
+### Image & Documents
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/image/generate` | POST | Generate image |
+| `/api/image/edit` | POST | Edit image |
+| `/api/image/analyze` | POST | Analyze image |
+| `/api/document/generate` | POST | Generate document |
+| `/api/upload` | POST | Upload file |
+| `/api/files/{file_id}` | GET | Download file |
 
 ## Quick Start
 
 ### Prerequisites
-
 - Node.js 18+
 - PNPM 9+
 - Python 3.11+
@@ -45,7 +129,6 @@ The frontend uses a premium dark theme inspired by OpenAI's ChatGPT:
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/McLeuker/McLeuker_Agentic_AI.git
 cd McLeuker_Agentic_AI
 
@@ -60,142 +143,57 @@ cp apps/backend/.env.example apps/backend/.env
 ### Development
 
 ```bash
-# Run frontend only
+# Run frontend
 pnpm dev:frontend
 
-# Run backend only
+# Run backend
 pnpm dev:backend
-
-# Run both (in separate terminals)
-pnpm dev:frontend  # Terminal 1
-pnpm dev:backend   # Terminal 2
-```
-
-### Building
-
-```bash
-# Build all packages
-pnpm build
-
-# Build frontend only
-pnpm build:frontend
 ```
 
 ## Deployment
 
 ### Frontend (Vercel)
-
-1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Import this repository
-3. Set **Root Directory** to `apps/frontend`
-4. Add environment variable: `NEXT_PUBLIC_API_URL`
-5. Deploy
+1. Import repository on [Vercel](https://vercel.com/dashboard)
+2. Set **Root Directory** to `apps/frontend`
+3. Add environment variables: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
 ### Backend (Railway)
+1. Create project on [Railway](https://railway.app/dashboard)
+2. Set **Root Directory** to `apps/backend`
+3. Add environment variables (see `.env.example`)
 
-1. Go to [Railway Dashboard](https://railway.app/dashboard)
-2. Create new project from GitHub
-3. Select this repository
-4. Set **Root Directory** to `apps/backend`
-5. Add environment variables from `.env.example`
-6. Deploy
-
-## Project Structure
-
-### Frontend (`apps/frontend`)
-
-The Next.js application with premium dark theme UI.
-
-```
-apps/frontend/
-├── src/
-│   ├── app/              # Next.js App Router pages
-│   ├── components/
-│   │   ├── ui/          # Reusable UI components (40+ components)
-│   │   └── dashboard/   # Dashboard-specific components
-│   ├── hooks/           # Custom React hooks
-│   ├── lib/             # Utilities and API client
-│   ├── stores/          # Zustand state management
-│   └── types/           # TypeScript types
-└── public/              # Static assets
-```
-
-### Backend (`apps/backend`)
-
-The FastAPI application that powers the AI functionality.
-
-```
-apps/backend/
-├── main.py              # Complete FastAPI application (API, search, file generation, chat)
-├── src/                 # Legacy source modules (not actively used by main.py)
-├── Dockerfile           # Container configuration
-└── requirements.txt     # Python dependencies
-```
-
-### Shared Types (`packages/shared-types`)
-
-TypeScript types shared between frontend and backend, including the V5.1 Response Contract.
-
-```typescript
-interface V51Response {
-  success: boolean;
-  response: {
-    answer: string;
-    key_insights?: KeyInsight[];
-    sources?: Source[];
-    follow_up_questions?: string[];
-    metadata?: ResponseMetadata;
-  };
-  error?: string;
-}
-```
+### Database (Supabase)
+1. Run `apps/backend/src/agentic/schema_execution.sql` in SQL Editor
+2. Run `apps/backend/src/agentic/schema_v9_migration.sql` for V9 tables
 
 ## Environment Variables
 
 ### Frontend
-
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Backend API URL (Railway deployment) |
+| `NEXT_PUBLIC_API_URL` | Backend API URL (Railway) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 
 ### Backend
-
 | Variable | Description |
 |----------|-------------|
-| `GROK_API_KEY` | xAI Grok API key |
+| `XAI_API_KEY` | xAI Grok API key |
 | `KIMI_API_KEY` | Moonshot Kimi API key |
 | `BRAVE_API_KEY` | Brave Search API key |
 | `SERPER_API_KEY` | Serper search API key |
+| `PERPLEXITY_API_KEY` | Perplexity API key |
+| `GEMINI_API_KEY` | Google Gemini API key |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_KEY` | Supabase service role key |
-
-See `apps/backend/.env.example` for the complete list.
-
-## Scripts
-
-| Command | Description |
-|---------|-------------|
-| `pnpm install` | Install all dependencies |
-| `pnpm build` | Build all packages |
-| `pnpm dev:frontend` | Run frontend in development mode |
-| `pnpm dev:backend` | Run backend in development mode |
-| `pnpm lint` | Lint all packages |
-| `pnpm clean` | Clean all build artifacts |
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+| `BROWSERLESS_API_KEY` | Browserless API key |
+| `E2B_API_KEY` | E2B sandbox API key |
+| `CREDENTIAL_ENCRYPTION_KEY` | 32-byte key for credential encryption |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License
 
 ---
 
-**Built with ❤️ by McLeuker**
+**McLeuker AI — Built for the future of fashion intelligence.**

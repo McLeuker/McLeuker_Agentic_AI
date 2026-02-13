@@ -1,5 +1,5 @@
 /**
- * McLeuker AI V5.2 - Frontend API Service
+ * McLeuker AI V9.0 - Frontend API Service
  * Handles all API communication with standardized event parsing
  * Includes persistent file download and background search support
  */
