@@ -1,0 +1,23 @@
+# Nixpacks Configuration for McLeuker AI
+# This file configures the build process for Railway
+
+[phases.setup]
+nixPkgs = [
+    "python311",
+    "python311Packages.pip",
+    "chromium",
+    "nodejs",
+    "npm"
+]
+
+[phases.install]
+cmds = [
+    "pip install -r requirements.txt",
+    "playwright install chromium"
+]
+
+[phases.build]
+cmds = []
+
+[start]
+cmd = "python main.py"

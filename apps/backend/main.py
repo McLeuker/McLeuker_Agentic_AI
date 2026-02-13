@@ -561,6 +561,14 @@ try:
         # Wire engine and register routes
         set_agentic_engine(agentic_engine)
         app.include_router(agentic_router)
+        
+        # Include V1 agent routes (computer use, website builder, document, slides, excel, research)
+        try:
+            from api.agentic_routes import router as agent_v1_router
+            app.include_router(agent_v1_router)
+            logger.info("V1 Agent routes registered at /api/v1/agent/*")
+        except Exception as e:
+            logger.error(f"Failed to load V1 agent routes: {e}")
 
         AGENTIC_ENGINE_AVAILABLE = True
         logger.info("Agentic Engine initialized — full orchestration ready")
