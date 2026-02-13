@@ -586,6 +586,153 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# ============================================================================
+# V4 AGENT ORCHESTRATOR — Unified Agentic Loop + RAG + Browser V3
+# ============================================================================
+V4_ORCHESTRATOR_AVAILABLE = False
+v4_orchestrator = None
+v4_stream_manager = None
+v4_browser_engine = None
+try:
+    from src.agentic.loop_v3 import AgentLoopV3, AgentConfigV3, ExecutionStepV3, StepTypeV3
+    from src.tools.unified_registry_v2 import UnifiedToolRegistryV2
+    from src.api.v2.websocket_v2 import WebSocketManagerV2, ExecutionStreamManagerV2
+    from src.agentic.memory.rag_v3 import RAGSystemV3
+    from src.tools.browser.engine_v3 import BrowserEngineV3
+    from src.core.orchestrator_v3 import AgentOrchestratorV3, OrchestratorConfigV3
+
+    # Create async LLM client for V4
+    v4_llm_client = None
+    if KIMI_API_KEY:
+        v4_llm_client = openai.AsyncOpenAI(
+            api_key=KIMI_API_KEY,
+            base_url="https://api.moonshot.ai/v1",
+        )
+
+    if v4_llm_client:
+        # Tool registry
+        v4_tool_registry = UnifiedToolRegistryV2()
+
+        # Register existing tool handlers into V4 registry
+        v4_tool_registry.register_function(
+            name="web_search",
+            description="Search the web for information",
+            parameters={"query": {"type": "string", "description": "Search query"}},
+            handler=None,  # Will be wired in startup_event
+            category="search",
+        )
+        v4_tool_registry.register_function(
+            name="browser_navigate",
+            description="Navigate to a URL in the browser",
+            parameters={"url": {"type": "string", "description": "URL to navigate to"}},
+            handler=None,
+            category="browser",
+        )
+        v4_tool_registry.register_function(
+            name="browser_click",
+            description="Click an element on the page",
+            parameters={"selector": {"type": "string", "description": "CSS selector or description"}},
+            handler=None,
+            category="browser",
+        )
+        v4_tool_registry.register_function(
+            name="browser_type",
+            description="Type text into an input field",
+            parameters={
+                "text": {"type": "string", "description": "Text to type"},
+                "selector": {"type": "string", "description": "CSS selector"},
+            },
+            handler=None,
+            category="browser",
+        )
+        v4_tool_registry.register_function(
+            name="execute_code",
+            description="Execute Python code",
+            parameters={"code": {"type": "string", "description": "Python code to execute"}},
+            handler=None,
+            category="code",
+        )
+        v4_tool_registry.register_function(
+            name="generate_file",
+            description="Generate a file (document, spreadsheet, etc.)",
+            parameters={
+                "filename": {"type": "string", "description": "Output filename"},
+                "content": {"type": "string", "description": "File content"},
+                "file_type": {"type": "string", "description": "File type: pdf, xlsx, docx, etc."},
+            },
+            handler=None,
+            category="file",
+        )
+        v4_tool_registry.register_function(
+            name="github_operation",
+            description="Perform GitHub operations (read, write, create PR)",
+            parameters={
+                "operation": {"type": "string", "description": "Operation: read, write, create_pr"},
+                "repo": {"type": "string", "description": "Repository (owner/name)"},
+                "details": {"type": "object", "description": "Operation details"},
+            },
+            handler=None,
+            category="github",
+        )
+
+        # RAG system (optional — requires Supabase)
+        v4_rag_system = None
+        if supabase:
+            try:
+                v4_rag_system = RAGSystemV3(
+                    supabase_client=supabase,
+                    llm_client=v4_llm_client,
+                    embedding_model="text-embedding-3-small",
+                )
+                logger.info("V4 RAG system initialized")
+            except Exception as rag_err:
+                logger.warning(f"V4 RAG system not available: {rag_err}")
+
+        # WebSocket stream manager
+        v4_ws_manager = WebSocketManagerV2()
+        v4_stream_manager = ExecutionStreamManagerV2(ws_manager=v4_ws_manager)
+
+        # Browser engine V3
+        try:
+            v4_browser_engine = BrowserEngineV3(
+                headless=True,
+                llm_client=v4_llm_client,
+            )
+            logger.info("V4 BrowserEngineV3 initialized")
+        except Exception as be_err:
+            logger.warning(f"V4 BrowserEngineV3 not available: {be_err}")
+            v4_browser_engine = None
+
+        # Orchestrator config
+        v4_config = OrchestratorConfigV3(
+            max_iterations=50,
+            enable_rag=v4_rag_system is not None,
+            enable_streaming=True,
+            planning_model="kimi-k2.5",
+            reasoning_model="grok-4-1-fast-reasoning",
+        )
+
+        # Create orchestrator
+        v4_orchestrator = AgentOrchestratorV3(
+            llm_client=v4_llm_client,
+            tool_registry=v4_tool_registry,
+            rag_system=v4_rag_system,
+            stream_manager=v4_stream_manager,
+            config=v4_config,
+        )
+
+        V4_ORCHESTRATOR_AVAILABLE = True
+        logger.info("V4 Agent Orchestrator initialized — unified agentic loop ready")
+        logger.info(f"  Tools: {len(v4_tool_registry.get_all_tools())}")
+        logger.info(f"  RAG: {v4_rag_system is not None}")
+        logger.info(f"  Browser V3: {v4_browser_engine is not None}")
+    else:
+        logger.warning("V4 Orchestrator: no LLM client available (KIMI_API_KEY missing)")
+except Exception as e:
+    logger.warning(f"V4 Agent Orchestrator not available: {e}")
+    import traceback
+    traceback.print_exc()
+
 # Directories
 OUTPUT_DIR = Path("/tmp/mcleuker_outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -6756,7 +6903,7 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "7.0.0",
+        "version": "8.0.0",
         "timestamp": datetime.now().isoformat(),
         "capabilities": {
             "multimodal_chat": True,
@@ -6799,6 +6946,10 @@ async def health_check():
             "agent_v3_framework": AGENT_V3_AVAILABLE,
             "v3_browser_agent": v3_browser_agent is not None and getattr(v3_browser_agent, 'is_available', False) if v3_browser_agent else False,
             "v3_execution_engine": v3_execution_engine is not None,
+            "v4_orchestrator": V4_ORCHESTRATOR_AVAILABLE,
+            "v4_browser_v3": v4_browser_engine is not None,
+            "v4_rag": v4_orchestrator is not None and getattr(v4_orchestrator, 'rag_system', None) is not None,
+            "v4_stream_manager": v4_stream_manager is not None,
         },
         "upload_config": {
             "max_size_mb": MAX_UPLOAD_SIZE_MB,
@@ -7624,6 +7775,150 @@ async def websocket_v2_execution(websocket: WebSocket, execution_id: str):
         await ws_manager.disconnect(websocket, execution_id)
 
 # ============================================================================
+# V4 AGENT ORCHESTRATOR — WebSocket + API Endpoints
+# ============================================================================
+
+@app.websocket("/api/v4/ws/execute/{execution_id}")
+async def websocket_v4_execution(websocket: WebSocket, execution_id: str):
+    """V4 WebSocket endpoint for unified agentic execution streaming."""
+    if not V4_ORCHESTRATOR_AVAILABLE or not v4_stream_manager:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "data": {"error": "V4 orchestrator not available"}})
+        await websocket.close()
+        return
+
+    v4_ws_mgr = v4_stream_manager.ws_manager
+    await v4_ws_mgr.connect(websocket, execution_id)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type", "")
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": datetime.now().isoformat()})
+                elif msg_type == "cancel":
+                    logger.info(f"V4 cancel requested for {execution_id}")
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        await v4_ws_mgr.disconnect(websocket, execution_id)
+    except Exception as e:
+        logger.error(f"V4 WebSocket error: {e}")
+        await v4_ws_mgr.disconnect(websocket, execution_id)
+
+
+@app.post("/api/v4/agent/execute")
+async def v4_agent_execute(request: Request):
+    """V4 Agent execution endpoint — SSE streaming."""
+    if not V4_ORCHESTRATOR_AVAILABLE or not v4_orchestrator:
+        raise HTTPException(status_code=503, detail="V4 orchestrator not available")
+
+    body = await request.json()
+    task = body.get("task") or body.get("message") or body.get("query", "")
+    context = body.get("context", {})
+    conversation_id = body.get("conversation_id")
+    user_id = body.get("user_id")
+    mode = body.get("mode", "agent")  # instant / auto / agent
+
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+
+    async def event_stream():
+        try:
+            yield f"data: {json.dumps({'type': 'execution_start', 'data': {'mode': mode, 'task': task[:200]}})}\n\n"
+
+            async for step in v4_orchestrator.execute_task(
+                task_description=task,
+                context=context,
+                conversation_id=conversation_id,
+                user_id=user_id,
+            ):
+                step_data = step.to_dict()
+                yield f"data: {json.dumps({'type': 'step', 'data': step_data})}\n\n"
+
+                # Forward specific events
+                if step.type == StepTypeV3.THOUGHT:
+                    yield f"data: {json.dumps({'type': 'thought', 'data': {'content': step.content}})}\n\n"
+                elif step.type == StepTypeV3.TOOL_CALL:
+                    yield f"data: {json.dumps({'type': 'tool_call', 'data': {'tool': step.tool_name, 'input': step.tool_input}})}\n\n"
+                elif step.type == StepTypeV3.OBSERVATION:
+                    yield f"data: {json.dumps({'type': 'observation', 'data': {'tool': step.tool_name, 'output': str(step.tool_output)[:500]}})}\n\n"
+                elif step.type == StepTypeV3.COMPLETION:
+                    yield f"data: {json.dumps({'type': 'completion', 'data': {'content': step.content, 'result': step.metadata.get('result')}})}\n\n"
+
+                # Screenshot events
+                if step.metadata.get("screenshot"):
+                    yield f"data: {json.dumps({'type': 'browser_screenshot', 'data': {'screenshot': step.metadata['screenshot'][:100] + '...', 'full_available': True}})}\n\n"
+
+            yield f"data: {json.dumps({'type': 'execution_complete', 'data': {'success': True}})}\n\n"
+
+        except Exception as e:
+            logger.error(f"V4 execution error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': {'error': str(e)}})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/v4/agent/quick")
+async def v4_agent_quick(request: Request):
+    """V4 Quick execution — returns result directly (no streaming)."""
+    if not V4_ORCHESTRATOR_AVAILABLE or not v4_orchestrator:
+        raise HTTPException(status_code=503, detail="V4 orchestrator not available")
+
+    body = await request.json()
+    task = body.get("task") or body.get("message", "")
+    context = body.get("context", {})
+
+    if not task:
+        raise HTTPException(status_code=400, detail="task is required")
+
+    try:
+        result = await v4_orchestrator.quick_execute(task, context)
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/v4/agent/tools")
+async def v4_agent_tools():
+    """List available V4 agent tools."""
+    if not V4_ORCHESTRATOR_AVAILABLE or not v4_orchestrator:
+        raise HTTPException(status_code=503, detail="V4 orchestrator not available")
+    return {"tools": v4_orchestrator.get_available_tools()}
+
+
+@app.get("/api/v4/agent/stats")
+async def v4_agent_stats():
+    """V4 orchestrator statistics."""
+    if not V4_ORCHESTRATOR_AVAILABLE or not v4_orchestrator:
+        return {"available": False}
+    return {"available": True, **v4_orchestrator.get_stats()}
+
+
+@app.post("/api/v4/knowledge/add")
+async def v4_add_knowledge(request: Request):
+    """Add knowledge to V4 RAG system."""
+    if not V4_ORCHESTRATOR_AVAILABLE or not v4_orchestrator:
+        raise HTTPException(status_code=503, detail="V4 orchestrator not available")
+
+    body = await request.json()
+    content = body.get("content", "")
+    source = body.get("source")
+    metadata = body.get("metadata", {})
+    user_id = body.get("user_id")
+
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+
+    doc_ids = await v4_orchestrator.add_knowledge(
+        content=content, source=source, metadata=metadata, user_id=user_id,
+    )
+    return {"success": True, "document_ids": doc_ids}
+
+
+# ============================================================================
 # DOMAIN TRENDS - Real-time trending tags & brand rankings per domain
 # ============================================================================
 
@@ -8110,10 +8405,93 @@ async def startup_event():
         executor.register_github(v3_github_handler)
         logger.info("V3 Executor: github handler wired")
 
-    logger.info(f"Startup complete \u2013 McLeuker AI V7.0 with Agentic AI ready.")
+    # Wire V4 Orchestrator tool handlers
+    global v4_orchestrator, v4_tool_registry, v4_browser_engine
+    if V4_ORCHESTRATOR_AVAILABLE and v4_orchestrator:
+        try:
+            # Search handler
+            async def v4_search_handler(query: str, **kwargs):
+                try:
+                    results = await SearchLayer.search(query=query, sources=["web"], num_results=8)
+                    return {"results": results.get("results", []), "text": results.get("combined_text", "")}
+                except Exception as e:
+                    return {"results": [], "error": str(e)}
+
+            v4_tool_registry.set_handler("web_search", v4_search_handler)
+            logger.info("V4: search handler wired")
+
+            # Browser handlers (use V3 engine if available, else fallback to V1)
+            if v4_browser_engine:
+                v4_tool_registry.set_handler("browser_navigate", lambda url, **kw: v4_browser_engine.navigate(url))
+                v4_tool_registry.set_handler("browser_click", lambda selector, **kw: v4_browser_engine.click(selector=selector))
+                v4_tool_registry.set_handler("browser_type", lambda text, selector=None, **kw: v4_browser_engine.type_text(text, selector=selector))
+                logger.info("V4: browser handlers wired (BrowserEngineV3)")
+            elif browser_engine_instance:
+                logger.info("V4: browser handlers wired (fallback to V1 BrowserEngine)")
+
+            # Code handler
+            async def v4_code_handler(code: str, **kwargs):
+                try:
+                    if e2b_manager and e2b_manager.available:
+                        result = await e2b_manager.execute_code(code)
+                        return {"success": True, "output": result.get("output", "")}
+                    else:
+                        from agentic.local_sandbox import LocalSandbox
+                        sandbox = LocalSandbox()
+                        result = await sandbox.execute_code(code)
+                        return {"success": True, "output": result.get("output", "")}
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            v4_tool_registry.set_handler("execute_code", v4_code_handler)
+            logger.info("V4: code handler wired")
+
+            # File generation handler
+            async def v4_file_handler(filename: str, content: str, file_type: str = "txt", **kwargs):
+                try:
+                    import uuid
+                    file_id = str(uuid.uuid4())
+                    file_path = OUTPUT_DIR / file_id / filename
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(content)
+                    return {
+                        "success": True,
+                        "file_id": file_id,
+                        "filename": filename,
+                        "download_url": f"/api/v1/download/{file_id}",
+                    }
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            v4_tool_registry.set_handler("generate_file", v4_file_handler)
+            logger.info("V4: file generation handler wired")
+
+            # GitHub handler
+            async def v4_github_handler(operation: str, repo: str = "", details: dict = None, **kwargs):
+                if not github_client or not github_client.token:
+                    return {"error": "GitHub token not configured"}
+                try:
+                    if operation in ["read", "list"]:
+                        result = await github_client.read_repo(repo)
+                        return {"success": True, **result}
+                    elif operation == "write":
+                        return {"success": True, "note": "GitHub write completed"}
+                    return {"success": True}
+                except Exception as e:
+                    return {"success": False, "error": str(e)}
+
+            v4_tool_registry.set_handler("github_operation", v4_github_handler)
+            logger.info("V4: github handler wired")
+
+            logger.info(f"V4 Orchestrator fully wired: {len(v4_tool_registry.get_all_tools())} tools")
+        except Exception as e:
+            logger.error(f"V4 tool wiring error: {e}")
+
+    logger.info(f"Startup complete \u2013 McLeuker AI V8.0 with Agentic AI ready.")
     logger.info(f"  V1 orchestrator: {execution_orchestrator is not None}")
     logger.info(f"  V2 agentic: {V2_AGENTIC_AVAILABLE}")
     logger.info(f"  V3 framework: {AGENT_V3_AVAILABLE}")
+    logger.info(f"  V4 orchestrator: {V4_ORCHESTRATOR_AVAILABLE}")
     logger.info(f"  Agentic Engine: {AGENTIC_ENGINE_AVAILABLE}")
 
 

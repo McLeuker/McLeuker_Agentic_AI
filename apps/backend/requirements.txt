@@ -53,3 +53,7 @@ websockets==12.0
 # Utilities
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+
+# V4 Agent Orchestrator dependencies
+uvloop>=0.19.0
+tiktoken>=0.5.0
