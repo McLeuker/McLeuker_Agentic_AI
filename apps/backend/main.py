@@ -7279,6 +7279,37 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
         await ws_manager.disconnect(websocket, execution_id)
 
 
+# V2 WebSocket endpoint for LiveScreen
+@app.websocket("/api/v2/ws/execute/{execution_id}")
+async def websocket_v2_execution(websocket: WebSocket, execution_id: str):
+    """V2 WebSocket endpoint for LiveScreen component."""
+    if not ws_manager:
+        await websocket.close(code=1003, reason="WebSocket manager not available")
+        return
+
+    await ws_manager.connect(websocket, execution_id)
+
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type", "")
+
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": datetime.now().isoformat()})
+                elif msg_type == "cancel":
+                    if execution_orchestrator:
+                        await execution_orchestrator.cancel_execution(execution_id)
+                        await ws_manager.broadcast_completion(execution_id, success=False, result={"cancelled": True})
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        await ws_manager.disconnect(websocket, execution_id)
+    except Exception as e:
+        logger.error(f"V2 WebSocket error: {e}")
+        await ws_manager.disconnect(websocket, execution_id)
+
 # ============================================================================
 # DOMAIN TRENDS - Real-time trending tags & brand rankings per domain
 # ============================================================================
@@ -7781,3 +7812,34 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+# Add this to main.py after the other API endpoints
+
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+@app.get("/api/files/{user_id}/{session_id}/{filename}")
+async def download_file(user_id: str, session_id: str, filename: str):
+    """Download a generated file."""
+    file_path = Path(f"/tmp/mcleuker_files/{user_id}/{session_id}/{filename}")
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Determine media type
+    media_type = "application/octet-stream"
+    if filename.endswith('.xlsx'):
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif filename.endswith('.pdf'):
+        media_type = "application/pdf"
+    elif filename.endswith('.docx'):
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif filename.endswith('.pptx'):
+        media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    elif filename.endswith('.zip'):
+        media_type = "application/zip"
+    
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=filename,
+    )
