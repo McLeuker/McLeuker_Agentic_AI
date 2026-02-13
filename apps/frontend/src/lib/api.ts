@@ -6,7 +6,7 @@
 
 import { ChatMode } from '@/components/chat/ModeSelector';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
 
 // ============================================================================
 // TYPES
