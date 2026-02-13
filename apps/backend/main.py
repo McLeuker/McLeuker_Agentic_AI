@@ -3809,7 +3809,11 @@ FILE GENERATION:
                 yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data for comprehensive file..."})
                 try:
                     # CRITICAL FIX: Search using the resolved file_topic, NOT the raw user_message
-                    file_search_results = await SearchLayer.search(file_topic, sources=["web", "news"], num_results=10)
+                    # Add 45-second timeout to prevent hanging
+                    file_search_results = await asyncio.wait_for(
+                        SearchLayer.search(file_topic, sources=["web", "news"], num_results=10),
+                        timeout=45.0
+                    )
                     file_structured_data = file_search_results.get("structured_data", {})
                     if file_structured_data.get("data_points"):
                         structured_data = file_structured_data
@@ -3822,8 +3826,13 @@ FILE GENERATION:
                                 answer = search_results["results"][source_name].get("answer", "")
                                 if answer:
                                     search_context += f"\n{answer[:1500]}\n"
+                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Data gathered successfully"})
+                except asyncio.TimeoutError:
+                    logger.warning(f"Pre-file-generation search timed out after 45s for: {file_topic}")
+                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Using available data (search timed out)"})
                 except Exception as e:
                     logger.warning(f"Pre-file-generation search failed: {e}")
+                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Proceeding with available data"})
             
             # file_topic was already resolved above (before the search)
             # CRITICAL: ALWAYS inject full_response as context for file generation
@@ -3857,41 +3866,68 @@ FILE GENERATION:
                         "ai_research_context": full_response[:5000] if full_response else ""
                     }
                     
-                    if file_type == "excel":
-                        result = await FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id)
-                    elif file_type == "word":
-                        result = await FileEngine.generate_word(file_topic, content_for_file, request.user_id)
-                    elif file_type == "pdf":
-                        result = await FileEngine.generate_pdf(file_topic, content_for_file, request.user_id)
-                    elif file_type == "pptx":
-                        result = await FileEngine.generate_pptx(file_topic, content_for_file, request.user_id)
-                    else:
+                    # Add 90-second timeout to prevent file generation from hanging
+                    try:
+                        if file_type == "excel":
+                            result = await asyncio.wait_for(
+                                FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id),
+                                timeout=90.0
+                            )
+                        elif file_type == "word":
+                            result = await asyncio.wait_for(
+                                FileEngine.generate_word(file_topic, content_for_file, request.user_id),
+                                timeout=90.0
+                            )
+                        elif file_type == "pdf":
+                            result = await asyncio.wait_for(
+                                FileEngine.generate_pdf(file_topic, content_for_file, request.user_id),
+                                timeout=90.0
+                            )
+                        elif file_type == "pptx":
+                            result = await asyncio.wait_for(
+                                FileEngine.generate_pptx(file_topic, content_for_file, request.user_id),
+                                timeout=90.0
+                            )
+                        else:
+                            continue
+                    except asyncio.TimeoutError:
+                        logger.error(f"File generation timed out after 90s for {file_type}: {file_topic}")
+                        yield event("file_error", {"file_type": file_type, "error": f"{file_type} generation timed out. Please try again."})
                         continue
                     
                     if result.get("success"):
-                        # Quality double-check
-                        quality_ok = await ChatHandler._quality_check(file_type, user_message, result)
+                        # Quality double-check with timeout
+                        quality_ok = True
+                        try:
+                            quality_ok = await asyncio.wait_for(
+                                ChatHandler._quality_check(file_type, user_message, result),
+                                timeout=15.0
+                            )
+                        except asyncio.TimeoutError:
+                            quality_ok = True  # Accept if quality check times out
                         
-                        # NEW: If quality check fails, re-generate with more data
+                        # If quality check fails, re-generate with more data (with timeout)
                         if not quality_ok:
                             logger.warning(f"Quality check failed for {file_type}, re-generating...")
                             yield event("task_progress", {"id": "quality_fix", "title": f"Improving {file_type} quality", "status": "active", "detail": "Re-researching and enhancing content..."})
                             try:
-                                # Re-generate content with explicit quality instructions
-                                enhanced_content = await ChatHandler._generate_content(
-                                    file_topic + " (IMPORTANT: Include specific data, real numbers, comprehensive analysis, and actionable insights)",
-                                    structured_data
+                                enhanced_content = await asyncio.wait_for(
+                                    ChatHandler._generate_content(
+                                        file_topic + " (IMPORTANT: Include specific data, real numbers, comprehensive analysis, and actionable insights)",
+                                        structured_data
+                                    ),
+                                    timeout=60.0
                                 )
                                 if file_type == "excel":
-                                    result = await FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id)
+                                    result = await asyncio.wait_for(FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id), timeout=90.0)
                                 elif file_type == "pptx":
-                                    result = await FileEngine.generate_pptx(file_topic, enhanced_content, request.user_id)
+                                    result = await asyncio.wait_for(FileEngine.generate_pptx(file_topic, enhanced_content, request.user_id), timeout=90.0)
                                 elif file_type == "word":
-                                    result = await FileEngine.generate_word(file_topic, enhanced_content, request.user_id)
+                                    result = await asyncio.wait_for(FileEngine.generate_word(file_topic, enhanced_content, request.user_id), timeout=90.0)
                                 elif file_type == "pdf":
-                                    result = await FileEngine.generate_pdf(file_topic, enhanced_content, request.user_id)
+                                    result = await asyncio.wait_for(FileEngine.generate_pdf(file_topic, enhanced_content, request.user_id), timeout=90.0)
                                 quality_ok = True  # Accept the re-generation
-                            except Exception as regen_err:
+                            except (asyncio.TimeoutError, Exception) as regen_err:
                                 logger.error(f"Re-generation failed: {regen_err}")
                         
                         yield event("download", {
@@ -4345,14 +4381,17 @@ QUALITY REQUIREMENTS:
         ]
         
         try:
+            import functools as ft
             model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
             temp = 1 if client == kimi_client else 0.5
-            response = client.chat.completions.create(
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, ft.partial(
+                client.chat.completions.create,
                 model=model,
                 messages=messages,
                 temperature=temp,
                 max_tokens=32768
-            )
+            ))
             return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Content generation error: {e}")

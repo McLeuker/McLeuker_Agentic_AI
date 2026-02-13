@@ -2504,7 +2504,7 @@ function DashboardContent() {
                 ));
               } else if (eventType === 'task_progress') {
                 // Real-time task progress (ChatGPT/Manus-style)
-                const progressId = eventData.id;
+                const progressId = eventData.id || eventData.step || 'unknown';
                 const progressTitle = eventData.title || 'Processing...';
                 const progressStatus = eventData.status || 'active';
                 const progressDetail = eventData.detail || '';
@@ -2519,6 +2519,12 @@ function DashboardContent() {
                     detail: progressDetail,
                   };
                 } else {
+                  // Mark all previous active steps as complete when a new step starts
+                  if (progressStatus === 'active') {
+                    currentTaskSteps = currentTaskSteps.map(s => 
+                      s.status === 'active' ? { ...s, status: 'complete' as const } : s
+                    );
+                  }
                   currentTaskSteps.push({
                     step: progressId,
                     title: progressTitle,
@@ -2686,30 +2692,6 @@ function DashboardContent() {
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId
                     ? { ...m, sources: [...currentSources], searchSources: [...currentSearchSources] }
-                    : m
-                ));
-              } else if (eventType === 'task_progress') {
-                // Manus AI-style task progress tracking
-                const stepData = {
-                  step: eventData.step || 'unknown',
-                  title: eventData.title || 'Processing...',
-                  status: eventData.status || 'active' as const,
-                  detail: eventData.detail,
-                };
-                // Update existing step or add new one
-                const existingIdx = currentTaskSteps.findIndex(s => s.step === stepData.step);
-                if (existingIdx >= 0) {
-                  currentTaskSteps[existingIdx] = stepData;
-                } else {
-                  // Mark all previous active steps as complete
-                  currentTaskSteps = currentTaskSteps.map(s => 
-                    s.status === 'active' ? { ...s, status: 'complete' as const } : s
-                  );
-                  currentTaskSteps.push(stepData);
-                }
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantId
-                    ? { ...m, taskSteps: [...currentTaskSteps] }
                     : m
                 ));
               } else if (eventType === 'thinking') {
