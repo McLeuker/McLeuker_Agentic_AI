@@ -2109,10 +2109,19 @@ function DashboardContent() {
     }
   }, [conversations]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom - aggressive during streaming to keep live progress visible
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (isStreaming) {
+      // During streaming, always scroll to keep latest content visible
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    } else if (messages.length > 0) {
+      // After streaming completes, scroll once
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg?.role === 'assistant') {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [messages, isStreaming]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -3482,20 +3491,46 @@ function DashboardContent() {
                           {/* Only show for auto/agent modes, NOT instant mode */}
                           {message.mode !== 'instant' && message.taskSteps && message.taskSteps.length > 0 && (
                             <div className="mb-3">
-                              {/* Collapsible execution panel */}
                               {(() => {
                                 const isExpanded = message._taskExpanded !== undefined ? message._taskExpanded : message.isStreaming;
                                 const completedCount = message.taskSteps.filter(s => s.status === 'complete').length;
                                 const totalCount = message.taskSteps.length;
                                 const hasActiveStep = message.taskSteps.some(s => s.status === 'active');
                                 const activeStep = message.taskSteps.find(s => s.status === 'active');
+                                const phases = message.executionPhases || [];
+                                const usePhases = phases.length > 0;
+                                
+                                // Phase display names and icons
+                                const phaseDisplayNames: Record<string, string> = {
+                                  'reasoning': 'PLANNING', 'thinking': 'PLANNING', 'analysis': 'ANALYSIS',
+                                  'research': 'RESEARCH', 'search': 'RESEARCH', 'gathering': 'RESEARCH',
+                                  'execution': 'EXECUTION', 'processing': 'EXECUTION', 'generating': 'EXECUTION',
+                                  'file_generation': 'FILE GENERATION', 'file': 'FILE GENERATION',
+                                  'browsing': 'BROWSING', 'web': 'BROWSING',
+                                  'complete': 'VERIFICATION', 'verification': 'VERIFICATION', 'done': 'DELIVERY',
+                                };
+                                const getPhaseDisplayName = (id: string) => {
+                                  const key = Object.keys(phaseDisplayNames).find(k => id.toLowerCase().includes(k));
+                                  return key ? phaseDisplayNames[key] : id.toUpperCase();
+                                };
+                                const getPhaseIcon = (icon: string) => {
+                                  switch (icon) {
+                                    case 'brain': return <Brain className="h-3 w-3" />;
+                                    case 'search': return <Search className="h-3 w-3" />;
+                                    case 'code': return <Code2 className="h-3 w-3" />;
+                                    case 'globe': return <Globe className="h-3 w-3" />;
+                                    case 'file': return <File className="h-3 w-3" />;
+                                    case 'check': return <CheckCircle2 className="h-3 w-3" />;
+                                    default: return <Sparkles className="h-3 w-3" />;
+                                  }
+                                };
                                 
                                 return (
-                                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+                                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] overflow-hidden">
                                     {/* Header bar */}
                                     <button
                                       onClick={() => setMessages(prev => prev.map(m => m.id === message.id ? { ...m, _taskExpanded: !isExpanded } : m))}
-                                      className="flex items-center gap-2.5 w-full px-3 py-2 hover:bg-white/[0.02] transition-colors"
+                                      className="flex items-center gap-2.5 w-full px-3.5 py-2.5 hover:bg-white/[0.02] transition-colors"
                                     >
                                       {hasActiveStep ? (
                                         <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0" />
@@ -3503,17 +3538,13 @@ function DashboardContent() {
                                         <CheckCircle2 className="h-3.5 w-3.5 text-[#7a8a6e] flex-shrink-0" />
                                       )}
                                       <span className="text-[12px] text-white/60 flex-1 text-left truncate">
-                                        {hasActiveStep ? (activeStep?.title || 'Processing...') : `Completed ${completedCount} steps`}
+                                        {hasActiveStep
+                                          ? (activeStep?.title || 'Processing...')
+                                          : `Completed ${completedCount} steps`
+                                        }
                                       </span>
-                                      {/* Progress indicator */}
                                       <div className="flex items-center gap-1.5">
-                                        <div className="w-16 h-1 rounded-full bg-white/[0.06] overflow-hidden">
-                                          <div 
-                                            className="h-full rounded-full bg-[#5c6652] transition-all duration-500"
-                                            style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }}
-                                          />
-                                        </div>
-                                        <span className="text-[10px] text-white/30">{completedCount}/{totalCount}</span>
+                                        <span className="text-[10px] text-white/25 tabular-nums">{completedCount}/{totalCount}</span>
                                       </div>
                                       <ChevronDown className={cn(
                                         "h-3 w-3 text-white/20 transition-transform flex-shrink-0",
@@ -3521,51 +3552,123 @@ function DashboardContent() {
                                       )} />
                                     </button>
                                     
-                                    {/* Expanded steps list */}
+                                    {/* Progress bar */}
+                                    <div className="h-[2px] bg-white/[0.04]">
+                                      <div 
+                                        className="h-full bg-gradient-to-r from-[#5c6652] to-[#8a9a7e] transition-all duration-700 ease-out"
+                                        style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : (hasActiveStep ? 15 : 0)}%` }}
+                                      />
+                                    </div>
+                                    
+                                    {/* Expanded: Manus-style grouped phases */}
                                     {isExpanded && (
-                                      <div className="px-3 pb-2.5 border-t border-white/[0.04]">
-                                        <div className="relative mt-2">
-                                          {/* Vertical connector line */}
-                                          <div className="absolute left-[6px] top-1 bottom-1 w-[1px] bg-white/[0.06]" />
-                                          <div className="space-y-0">
-                                            {message.taskSteps.map((step, idx) => (
-                                              <div key={idx} className="flex items-start gap-2 py-1 relative">
-                                                <div className="relative z-10 mt-[3px] flex-shrink-0">
-                                                  {step.status === 'complete' ? (
-                                                    <div className="h-[13px] w-[13px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
-                                                      <CheckCircle2 className="h-[10px] w-[10px] text-[#7a8a6e]" />
+                                      <div className="px-3.5 pb-3 max-h-[400px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
+                                        {usePhases ? (
+                                          <div className="mt-2 space-y-2.5">
+                                            {phases.map((phase, pIdx) => {
+                                              const phaseStepCount = phase.steps.length;
+                                              const phaseCompleted = phase.steps.filter(s => s.status === 'complete').length;
+                                              const isPhaseActive = phase.status === 'active';
+                                              const isPhaseComplete = phase.status === 'complete';
+                                              
+                                              return (
+                                                <div key={phase.id} className="relative">
+                                                  {/* Phase header */}
+                                                  <div className="flex items-center gap-2 mb-1">
+                                                    <div className={cn(
+                                                      "flex items-center justify-center w-5 h-5 rounded-md",
+                                                      isPhaseActive ? "bg-[#8a9a7e]/15 text-[#8a9a7e]" :
+                                                      isPhaseComplete ? "bg-[#5c6652]/15 text-[#7a8a6e]" :
+                                                      "bg-white/[0.04] text-white/20"
+                                                    )}>
+                                                      {getPhaseIcon(phase.icon)}
                                                     </div>
-                                                  ) : step.status === 'active' ? (
-                                                    <div className="h-[13px] w-[13px] rounded-full bg-[#8a9a7e]/15 flex items-center justify-center">
-                                                      <Loader2 className="h-[10px] w-[10px] text-[#8a9a7e] animate-spin" />
-                                                    </div>
-                                                  ) : (
-                                                    <div className="h-[13px] w-[13px] rounded-full bg-white/[0.04] flex items-center justify-center">
-                                                      <Circle className="h-[9px] w-[9px] text-white/15" />
-                                                    </div>
-                                                  )}
+                                                    <span className={cn(
+                                                      "text-[10px] font-semibold tracking-wider",
+                                                      isPhaseActive ? "text-[#8a9a7e]" :
+                                                      isPhaseComplete ? "text-white/40" :
+                                                      "text-white/20"
+                                                    )}>
+                                                      {getPhaseDisplayName(phase.id)}
+                                                    </span>
+                                                    {phaseStepCount > 1 && (
+                                                      <span className="text-[9px] text-white/20 tabular-nums">
+                                                        {phaseCompleted}/{phaseStepCount}
+                                                      </span>
+                                                    )}
+                                                    {isPhaseActive && (
+                                                      <span className="ml-auto w-1.5 h-1.5 rounded-full bg-[#8a9a7e] animate-pulse" />
+                                                    )}
+                                                  </div>
+                                                  
+                                                  {/* Phase steps */}
+                                                  <div className="ml-2.5 pl-3 border-l border-white/[0.05] space-y-0.5">
+                                                    {phase.steps.map((step, sIdx) => (
+                                                      <div key={sIdx} className="flex items-start gap-2 py-[3px]">
+                                                        <div className="mt-[2px] flex-shrink-0">
+                                                          {step.status === 'complete' ? (
+                                                            <CheckCircle2 className="h-[11px] w-[11px] text-[#7a8a6e]/60" />
+                                                          ) : step.status === 'active' ? (
+                                                            <Loader2 className="h-[11px] w-[11px] text-[#8a9a7e] animate-spin" />
+                                                          ) : (
+                                                            <Circle className="h-[11px] w-[11px] text-white/10" />
+                                                          )}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                          <span className={cn(
+                                                            "text-[11px] leading-snug block",
+                                                            step.status === 'active' ? "text-white/70" :
+                                                            step.status === 'complete' ? "text-white/35" :
+                                                            "text-white/15"
+                                                          )}>
+                                                            {step.label}
+                                                          </span>
+                                                          {step.detail && step.status === 'active' && (
+                                                            <span className="text-[10px] block mt-0.5 text-white/20 truncate">
+                                                              {step.detail}
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    ))}
+                                                  </div>
                                                 </div>
-                                                <div className="flex-1 min-w-0">
+                                              );
+                                            })}
+                                          </div>
+                                        ) : (
+                                          /* Fallback: flat step list if no phases */
+                                          <div className="relative mt-2">
+                                            <div className="absolute left-[6px] top-1 bottom-1 w-[1px] bg-white/[0.06]" />
+                                            <div className="space-y-0">
+                                              {message.taskSteps.map((step, idx) => (
+                                                <div key={idx} className="flex items-start gap-2 py-1 relative">
+                                                  <div className="relative z-10 mt-[3px] flex-shrink-0">
+                                                    {step.status === 'complete' ? (
+                                                      <CheckCircle2 className="h-[11px] w-[11px] text-[#7a8a6e]/60" />
+                                                    ) : step.status === 'active' ? (
+                                                      <Loader2 className="h-[11px] w-[11px] text-[#8a9a7e] animate-spin" />
+                                                    ) : (
+                                                      <Circle className="h-[11px] w-[11px] text-white/10" />
+                                                    )}
+                                                  </div>
                                                   <span className={cn(
-                                                    "text-[11px] leading-tight block",
-                                                    step.status === 'active' ? "text-white/70 font-medium" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                                    "text-[11px] leading-snug",
+                                                    step.status === 'active' ? "text-white/70" :
+                                                    step.status === 'complete' ? "text-white/35" :
+                                                    "text-white/15"
                                                   )}>
                                                     {step.title}
                                                   </span>
-                                                  {step.detail && step.status === 'active' && (
-                                                    <span className="text-[10px] block mt-0.5 text-white/25 truncate">
-                                                      {step.detail}
-                                                    </span>
-                                                  )}
                                                 </div>
-                                              </div>
-                                            ))}
+                                              ))}
+                                            </div>
                                           </div>
-                                        </div>
+                                        )}
                                         
                                         {/* Inline browser screenshot preview */}
                                         {message.browserScreenshot?.screenshot && (
-                                          <div className="mt-2 rounded-lg border border-white/[0.06] overflow-hidden">
+                                          <div className="mt-2.5 rounded-lg border border-white/[0.06] overflow-hidden">
                                             <div className="flex items-center gap-1.5 px-2 py-1 bg-white/[0.03] border-b border-white/[0.04]">
                                               <Globe className="h-3 w-3 text-white/30" />
                                               <span className="text-[9px] text-white/30 truncate flex-1">{message.browserScreenshot.url || 'Browser'}</span>
@@ -3621,14 +3724,43 @@ function DashboardContent() {
                                   if (ft.includes('pdf')) return 'border-red-400/30 hover:border-red-400/60';
                                   return 'border-blue-400/30 hover:border-blue-400/60';
                                 };
+                                const getFileExt = (ft: string) => {
+                                  if (ft.includes('excel') || ft.includes('xlsx')) return '.xlsx';
+                                  if (ft.includes('csv')) return '.csv';
+                                  if (ft.includes('ppt') || ft.includes('presentation')) return '.pptx';
+                                  if (ft.includes('pdf')) return '.pdf';
+                                  if (ft.includes('word') || ft.includes('doc')) return '.docx';
+                                  return '';
+                                };
+                                const handleFileDownload = async (e: React.MouseEvent) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  try {
+                                    const downloadUrl = dl.download_url.startsWith('http') ? dl.download_url : `${API_URL}${dl.download_url}`;
+                                    const response = await fetch(downloadUrl);
+                                    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+                                    const blob = await response.blob();
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = dl.filename || `mcleuker-file${getFileExt(dl.file_type)}`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    window.URL.revokeObjectURL(url);
+                                  } catch (err) {
+                                    console.error('File download error:', err);
+                                    // Fallback: open in new tab
+                                    const fallbackUrl = dl.download_url.startsWith('http') ? dl.download_url : `${API_URL}${dl.download_url}`;
+                                    window.open(fallbackUrl, '_blank');
+                                  }
+                                };
                                 return (
-                                  <a
+                                  <button
                                     key={dlIdx}
-                                    href={`${API_URL}${dl.download_url}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                    onClick={handleFileDownload}
                                     className={cn(
-                                      "flex items-center gap-3 px-4 py-3 bg-white/[0.03] hover:bg-white/[0.06] border rounded-xl transition-all group cursor-pointer",
+                                      "flex items-center gap-3 px-4 py-3 bg-white/[0.03] hover:bg-white/[0.06] border rounded-xl transition-all group cursor-pointer w-full text-left",
                                       getFileColor(dl.file_type)
                                     )}
                                   >
@@ -3637,12 +3769,12 @@ function DashboardContent() {
                                     </div>
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm font-medium text-white/90 truncate">{dl.filename}</p>
-                                      <p className="text-[10px] text-white/30 uppercase tracking-wider mt-0.5">{dl.file_type} document</p>
+                                      <p className="text-[10px] text-white/30 uppercase tracking-wider mt-0.5">{dl.file_type} document • Click to download</p>
                                     </div>
-                                    <div className="flex-shrink-0 p-2 rounded-lg bg-white/[0.04] group-hover:bg-white/[0.08] transition-colors">
-                                      <Download className="h-4 w-4 text-white/40 group-hover:text-white/80 transition-colors" />
+                                    <div className="flex-shrink-0 p-2 rounded-lg bg-[#2E3524]/60 group-hover:bg-[#2E3524] transition-colors">
+                                      <Download className="h-4 w-4 text-[#8a9a7e] group-hover:text-white transition-colors" />
                                     </div>
-                                  </a>
+                                  </button>
                                 );
                               })}
                             </div>
