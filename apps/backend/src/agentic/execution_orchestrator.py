@@ -1170,15 +1170,31 @@ print(result)
                 }})
                 # Fall through to Browserless
 
-        # === PRIORITY 2: Browserless (simple extraction) ===
+        # === PRIORITY 2: Browserless (simple extraction + screenshot) ===
         if self.browserless and self.browserless.available:
             if urls:
                 target_url = urls[0]
                 sub_events.append({"event": "execution_reasoning", "data": {
-                    "chunk": f"- Extracting content from {target_url[:80]}\n"
+                    "chunk": f"- Opening {target_url[:80]} in browser...\n"
                 }})
 
                 try:
+                    # Capture screenshot for live preview
+                    try:
+                        screenshot_result = await self.browserless.screenshot(target_url, full_page=False)
+                        if screenshot_result.success and screenshot_result.screenshot:
+                            import base64
+                            screenshot_b64 = base64.b64encode(screenshot_result.screenshot).decode('utf-8')
+                            sub_events.append({"event": "browser_screenshot", "data": {
+                                "screenshot": screenshot_b64,
+                                "url": target_url,
+                                "title": f"Browsing: {target_url[:60]}",
+                                "step": step.step_number if hasattr(step, 'step_number') else 0,
+                                "action": "Extracting page content",
+                            }})
+                    except Exception as ss_err:
+                        logger.debug(f"Screenshot capture failed (non-fatal): {ss_err}")
+
                     result = await self.browserless.deep_extract(target_url, extract_links=True)
 
                     if result.get("success"):

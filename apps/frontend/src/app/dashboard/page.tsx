@@ -51,7 +51,9 @@ import {
   ThumbsUp,
   ThumbsDown,
   Share2,
-  RotateCcw
+  RotateCcw,
+  FolderOpen,
+  Package
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSector, SECTORS, Sector } from "@/contexts/SectorContext";
@@ -3709,8 +3711,49 @@ function DashboardContent() {
                           
                           {/* ===== DOWNLOAD FILES (shown AFTER content) ===== */}
                           {message.downloads && message.downloads.length > 0 && (
-                            <div className="mt-4 space-y-2">
-                              <p className="text-[10px] text-white/30 uppercase tracking-wider mb-2">Generated Files</p>
+                            <div className="mt-6 space-y-2">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="p-1.5 bg-[#2E3524]/40 rounded-lg">
+                                    <FolderOpen className="h-4 w-4 text-[#8a9a7e]" />
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-medium text-white/70">Deliverables Package</p>
+                                    <p className="text-[10px] text-white/30">{message.downloads.length} file{message.downloads.length > 1 ? 's' : ''} generated</p>
+                                  </div>
+                                </div>
+                                {message.downloads.length > 1 && (
+                                  <button
+                                    onClick={async (e) => {
+                                      e.preventDefault();
+                                      try {
+                                        const fileIds = message.downloads!.map(d => d.file_id).filter(Boolean);
+                                        const res = await fetch(`${API_URL}/api/v1/download/package`, {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ file_ids: fileIds, package_name: 'mcleuker_deliverables' })
+                                        });
+                                        if (!res.ok) throw new Error('Package download failed');
+                                        const blob = await res.blob();
+                                        const url = window.URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = 'mcleuker_deliverables.zip';
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        window.URL.revokeObjectURL(url);
+                                      } catch (err) {
+                                        console.error('Package download error:', err);
+                                      }
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2E3524]/60 hover:bg-[#2E3524] text-[#8a9a7e] hover:text-white text-[11px] font-medium rounded-lg transition-all"
+                                  >
+                                    <Package className="h-3.5 w-3.5" />
+                                    Download All
+                                  </button>
+                                )}
+                              </div>
                               {message.downloads.map((dl, dlIdx) => {
                                 const getFileIcon = (ft: string) => {
                                   if (ft.includes('excel') || ft.includes('xlsx') || ft.includes('csv')) return <FileSpreadsheet className="h-5 w-5 text-[#5c6652]" />;

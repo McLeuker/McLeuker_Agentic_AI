@@ -18,7 +18,7 @@ restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
 # Start command
-startCommand = "python main.py"
+startCommand = "cd apps/backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --loop uvloop"
 
 # Environment variables (set in Railway dashboard)
 # KIMI_API_KEY

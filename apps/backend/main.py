@@ -3781,6 +3781,7 @@ CONVERSATION MEMORY:
                 logger.warning(f"LLM billing failed (non-blocking): {e}")
         
         # Detect if file generation is needed
+        generated_downloads = []  # Collect all generated file downloads
         file_types_needed = ChatHandler._detect_file_needs(user_message, has_uploaded_files=has_uploaded_files)
         
         if file_types_needed:
@@ -3957,13 +3958,15 @@ CONVERSATION MEMORY:
                             except (asyncio.TimeoutError, Exception) as regen_err:
                                 logger.error(f"Re-generation failed: {regen_err}")
                         
-                        yield event("download", {
+                        dl_info = {
                             "file_id": result["file_id"],
                             "filename": result["filename"],
                             "download_url": result["download_url"],
                             "file_type": file_type,
                             "quality_verified": quality_ok
-                        })
+                        }
+                        generated_downloads.append(dl_info)
+                        yield event("download", dl_info)
                         
                         # Bill for file generation (real-time deduction)
                         if billing_session_id and credit_service:
@@ -3994,13 +3997,15 @@ CONVERSATION MEMORY:
                         
                         if result.get("success"):
                             yield event("task_progress", {"id": f"retry_{file_type}", "title": f"Retry successful", "status": "complete", "phase": "file_generation"})
-                            yield event("download", {
+                            retry_dl_info = {
                                 "file_id": result["file_id"],
                                 "filename": result["filename"],
                                 "download_url": result["download_url"],
                                 "file_type": file_type,
                                 "quality_verified": False
-                            })
+                            }
+                            generated_downloads.append(retry_dl_info)
+                            yield event("download", retry_dl_info)
                         else:
                             yield event("file_error", {"file_type": file_type, "error": f"{file_type} generation failed after retry"})
                     except Exception as retry_err:
@@ -4056,7 +4061,8 @@ CONVERSATION MEMORY:
             "content": full_response[:500],
             "conversation_id": conversation_id,
             "follow_up_questions": follow_ups,
-            "credits_used": credits_used
+            "credits_used": credits_used,
+            "downloads": generated_downloads
         })
     
     @staticmethod
@@ -4786,6 +4792,70 @@ async def download_file(file_id: str):
         raise
     except Exception as e:
         logger.error(f"Download error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/download/package")
+async def download_package(request: Request):
+    """Download multiple files as a ZIP package."""
+    import zipfile
+    import io
+    
+    try:
+        body = await request.json()
+        file_ids = body.get("file_ids", [])
+        package_name = body.get("package_name", "mcleuker_deliverables")
+        
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="No file IDs provided")
+        
+        # Create ZIP in memory
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_id in file_ids:
+                # Try FileEngine first
+                file_info = FileEngine.get_file(file_id)
+                if file_info:
+                    filepath = Path(file_info["filepath"])
+                    if filepath.exists():
+                        zf.write(filepath, file_info["filename"])
+                        continue
+                
+                # Try PersistentFileStore
+                persistent_info = PersistentFileStore.get_file(file_id)
+                if persistent_info:
+                    local_path = Path(persistent_info.get("filepath", ""))
+                    if local_path.exists():
+                        zf.write(local_path, persistent_info["filename"])
+                        continue
+                    
+                    # Download from Supabase
+                    file_bytes = await PersistentFileStore.get_file_content(file_id)
+                    if file_bytes:
+                        zf.writestr(persistent_info["filename"], file_bytes)
+                        continue
+                
+                logger.warning(f"File {file_id} not found for package download")
+        
+        zip_buffer.seek(0)
+        zip_bytes = zip_buffer.getvalue()
+        
+        if len(zip_bytes) < 22:  # Empty ZIP
+            raise HTTPException(status_code=404, detail="No files found to package")
+        
+        # Save to temp file and serve
+        zip_path = OUTPUT_DIR / f"{package_name}_{uuid.uuid4().hex[:6]}.zip"
+        zip_path.write_bytes(zip_bytes)
+        
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"{package_name}.zip",
+            media_type="application/zip"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Package download error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -7318,9 +7388,86 @@ async def v2_execute_stream(request: ExecutionRequest):
             
             # === FALLBACK: Wrap ChatHandler (v1) with execution panel events ===
             yield event("execution_start", {"execution_id": execution_id})
-            yield event("step_update", {"id": "step-init", "phase": "planning", "title": "Analyzing your request...", "status": "active"})
-            yield event("execution_progress", {"progress": 5, "status": "planning"})
             
+            # --- REASONING-FIRST GATE ---
+            # Step 1: Analyze the user's request before execution
+            yield event("step_update", {"id": "step-reason", "phase": "planning", "title": "Reasoning about your request", "status": "active", "detail": "Analyzing intent, scope, and required tools"})
+            yield event("execution_progress", {"progress": 3, "status": "planning"})
+            yield event("task_progress", {"id": "tp-reason", "step": "tp-reason", "title": "Analyzing your request and determining approach", "status": "active", "detail": "Understanding what you need before executing", "phase": "reasoning"})
+            
+            # Use LLM to reason about the request
+            reasoning_client = kimi_client or grok_client
+            reasoning_text = ""
+            needs_clarification = False
+            execution_plan_text = ""
+            
+            if reasoning_client:
+                try:
+                    reasoning_prompt = f"""Analyze this user request for an AI agent system. Think step by step:
+
+1. What does the user want? Be specific.
+2. Is the request clear enough to execute? (Yes/No)
+3. If unclear, what clarification is needed?
+4. If clear, create a brief execution plan (3-8 steps).
+5. What tools are needed? (search, code execution, file generation, web browsing)
+
+User request: \"{request.task}\"
+
+Respond in this format:
+CLARITY: [clear/unclear]
+INTENT: [one sentence]
+PLAN:
+- Step 1: ...
+- Step 2: ...
+TOOLS: [list]"""
+                    
+                    reasoning_response = await reasoning_client.chat.completions.create(
+                        model="kimi-k2.5" if reasoning_client == kimi_client else "grok-3-mini",
+                        messages=[{"role": "user", "content": reasoning_prompt}],
+                        max_tokens=500,
+                        temperature=0.3,
+                    )
+                    reasoning_text = reasoning_response.choices[0].message.content or ""
+                    needs_clarification = "CLARITY: unclear" in reasoning_text.lower() or "clarity: unclear" in reasoning_text.lower()
+                    
+                    # Extract plan for display
+                    if "PLAN:" in reasoning_text:
+                        plan_section = reasoning_text.split("PLAN:")[1].split("TOOLS:")[0].strip()
+                        execution_plan_text = plan_section
+                except Exception as reason_err:
+                    logger.warning(f"Reasoning gate failed (non-fatal): {reason_err}")
+                    reasoning_text = f"Proceeding with execution for: {request.task[:100]}"
+            
+            # Emit reasoning results
+            yield event("execution_reasoning", {"chunk": f"**Request Analysis**\n{reasoning_text[:500]}\n"})
+            yield event("step_update", {"id": "step-reason", "phase": "planning", "title": "Request analyzed", "status": "complete", "detail": reasoning_text[:100]})
+            yield event("task_progress", {"id": "tp-reason", "step": "tp-reason", "title": "Request analyzed — reasoning complete", "status": "complete", "detail": reasoning_text[:120], "phase": "reasoning"})
+            
+            # If unclear, ask for clarification instead of executing
+            if needs_clarification and reasoning_text:
+                clarification_msg = "I'd like to make sure I understand your request correctly before executing. "
+                # Extract what's unclear
+                if "clarification" in reasoning_text.lower():
+                    parts = reasoning_text.lower().split("clarification")
+                    if len(parts) > 1:
+                        clarification_detail = parts[1][:200].strip(" :?\n")
+                        clarification_msg += clarification_detail
+                    else:
+                        clarification_msg += "Could you provide more details about what you'd like me to do?"
+                else:
+                    clarification_msg += "Could you provide more details about what you'd like me to do?"
+                
+                yield event("content", {"chunk": clarification_msg})
+                yield event("execution_complete", {"status": "needs_clarification"})
+                yield event("complete", {})
+                return
+            
+            # Step 2: Create execution plan
+            yield event("step_update", {"id": "step-plan", "phase": "planning", "title": "Creating execution plan", "status": "active"})
+            yield event("execution_progress", {"progress": 8, "status": "planning"})
+            yield event("task_progress", {"id": "tp-plan", "step": "tp-plan", "title": "Creating execution plan", "status": "active", "detail": execution_plan_text[:150] if execution_plan_text else "Determining optimal approach", "phase": "reasoning"})
+            
+            # Build chat messages for execution
             chat_messages = []
             if context.get("history"):
                 for h in context["history"][-10:]:
@@ -7344,8 +7491,11 @@ async def v2_execute_stream(request: ExecutionRequest):
                 conversation_id=context.get("conversation_id"),
             )
             
-            yield event("step_update", {"id": "step-init", "phase": "planning", "title": "Request analyzed, starting execution", "status": "complete"})
-            yield event("execution_progress", {"progress": 10, "status": "executing"})
+            # Count planned steps
+            plan_step_count = execution_plan_text.count("Step") or execution_plan_text.count("- ") or 5
+            yield event("step_update", {"id": "step-plan", "phase": "planning", "title": f"Execution plan ready — {plan_step_count} steps", "status": "complete", "detail": execution_plan_text[:100]})
+            yield event("task_progress", {"id": "tp-plan", "step": "tp-plan", "title": f"Execution plan ready — {plan_step_count} steps", "status": "complete", "detail": execution_plan_text[:150] if execution_plan_text else "Plan created", "phase": "reasoning"})
+            yield event("execution_progress", {"progress": 12, "status": "executing"})
             
             content_started = False
             step_counter = 0

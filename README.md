@@ -62,6 +62,26 @@ McLeuker_Agentic_AI/
 | **Browser** | Playwright, Browserless | Railway |
 | **Build** | Turborepo, PNPM | GitHub Actions |
 
+## Three-Mode Architecture
+
+McLeuker AI operates in three distinct modes, each optimized for different use cases:
+
+| Mode | Internal Name | Model Config | Behavior |
+|------|---------------|-------------|----------|
+| **Instant** | `instant` | Kimi 2.5 (temperature 0.7) | Fast reasoning-first responses. Always thinks before answering. No content length limits. Engaging, conversational style. |
+| **Auto** | `thinking` | Kimi 2.5 (thinking mode) | Full search + file generation + transparent reasoning. Comprehensive analysis with headers, tables, data. Maps to Kimi 2.5's thinking mode. |
+| **Agent** | `agent` | Kimi 2.5 + Orchestrator | Full agentic execution with browser automation, code execution, and 124 specialized agents. Always reasons first, asks for clarification if needed, creates execution plan before acting. |
+
+### Reasoning-First Architecture
+
+All three modes follow a **reasoning-first** approach:
+1. **Analyze** — Understand the user's intent and context
+2. **Plan** — Determine the optimal approach (search, file generation, execution)
+3. **Execute** — Only proceed with execution after reasoning is complete
+4. **Verify** — Quality-check outputs before delivery
+
+In Agent mode, if the prompt is unclear or missing information, the system will ask for clarification instead of blindly executing.
+
 ## V9 Capabilities
 
 ### Execution Engine
@@ -115,9 +135,11 @@ Specialized agents for fashion industry intelligence:
 | `/api/image/generate` | POST | Generate image |
 | `/api/image/edit` | POST | Edit image |
 | `/api/image/analyze` | POST | Analyze image |
-| `/api/document/generate` | POST | Generate document |
-| `/api/upload` | POST | Upload file |
-| `/api/files/{file_id}` | GET | Download file |
+| `/api/v1/files/generate` | POST | Generate document (PDF, Excel, Word, PPTX) |
+| `/api/v1/upload` | POST | Upload file |
+| `/api/v1/download/{file_id}` | GET | Download generated file |
+| `/api/v1/download/package` | POST | Download multiple files as ZIP package |
+| `/api/v1/files/generated` | GET | List generated files |
 
 ## Quick Start
 
@@ -159,8 +181,9 @@ pnpm dev:backend
 
 ### Backend (Railway)
 1. Create project on [Railway](https://railway.app/dashboard)
-2. Set **Root Directory** to `apps/backend`
+2. Deploy from root — the `railway.json`, `nixpacks.toml`, and `Procfile` are configured to `cd apps/backend` before starting
 3. Add environment variables (see `.env.example`)
+4. The backend Dockerfile in `apps/backend/Dockerfile` includes Playwright + Chromium for browser automation
 
 ### Database (Supabase)
 1. Run `apps/backend/src/agentic/schema_execution.sql` in SQL Editor
