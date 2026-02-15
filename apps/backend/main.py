@@ -3518,7 +3518,9 @@ class ChatHandler:
             except Exception as e:
                 logger.warning(f"Billing check failed (non-blocking): {e}")
         
-        yield event("start", {"conversation_id": conversation_id, "mode": request.mode.value})
+        current_mode = request.mode.value
+        
+        yield event("start", {"conversation_id": conversation_id, "mode": current_mode})
         
         # REASONING FIRST: Mode-aware progress display
         if current_mode == "instant":
@@ -3540,7 +3542,6 @@ class ChatHandler:
         # Determine if search is needed — mode-aware
         # INSTANT mode: minimal API calls, reasoning-first, protect margin
         # AUTO/RESEARCH mode: full search with all sources
-        current_mode = request.mode.value
         needs_search = ChatHandler._needs_search(user_message)
         
         # Instant mode: skip search for most queries, only search for explicit research questions
