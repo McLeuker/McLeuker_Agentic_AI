@@ -2105,73 +2105,67 @@ DATA INTEGRITY RULES:
                         continue
                 return None
             
-            # Primary: Use Kimi-k2.5 (best for structured data generation)
+            # ===== EXCEL DATA GENERATION WITH SELF-CORRECTION =====
+            # Try primary model, then fallback, with retry on JSON parse failure
             excel_data = None
+            last_error = None
+            
+            # Build model chain: try each model with self-correction
+            model_configs = []
             if kimi_client:
-                try:
-                    loop = asyncio.get_event_loop()
-                    kimi_response = await loop.run_in_executor(None, functools.partial(
-                        kimi_client.chat.completions.create,
-                        model="kimi-k2.5",
-                        messages=[
-                            {"role": "system", "content": excel_prompt},
-                            {"role": "user", "content": f"Generate comprehensive multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:6000]}"}
-                        ],
-                        temperature=1,
-                        max_tokens=16384
-                    ))
-                    raw_json = kimi_response.choices[0].message.content.strip()
-                    excel_data = _parse_excel_json(raw_json, "Kimi")
-                except Exception as e:
-                    logger.error(f"Kimi Excel generation error: {e}")
+                model_configs.append(("Kimi", kimi_client, "kimi-k2.5", 1, 16384))
+            if grok_client:
+                model_configs.append(("Grok", grok_client, "grok-3-mini", 0.3, 16384))
             
-            # Fallback: Grok
-            if not excel_data and grok_client:
-                try:
-                    loop = asyncio.get_event_loop()
-                    grok_response = await loop.run_in_executor(None, functools.partial(
-                        grok_client.chat.completions.create,
-                        model="grok-3-mini",
-                        messages=[
-                            {"role": "system", "content": excel_prompt},
-                            {"role": "user", "content": f"Generate comprehensive multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:6000]}"}
-                        ],
-                        temperature=0.3,
-                        max_tokens=16384
-                    ))
-                    raw_json = grok_response.choices[0].message.content.strip()
-                    excel_data = _parse_excel_json(raw_json, "Grok")
-                except Exception as e:
-                    logger.error(f"Grok Excel fallback error: {e}")
-            
-            # ===== DATA QUALITY VERIFICATION LOOP =====
-            if excel_data:
-                # Check for placeholder/fake names
-                placeholder_patterns = ['Supplier A', 'Supplier B', 'Supplier C', 'Company A', 'Company B',
-                                       'Brand X', 'Brand Y', 'Brand Z', '(from ', '(est. from',
-                                       'Supplier D', 'Supplier E', 'Supplier F', 'Supplier G',
-                                       'Supplier H', 'Supplier I', 'Supplier J', 'Supplier K',
-                                       'Supplier L', 'Supplier M', 'Supplier N', 'Supplier O',
-                                       'Supplier P', 'Supplier Q', 'Supplier R', 'Supplier S',
-                                       'Supplier T', 'Supplier U', 'Supplier V', 'Supplier W',
-                                       'Supplier X', 'Supplier Y', 'Supplier Z', 'Supplier AA',
-                                       'Supplier BB', 'Supplier CC', 'Supplier DD']
+            for model_name, client, model_id, temp, max_tok in model_configs:
+                if excel_data:
+                    break
                 
-                has_fake_data = False
-                for sheet in excel_data.get('sheets', []):
-                    for row in sheet.get('rows', []):
-                        for cell in row:
-                            cell_str = str(cell)
-                            if any(p in cell_str for p in placeholder_patterns):
-                                has_fake_data = True
-                                break
-                        if has_fake_data:
+                # Each model gets up to 2 attempts (initial + 1 self-correction)
+                messages = [
+                    {"role": "system", "content": excel_prompt},
+                    {"role": "user", "content": f"Generate comprehensive multi-tab Excel data for: {prompt}\n\nSearch results to use:\n{search_context[:8000]}"}
+                ]
+                
+                for attempt in range(2):
+                    try:
+                        loop = asyncio.get_event_loop()
+                        response = await loop.run_in_executor(None, functools.partial(
+                            client.chat.completions.create,
+                            model=model_id,
+                            messages=messages,
+                            temperature=temp,
+                            max_tokens=max_tok
+                        ))
+                        raw_json = response.choices[0].message.content.strip()
+                        excel_data = _parse_excel_json(raw_json, model_name)
+                        
+                        if excel_data:
+                            logger.info(f"{model_name} Excel generation succeeded on attempt {attempt + 1}")
                             break
-                    if has_fake_data:
-                        break
-                
-                if has_fake_data:
-                    logger.warning("Excel data contains placeholder names - proceeding with available data to avoid timeout")
+                        else:
+                            # Self-correction: tell the LLM what went wrong and ask it to fix
+                            last_error = f"JSON parse failed - output was not valid JSON with 'sheets' array"
+                            logger.warning(f"{model_name} attempt {attempt + 1}: {last_error}")
+                            if attempt == 0:
+                                messages.append({"role": "assistant", "content": raw_json[:2000]})
+                                messages.append({"role": "user", "content": f"ERROR: Your response was not valid JSON. Return ONLY a JSON object with this exact structure: {{\"sheets\": [{{\"title\": \"...\", \"headers\": [...], \"rows\": [...]}}]}}. No markdown, no explanation, no code blocks. Just the raw JSON object."})
+                    except Exception as e:
+                        last_error = str(e)
+                        logger.error(f"{model_name} Excel attempt {attempt + 1} error: {e}")
+                        break  # Don't retry on API errors, move to next model
+            
+            # ===== DATA QUALITY CHECK (non-blocking) =====
+            if excel_data:
+                placeholder_patterns = ['Supplier A', 'Company A', 'Brand X', 'Brand Y', 'Brand Z']
+                has_fake = any(
+                    any(p in str(cell) for p in placeholder_patterns)
+                    for sheet in excel_data.get('sheets', [])
+                    for row in sheet.get('rows', [])
+                    for cell in row
+                )
+                if has_fake:
+                    logger.warning("Excel data contains some placeholder names - proceeding with best available data")
             
             # Color palette
             COLORS = {
@@ -3896,30 +3890,44 @@ FILE GENERATION:
                 logger.info(f"Resolved topic reference (early): '{user_message}' -> '{file_topic}'")
             
             if not search_context and not uploaded_file_context:
-                yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data for comprehensive file..."})
+                yield event("task_progress", {"id": "file_research", "title": "Researching data for file content", "status": "active", "detail": "Gathering real-time data from multiple sources..."})
                 try:
-                    # CRITICAL FIX: Search using the resolved file_topic, NOT the raw user_message
-                    # Add 45-second timeout to prevent hanging
-                    file_search_results = await asyncio.wait_for(
-                        SearchLayer.search(file_topic, sources=["web", "news"], num_results=10),
-                        timeout=45.0
-                    )
+                    # Search using ALL available sources — no timeout, quality over speed
+                    file_search_results = await SearchLayer.search(file_topic, sources=["web", "news"], num_results=15)
                     file_structured_data = file_search_results.get("structured_data", {})
                     if file_structured_data.get("data_points"):
                         structured_data = file_structured_data
                         search_results = file_search_results
-                        # Build search context for file generation
-                        for dp in structured_data.get("data_points", [])[:15]:
-                            search_context += f"- {dp.get('title', '')}: {dp.get('description', '')[:200]}\n"
-                        for source_name in ["perplexity", "grok", "google", "exa", "bing", "firecrawl"]:
+                        # Build comprehensive search context for file generation
+                        for dp in structured_data.get("data_points", [])[:20]:
+                            search_context += f"- {dp.get('title', '')}: {dp.get('description', '')[:300]}\n"
+                        for source_name in ["perplexity", "grok", "google", "exa", "bing", "firecrawl", "browserless"]:
                             if source_name in search_results.get("results", {}):
                                 answer = search_results["results"][source_name].get("answer", "")
                                 if answer:
-                                    search_context += f"\n{answer[:1500]}\n"
-                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Data gathered successfully"})
-                except asyncio.TimeoutError:
-                    logger.warning(f"Pre-file-generation search timed out after 45s for: {file_topic}")
-                    yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Using available data (search timed out)"})
+                                    search_context += f"\n[{source_name.upper()} DATA]:\n{answer[:2000]}\n"
+                        source_count = len(structured_data.get("data_points", []))
+                        yield event("task_progress", {"id": "file_research", "title": f"Research complete — {source_count} data points gathered", "status": "complete", "detail": "Data gathered successfully from multiple sources"})
+                    else:
+                        yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Using available data"})
+                    
+                    # RETRY: If insufficient data, do a second targeted search
+                    if len(search_context) < 500:
+                        yield event("task_progress", {"id": "file_research_retry", "title": "Expanding research — gathering more data", "status": "active", "detail": "Initial data insufficient, searching deeper..."})
+                        try:
+                            retry_results = await SearchLayer.search(f"{file_topic} data statistics analysis", sources=["web"], num_results=10)
+                            retry_data = retry_results.get("structured_data", {})
+                            if retry_data.get("data_points"):
+                                for dp in retry_data.get("data_points", [])[:15]:
+                                    search_context += f"- {dp.get('title', '')}: {dp.get('description', '')[:300]}\n"
+                                for source_name in retry_results.get("results", {}):
+                                    answer = retry_results["results"][source_name].get("answer", "")
+                                    if answer:
+                                        search_context += f"\n{answer[:1500]}\n"
+                            yield event("task_progress", {"id": "file_research_retry", "title": "Extended research complete", "status": "complete", "detail": "Additional data gathered"})
+                        except Exception as retry_err:
+                            logger.warning(f"Retry search failed: {retry_err}")
+                            yield event("task_progress", {"id": "file_research_retry", "title": "Extended research complete", "status": "complete", "detail": "Proceeding with available data"})
                 except Exception as e:
                     logger.warning(f"Pre-file-generation search failed: {e}")
                     yield event("task_progress", {"id": "file_research", "title": "Research complete", "status": "complete", "detail": "Proceeding with available data"})
@@ -3956,33 +3964,47 @@ FILE GENERATION:
                         "ai_research_context": full_response[:5000] if full_response else ""
                     }
                     
-                    # File generation with generous timeout (LLM needs time for complex data)
-                    try:
-                        if file_type == "excel":
-                            result = await asyncio.wait_for(
-                                FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id),
-                                timeout=180.0
-                            )
-                        elif file_type == "word":
-                            result = await asyncio.wait_for(
-                                FileEngine.generate_word(file_topic, content_for_file, request.user_id),
-                                timeout=120.0
-                            )
-                        elif file_type == "pdf":
-                            result = await asyncio.wait_for(
-                                FileEngine.generate_pdf(file_topic, content_for_file, request.user_id),
-                                timeout=120.0
-                            )
-                        elif file_type == "pptx":
-                            result = await asyncio.wait_for(
-                                FileEngine.generate_pptx(file_topic, content_for_file, request.user_id),
-                                timeout=120.0
-                            )
-                        else:
-                            continue
-                    except asyncio.TimeoutError:
-                        logger.error(f"File generation timed out for {file_type}: {file_topic}")
-                        yield event("file_error", {"file_type": file_type, "error": f"{file_type} generation timed out. Please try again."})
+                    # File generation — NO timeout, quality over speed
+                    # Retry up to 3 times with self-correction on failure
+                    result = None
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            if attempt > 0:
+                                yield event("task_progress", {"id": f"file_retry_{file_type}", "title": f"Retrying {file_type} generation (attempt {attempt + 1}/{max_retries})", "status": "active", "detail": "Self-correcting and regenerating..."})
+                            
+                            if file_type == "excel":
+                                result = await FileEngine.generate_excel(file_topic, full_data_for_excel, request.user_id)
+                            elif file_type == "word":
+                                result = await FileEngine.generate_word(file_topic, content_for_file, request.user_id)
+                            elif file_type == "pdf":
+                                result = await FileEngine.generate_pdf(file_topic, content_for_file, request.user_id)
+                            elif file_type == "pptx":
+                                result = await FileEngine.generate_pptx(file_topic, content_for_file, request.user_id)
+                            else:
+                                break
+                            
+                            if result and result.get("success"):
+                                if attempt > 0:
+                                    yield event("task_progress", {"id": f"file_retry_{file_type}", "title": f"Retry successful", "status": "complete", "detail": "File generated after self-correction"})
+                                break  # Success, exit retry loop
+                            else:
+                                error_msg = result.get("error", "Unknown error") if result else "No result returned"
+                                logger.warning(f"File generation attempt {attempt + 1} failed for {file_type}: {error_msg}")
+                                if attempt < max_retries - 1:
+                                    await asyncio.sleep(2)  # Brief pause before retry
+                                    continue
+                        except Exception as gen_err:
+                            logger.error(f"File generation attempt {attempt + 1} error for {file_type}: {gen_err}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(2)
+                                continue
+                            else:
+                                result = {"success": False, "error": str(gen_err)}
+                    
+                    if not result or not result.get("success"):
+                        error_detail = result.get("error", "Generation failed after all retries") if result else "Generation failed"
+                        yield event("file_error", {"file_type": file_type, "error": f"{file_type} generation failed: {error_detail}"})
                         continue
                     
                     if result.get("success"):

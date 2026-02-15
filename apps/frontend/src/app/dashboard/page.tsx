@@ -333,11 +333,11 @@ function CollapsibleTable({
   return (
     <div ref={containerRef} className="my-2">
       <div className="overflow-x-auto rounded-lg border border-white/[0.08]">
-        <table className="w-full text-[12px] border-collapse">
+        <table className="w-full text-[11px] border-collapse table-auto">
           <thead>
             <tr className="bg-white/[0.06]">
               {headers.map((cell, ci) => (
-                <th key={ci} className="px-2 py-1.5 text-left text-white/80 font-semibold border-b border-white/[0.08] whitespace-nowrap text-[11px] uppercase tracking-wider">
+                <th key={ci} className="px-1.5 py-1 text-left text-white/80 font-semibold border-b border-white/[0.08] text-[10px] uppercase tracking-wider" style={{maxWidth: '200px'}}>
                   {processInlineFormatting(cell)}
                 </th>
               ))}
@@ -347,7 +347,7 @@ function CollapsibleTable({
             {visibleRows.map((row, ri) => (
               <tr key={ri} className={`${ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'} hover:bg-white/[0.04] transition-colors`}>
                 {row.map((cell, ci) => (
-                  <td key={ci} className="px-2 py-1.5 text-white/65 border-b border-white/[0.04] leading-tight">
+                  <td key={ci} className="px-1.5 py-0.5 text-white/65 border-b border-white/[0.04] leading-snug text-[11px]" style={{maxWidth: '220px', wordBreak: 'break-word'}}>
                     {processInlineFormatting(cell)}
                   </td>
                 ))}
@@ -3473,31 +3473,40 @@ function DashboardContent() {
                                       </div>
                                     ))}
                                   </div>
-                                  {/* Inline source pills — show sources found during search */}
-                                  {message.sources && message.sources.length > 0 && message.taskSteps.some(s => s.step === 'search' && s.status === 'complete') && (
+                                  {/* Inline sources — show actual source titles with favicons */}
+                                  {message.sources && message.sources.length > 0 && (
                                     <div className="mt-2 pt-2 border-t border-white/[0.04]">
-                                      <span className="text-[10px] text-white/25 block mb-1.5">Sources found:</span>
-                                      <div className="flex flex-wrap gap-1">
-                                        {message.sources.slice(0, 8).map((src, srcIdx) => (
-                                          <a
-                                            key={srcIdx}
-                                            href={src.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-colors"
-                                            title={src.url}
-                                          >
-                                            <img
-                                              src={`https://www.google.com/s2/favicons?domain=${new URL(src.url).hostname}&sz=16`}
-                                              alt=""
-                                              className="w-3 h-3 rounded-sm"
-                                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                            />
-                                            <span className="text-[9px] text-white/40 truncate max-w-[120px]">{src.title}</span>
-                                          </a>
-                                        ))}
-                                        {message.sources.length > 8 && (
-                                          <span className="text-[9px] text-white/25 self-center">+{message.sources.length - 8} more</span>
+                                      <div className="flex items-center gap-1.5 mb-2">
+                                        <Globe className="h-3 w-3 text-white/25" />
+                                        <span className="text-[10px] text-white/30 font-medium">{message.sources.length} sources analyzed</span>
+                                      </div>
+                                      <div className="space-y-1">
+                                        {message.sources.slice(0, 6).map((src, srcIdx) => {
+                                          let hostname = '';
+                                          try { hostname = new URL(src.url).hostname.replace('www.', ''); } catch { hostname = 'source'; }
+                                          return (
+                                            <a
+                                              key={srcIdx}
+                                              href={src.url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="flex items-start gap-2 py-0.5 px-1.5 rounded hover:bg-white/[0.04] transition-colors group"
+                                            >
+                                              <img
+                                                src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=16`}
+                                                alt=""
+                                                className="w-3 h-3 rounded-sm mt-0.5 flex-shrink-0"
+                                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                              />
+                                              <div className="min-w-0 flex-1">
+                                                <span className="text-[10px] text-white/45 group-hover:text-white/60 block truncate leading-tight">{src.title || hostname}</span>
+                                                <span className="text-[9px] text-white/20 block truncate">{hostname}</span>
+                                              </div>
+                                            </a>
+                                          );
+                                        })}
+                                        {message.sources.length > 6 && (
+                                          <span className="text-[9px] text-white/20 block pl-1.5 pt-0.5">+{message.sources.length - 6} more sources</span>
                                         )}
                                       </div>
                                     </div>
