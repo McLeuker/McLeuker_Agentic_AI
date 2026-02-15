@@ -122,6 +122,7 @@ interface Message {
   thinkingSteps?: string[];
   _taskExpanded?: boolean;
   _thinkingExpanded?: boolean;
+  _mode?: string;  // Track which mode this message was sent in (instant, research, agent)
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-29f3c.up.railway.app';
@@ -2265,6 +2266,7 @@ function DashboardContent() {
       follow_up_questions: [],
       timestamp: new Date(),
       isStreaming: true,
+      _mode: searchMode,  // Track which mode (instant, auto, agent)
     };
     setMessages(prev => [...prev, assistantMessage]);
 
@@ -3394,22 +3396,18 @@ function DashboardContent() {
                           )}
 
                           {/* ===== STREAMING INDICATOR ===== */}
-                          {message.isStreaming && !message.content && !message.thinkingSteps?.length && !message.taskSteps?.length && !message.reasoning_layers.length && (
-                            <div className="py-2 space-y-1.5">
-                              <div className="flex items-center gap-2 text-white/50">
-                                <Loader2 className="h-4 w-4 animate-spin text-[#8a9a7e]" />
-                                <span className="text-sm font-medium text-white/60">Starting execution...</span>
-                              </div>
-                              <div className="pl-6 space-y-0.5">
-                                <span className="text-[10px] text-white/25 block">Analyzing your request and creating an execution plan</span>
-                                <span className="text-[10px] text-white/20 block">Determining the best approach and tools needed</span>
-                                <span className="text-[10px] text-white/15 block">This usually takes a few seconds</span>
-                              </div>
+                          {/* For instant mode: show dots even when taskSteps exist (we hide them for instant) */}
+                          {message.isStreaming && !message.content && !message.thinkingSteps?.length && !message.reasoning_layers.length && (message._mode === 'instant' || !message.taskSteps?.length) && (
+                            <div className="flex items-center gap-1 py-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '0ms'}} />
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '150ms'}} />
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#5c6652] animate-bounce" style={{animationDelay: '300ms'}} />
                             </div>
                           )}
                           
                           {/* ===== TASK PROGRESS STEPS (ChatGPT/Manus-style) ===== */}
-                          {message.taskSteps && message.taskSteps.length > 0 && (
+                          {/* Hide task steps for instant mode — instant should feel like ChatGPT (just dots → content) */}
+                          {message.taskSteps && message.taskSteps.length > 0 && message._mode !== 'instant' && (
                             <div className="mb-3 pl-1">
                               <div className="relative">
                                 {/* Vertical line connector */}

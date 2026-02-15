@@ -3677,6 +3677,12 @@ FORMATTING:
 - Match the user's energy: casual = casual, serious = serious.
 - ALWAYS complete your response. Never stop mid-sentence or mid-thought.
 
+ENGAGEMENT:
+- Use emojis naturally to make responses feel warm and engaging 🎯
+- Place emojis at the start of sections, key points, or to highlight important items
+- Examples: 💡 for insights, ✅ for completed items, 🔑 for key points, 📌 for important notes, 🚀 for action items, ⚡ for quick tips
+- Don't overdo it — 3-6 emojis per response is ideal. Use them to enhance readability, not clutter.
+
 CONVERSATION MEMORY:
 - Short messages are follow-ups. Check conversation history.
 - "more", "continue", "elaborate" = continue previous topic.
@@ -3738,6 +3744,12 @@ CONVERSATION MEMORY:
 - Short messages (1-3 words) are almost always follow-ups. Use conversation history.
 - STAY ON TOPIC unless the user explicitly changes subject.
 
+ENGAGEMENT:
+- Use emojis naturally to make responses feel warm and engaging 🎯
+- Place emojis at the start of sections, key points, or to highlight important items
+- Examples: 💡 for insights, ✅ for completed items, 🔑 for key points, 📌 for important notes, 🚀 for action items, ⚡ for quick tips, 📊 for data, 🔍 for research
+- Use 4-8 emojis per response. They enhance readability and engagement.
+
 FILE GENERATION:
 - When asked to generate files (PDF, Excel, PPT, Word, CSV), do it silently. The file appears in Generated Files.
 - Do NOT describe what you're about to generate. Provide the analysis content directly.
@@ -3793,6 +3805,12 @@ CONVERSATION MEMORY:
 - "more", "continue", "go on", "elaborate" = CONTINUE the previous topic with more depth.
 - "that", "this", "it", "the same" = Check CONVERSATION HISTORY to understand the reference.
 - Short messages (1-3 words) are almost always follow-ups. Use conversation history.
+
+ENGAGEMENT:
+- Use emojis naturally to make responses feel warm and engaging 🎯
+- Place emojis at the start of sections, key points, or to highlight important items
+- Examples: 💡 for insights, ✅ for completed items, 🔑 for key points, 📌 for important notes, 🚀 for action items, ⚡ for quick tips, 📊 for data, 🔍 for research
+- Use 4-8 emojis per response. They enhance readability and engagement.
 
 FILE GENERATION:
 - When asked to generate files (PDF, Excel, PPT, Word, CSV), do it silently. The file appears in Generated Files.
@@ -7310,8 +7328,20 @@ async def v2_execute_stream(request: ExecutionRequest):
             execution_id = request.execution_id or str(uuid.uuid4())[:12]
             context = request.context or {}
             
-            # === PRIMARY PATH: Use real ExecutionOrchestrator ===
-            if execution_orchestrator:
+            # === ROUTE DECISION ===
+            # File generation requests MUST use ChatHandler (which has FileEngine).
+            # The ExecutionOrchestrator does NOT have FileEngine integration.
+            # Only use orchestrator for browser/code/github tasks that don't need file generation.
+            task_lower = request.task.lower()
+            file_keywords = ['pdf', 'excel', 'xlsx', 'ppt', 'pptx', 'presentation', 'slides',
+                             'spreadsheet', 'word', 'docx', 'csv', 'report', 'document',
+                             'generate file', 'create file', 'make a file', 'download']
+            needs_file_generation = any(kw in task_lower for kw in file_keywords)
+            
+            # Use orchestrator ONLY for non-file tasks (browser, code, github, research)
+            use_orchestrator = execution_orchestrator and not needs_file_generation
+            
+            if use_orchestrator:
                 try:
                     async for evt in execution_orchestrator.execute_stream(
                         user_request=request.task,
@@ -7321,7 +7351,7 @@ async def v2_execute_stream(request: ExecutionRequest):
                         evt_name = evt.get("event", "")
                         evt_data = evt.get("data", {})
                         
-                        # FIXED: Forward key events to WebSocket clients too
+                        # Forward key events to WebSocket clients
                         if ws_manager:
                             try:
                                 if evt_name == "browser_screenshot":
@@ -7343,6 +7373,11 @@ async def v2_execute_stream(request: ExecutionRequest):
                 except Exception as orch_err:
                     logger.error(f"Orchestrator failed, falling back to ChatHandler: {orch_err}")
                     # Fall through to ChatHandler fallback
+            
+            if needs_file_generation:
+                logger.info(f"Agent mode: routing to ChatHandler for file generation (task: {request.task[:80]})")
+            else:
+                logger.info(f"Agent mode: using ChatHandler fallback (orchestrator unavailable)")
             
             # === FALLBACK: Wrap ChatHandler (v1) with execution panel events ===
             yield event("execution_start", {"execution_id": execution_id})
