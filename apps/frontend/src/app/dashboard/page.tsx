@@ -3498,13 +3498,30 @@ function DashboardContent() {
                                   return 'border-blue-400/30 hover:border-blue-400/60';
                                 };
                                 return (
-                                  <a
+                                  <button
                                     key={dlIdx}
-                                    href={`${API_URL}${dl.download_url}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                    onClick={async (e) => {
+                                      e.preventDefault();
+                                      try {
+                                        const response = await fetch(`${API_URL}${dl.download_url}`);
+                                        if (!response.ok) throw new Error('Download failed');
+                                        const blob = await response.blob();
+                                        const url = window.URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = dl.filename || `mcleuker-file.${dl.file_type}`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        window.URL.revokeObjectURL(url);
+                                      } catch (err) {
+                                        console.error('Download error:', err);
+                                        // Fallback: open in new tab
+                                        window.open(`${API_URL}${dl.download_url}`, '_blank');
+                                      }
+                                    }}
                                     className={cn(
-                                      "flex items-center gap-3 px-4 py-3 bg-white/[0.03] hover:bg-white/[0.06] border rounded-xl transition-all group cursor-pointer",
+                                      "flex items-center gap-3 px-4 py-3 bg-white/[0.03] hover:bg-white/[0.06] border rounded-xl transition-all group cursor-pointer w-full text-left",
                                       getFileColor(dl.file_type)
                                     )}
                                   >
@@ -3518,7 +3535,7 @@ function DashboardContent() {
                                     <div className="flex-shrink-0 p-2 rounded-lg bg-white/[0.04] group-hover:bg-white/[0.08] transition-colors">
                                       <Download className="h-4 w-4 text-white/40 group-hover:text-white/80 transition-colors" />
                                     </div>
-                                  </a>
+                                  </button>
                                 );
                               })}
                             </div>

@@ -3520,14 +3520,22 @@ class ChatHandler:
         
         yield event("start", {"conversation_id": conversation_id, "mode": request.mode.value})
         
-        # REASONING FIRST: Always show reasoning step before any API calls
-        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "active", "detail": "Analyzing intent, context, and the best approach..."})
+        # REASONING FIRST: Mode-aware progress display
+        if current_mode == "instant":
+            # Instant mode: just show "Thinking..." — minimal, fast
+            yield event("task_progress", {"id": "thinking", "title": "Thinking", "status": "active", "detail": ""})
+        else:
+            # Auto/Agent: show detailed reasoning steps
+            yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "active", "detail": "Analyzing intent, context, and the best approach..."})
         
         # Save user message
         await MemoryManager.save_message(conversation_id, "user", user_message)
         
         # Mark reasoning as complete
-        yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "complete", "detail": "Determined optimal approach"})
+        if current_mode == "instant":
+            yield event("task_progress", {"id": "thinking", "title": "Thinking", "status": "complete", "detail": ""})
+        else:
+            yield event("task_progress", {"id": "reasoning", "title": "Reasoning about your request", "status": "complete", "detail": "Determined optimal approach"})
         
         # Determine if search is needed — mode-aware
         # INSTANT mode: minimal API calls, reasoning-first, protect margin
@@ -3588,7 +3596,8 @@ class ChatHandler:
             if sources_for_ui:
                 yield event("search_sources", {"sources": sources_for_ui})
         else:
-            yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "active", "detail": "Analyzing your query..."})
+            if current_mode != "instant":
+                yield event("task_progress", {"id": "process", "title": "Processing your request", "status": "active", "detail": "Analyzing your query..."})
         
         # Build context for LLM
         search_context = ""
@@ -3646,26 +3655,26 @@ class ChatHandler:
         if current_mode == "instant":
             system_msg = f"""You are McLeuker AI. Today is {current_date} ({current_year}).
 
-You are in INSTANT mode. Think first, answer concisely.
+You are in INSTANT mode — fast, helpful, and engaging.
 
-CORE PRINCIPLE: Reason internally before answering. Your response should reflect clear thinking — not a dump of information.
+CORE PRINCIPLE: Reason internally before answering. Your response should reflect clear thinking.
 
-RESPONSE LENGTH:
-- Trivial questions ("hi", "what's 2+2", greetings): 1 sentence. Be warm and natural.
-- Simple questions (definitions, quick facts): 2-4 sentences. Direct answer with one key insight.
-- Moderate questions (analysis, comparisons): 2-3 short paragraphs. Lead with the answer, then the reasoning.
-- NEVER exceed 3 paragraphs in instant mode. If the topic needs more, suggest the user switch to agent mode.
+RESPONSE STYLE:
+- Trivial questions ("hi", greetings): 1-2 sentences. Be warm and natural.
+- Simple questions (definitions, quick facts): A clear, direct answer with helpful context.
+- Moderate questions (analysis, comparisons, how-to): Give a thorough, well-structured answer. Use as much space as needed.
+- Complex questions: Provide a comprehensive response. There is NO length limit — answer fully and completely.
 
-STYLE:
+FORMATTING:
 - Write like a sharp, knowledgeable colleague — not a textbook.
-- Lead with the answer or key insight. Reasoning supports it, not the other way around.
-- Use **bold** for the single most important term or phrase per paragraph.
-- NO bullet points. NO numbered lists. Write in flowing prose.
-- NO headers unless absolutely necessary (2+ distinct sections).
+- Lead with the answer or key insight.
+- Use **bold** for emphasis on key terms.
+- Use bullet points or numbered lists when they genuinely help readability (e.g., steps, comparisons).
+- Use headers (##) to organize longer responses into clear sections.
 - NO source citations, no "According to...", no "Based on my analysis...".
 - NEVER start with "As McLeuker AI" or any self-reference.
 - Match the user's energy: casual = casual, serious = serious.
-- ALWAYS complete your response. Never stop mid-sentence.
+- ALWAYS complete your response. Never stop mid-sentence or mid-thought.
 
 CONVERSATION MEMORY:
 - Short messages are follow-ups. Check conversation history.
@@ -3675,23 +3684,39 @@ CONVERSATION MEMORY:
 {f'{chr(10)}CONTEXT:{chr(10)}{search_context[:3000]}' if search_context else ''}
 {f'{chr(10)}{url_context}' if url_context else ''}
 {f'{chr(10)}FILE CONTENT:{chr(10)}{uploaded_file_context[:4000]}' if uploaded_file_context else ''}"""
-        else:
-            system_msg = f"""You are McLeuker AI — a sharp, reasoning-driven assistant. Today is {current_date} ({current_year}).
+        elif current_mode == "agent":
+            system_msg = f"""You are McLeuker AI — an advanced agentic assistant with reasoning-first architecture. Today is {current_date} ({current_year}).
 
-HOW TO THINK:
-1. First, understand what the user ACTUALLY wants. Read their message carefully. If it's short, check conversation history.
-2. Reason through the problem before writing your answer. Ask yourself: What's the core question? What matters here? What's the logical chain?
-3. Then write your response — leading with your reasoning and conclusions, not with a dump of information.
+REASONING-FIRST GATE:
+Before executing ANY task, you MUST:
+1. Analyze the user's request thoroughly. What exactly do they want?
+2. Check if the task is clear and complete. Do you have enough information to proceed?
+3. If the task is AMBIGUOUS or INCOMPLETE, ask a focused clarification question before proceeding.
+4. If the task is clear, proceed with full execution.
+
+Examples of when to ask for clarification:
+- "Create a report" → Ask: What topic? What format? What audience?
+- "Analyze this" (without context) → Ask: What specifically should I analyze?
+- "Make a presentation" → Ask: What topic? How many slides? What key points?
+
+Examples of when to proceed directly:
+- "Create a PDF report on Tesla's Q4 2025 earnings" → Clear enough, proceed.
+- "Compare iPhone 16 vs Samsung S25" → Clear enough, proceed.
+- "What are the latest AI trends in healthcare?" → Clear enough, proceed.
 
 HOW TO RESPOND:
-- Match the user's energy and intent. Casual question = casual answer. Deep analysis request = thorough reasoning.
-- Lead with the KEY INSIGHT or answer, then support it with reasoning.
-- Use emojis naturally when they add clarity or warmth (e.g. ✅ for confirmations, 🔍 for analysis, ⚠️ for warnings, 💡 for insights, 🎯 for key points) — but don't overdo it.
-- Use markdown formatting: **bold** for emphasis, headers for structure, tables ONLY when comparing data.
-- Write in flowing paragraphs for analysis. Use bullet points only for actual lists of items.
-- NEVER start with "As McLeuker AI..." or "Based on my analysis..." — just answer directly.
-- NEVER use numbered citations like [1], [2]. Integrate information naturally.
-- ALWAYS complete your full response. Never stop mid-sentence.
+- Lead with your reasoning and key insights.
+- There is NO length limit. Be comprehensive and thorough.
+- Use markdown formatting: **bold** for emphasis, ## headers for structure, tables for comparisons.
+- NEVER start with "As McLeuker AI..." — just answer directly.
+- ALWAYS complete your full response.
+
+CRITICAL FORMATTING RULES:
+- For numbered lists, ALWAYS use proper markdown: "1. Item" with a period and space after the number.
+- NEVER output numbers without proper list formatting.
+- Each list item must be on its own line with proper numbering.
+- Use blank lines between sections and before/after lists.
+- Use ## headers to organize long responses into clear sections.
 
 WHEN USER SHARES LINKS:
 - You will receive the ACTUAL CONTENT fetched from URLs the user shared.
@@ -3705,14 +3730,6 @@ WHEN USER UPLOADS FILES:
 - For spreadsheets: analyze the data patterns, trends, anomalies.
 - For documents: summarize key points and provide insights.
 - For images: describe what you see and analyze it in context of the user's question.
-
-REASONING PRINCIPLES:
-- Explain WHY, not just WHAT. "This matters because..." is better than "This is..."
-- Connect the dots. Show how pieces of information relate to each other.
-- Be honest about uncertainty. "The data suggests..." when inferring, vs "The data shows..." when explicit.
-- Challenge assumptions when appropriate. If the user's premise seems off, gently point it out.
-- NEVER fabricate statistics, percentages, or specific data points. If you don't have exact numbers, reason qualitatively.
-- When you have search data, SYNTHESIZE it into insights — don't just restate what each source says.
 
 CONVERSATION MEMORY:
 - "more", "continue", "go on", "elaborate", "tell me more", "what else" = CONTINUE the previous topic with more depth. Do NOT start a new topic.
@@ -3728,6 +3745,61 @@ FILE GENERATION:
 {conversation_summary}
 {f'{chr(10)}SEARCH DATA (synthesize into insights, do not just restate):{chr(10)}{search_context[:6000]}' if search_context else ''}
 {f'{chr(10)}{url_context}' if url_context else ''}
+{f'{chr(10)}UPLOADED FILE CONTENT (analyze this actual content thoroughly):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""        
+        else:
+            # Auto/Thinking/Research/Code modes
+            system_msg = f"""You are McLeuker AI — a sharp, reasoning-driven assistant. Today is {current_date} ({current_year}).
+
+HOW TO THINK:
+1. First, understand what the user ACTUALLY wants. Read their message carefully. If it's short, check conversation history.
+2. Reason through the problem before writing your answer. Ask yourself: What's the core question? What matters here? What's the logical chain?
+3. Then write your response — leading with your reasoning and conclusions, not with a dump of information.
+
+HOW TO RESPOND:
+- Match the user's energy and intent. Casual question = casual answer. Deep analysis request = thorough reasoning.
+- Lead with the KEY INSIGHT or answer, then support it with reasoning.
+- There is NO length limit. Provide comprehensive, thorough responses. Cover the topic fully.
+- Use markdown formatting: **bold** for emphasis, headers (##) for structure, tables when comparing data.
+- Write in flowing paragraphs for analysis. Use bullet points for actual lists of items.
+- NEVER start with "As McLeuker AI..." or "Based on my analysis..." — just answer directly.
+- NEVER use numbered citations like [1], [2]. Integrate information naturally.
+- ALWAYS complete your full response. Never stop mid-sentence.
+
+CRITICAL FORMATTING RULES:
+- For numbered lists, ALWAYS use proper markdown: "1. Item" with a period and space after the number.
+- NEVER output numbers without proper list formatting (e.g., never write "11111" or concatenated numbers).
+- Each list item must be on its own line with proper numbering: 1. First, 2. Second, 3. Third, etc.
+- Use blank lines between sections and before/after lists for proper rendering.
+- Prefer using ## headers to organize long responses into clear sections.
+
+WHEN USER SHARES LINKS:
+- You will receive the ACTUAL CONTENT fetched from URLs the user shared.
+- Analyze this REAL content deeply. Reference specific details from the page.
+- Do NOT say "I can't access links" or "without direct access" — you HAVE the content.
+
+WHEN USER UPLOADS FILES:
+- You will receive the extracted text/data from uploaded files.
+- Analyze the ACTUAL content. Reference specific data points, sections, or findings.
+
+REASONING PRINCIPLES:
+- Explain WHY, not just WHAT. "This matters because..." is better than "This is..."
+- Connect the dots. Show how pieces of information relate to each other.
+- Be honest about uncertainty. "The data suggests..." when inferring, vs "The data shows..." when explicit.
+- NEVER fabricate statistics, percentages, or specific data points.
+- When you have search data, SYNTHESIZE it into insights — don't just restate what each source says.
+
+CONVERSATION MEMORY:
+- "more", "continue", "go on", "elaborate" = CONTINUE the previous topic with more depth.
+- "that", "this", "it", "the same" = Check CONVERSATION HISTORY to understand the reference.
+- Short messages (1-3 words) are almost always follow-ups. Use conversation history.
+
+FILE GENERATION:
+- When asked to generate files (PDF, Excel, PPT, Word, CSV), do it silently. The file appears in Generated Files.
+- Do NOT describe what you're about to generate. Provide the analysis content directly.
+- Use ONLY real, verified data. NEVER use placeholders like "Company A", "Supplier B".
+{conversation_summary}
+{f'{chr(10)}SEARCH DATA (synthesize into insights, do not just restate):{chr(10)}{search_context[:6000]}' if search_context else ''}
+{f'{chr(10)}{url_context}' if url_context else ''}
 {f'{chr(10)}UPLOADED FILE CONTENT (analyze this actual content thoroughly):{chr(10)}{uploaded_file_context[:8000]}' if uploaded_file_context else ''}"""
         
         llm_messages = [{"role": "system", "content": system_msg}]
@@ -3739,7 +3811,10 @@ FILE GENERATION:
                 llm_messages.append({"role": msg.role, "content": content})
         
         # Stream LLM response
-        if needs_search:
+        if current_mode == "instant":
+            # Instant mode: no additional progress steps, just stream the response
+            pass
+        elif needs_search:
             yield event("task_progress", {"id": "analyze_data", "title": "Analyzing and cross-referencing data", "status": "complete"})
             yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "active", "detail": "Generating comprehensive analysis..."})
         else:
@@ -3959,17 +4034,23 @@ FILE GENERATION:
                 pass
         
         # Mark all progress as complete
-        if file_types_needed:
+        if current_mode == "instant":
+            # Instant mode: minimal finalization, no verbose steps
+            pass
+        elif file_types_needed:
             yield event("task_progress", {"id": "file_gen", "title": f"Creating {', '.join(file_types_needed)} file(s)", "status": "complete", "detail": "Files ready for download"})
         elif needs_search:
             yield event("task_progress", {"id": "synthesize", "title": "Synthesizing research into response", "status": "complete"})
         else:
             yield event("task_progress", {"id": "generate", "title": "Generating response", "status": "complete"})
         
-        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "active", "detail": "Preparing conclusion and follow-ups..."})
+        if current_mode != "instant":
+            yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "active", "detail": "Preparing conclusion and follow-ups..."})
         
-        # Generate Manus-style conclusion
-        conclusion = await ChatHandler._generate_conclusion(user_message, full_response, file_types_needed, structured_data)
+        # Generate Manus-style conclusion (skip for instant mode)
+        conclusion = None
+        if current_mode != "instant":
+            conclusion = await ChatHandler._generate_conclusion(user_message, full_response, file_types_needed, structured_data)
         if conclusion:
             yield event("conclusion", {"content": conclusion})
         
@@ -3994,13 +4075,15 @@ FILE GENERATION:
             except Exception as e:
                 logger.warning(f"Billing session end failed (non-blocking): {e}")
         
-        yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "complete"})
+        if current_mode != "instant":
+            yield event("task_progress", {"id": "finalize", "title": "Finalizing", "status": "complete"})
         
         yield event("complete", {
             "content": full_response[:500],
             "conversation_id": conversation_id,
             "follow_up_questions": follow_ups,
-            "credits_used": credits_used
+            "credits_used": credits_used,
+            "mode": current_mode
         })
     
     @staticmethod
