@@ -333,11 +333,11 @@ function CollapsibleTable({
   return (
     <div ref={containerRef} className="my-2">
       <div className="overflow-x-auto rounded-lg border border-white/[0.08]">
-        <table className="w-full text-[11px] border-collapse table-auto">
+        <table className="w-full text-[11px] border-collapse" style={{tableLayout: headers.length <= 4 ? 'auto' : 'fixed'}}>
           <thead>
             <tr className="bg-white/[0.06]">
               {headers.map((cell, ci) => (
-                <th key={ci} className="px-1.5 py-1 text-left text-white/80 font-semibold border-b border-white/[0.08] text-[10px] uppercase tracking-wider" style={{maxWidth: '200px'}}>
+                <th key={ci} className="px-2 py-1 text-left text-white/80 font-semibold border-b border-white/[0.08] text-[10px] uppercase tracking-wider whitespace-nowrap">
                   {processInlineFormatting(cell)}
                 </th>
               ))}
@@ -347,7 +347,7 @@ function CollapsibleTable({
             {visibleRows.map((row, ri) => (
               <tr key={ri} className={`${ri % 2 === 0 ? 'bg-white/[0.02]' : 'bg-transparent'} hover:bg-white/[0.04] transition-colors`}>
                 {row.map((cell, ci) => (
-                  <td key={ci} className="px-1.5 py-0.5 text-white/65 border-b border-white/[0.04] leading-snug text-[11px]" style={{maxWidth: '220px', wordBreak: 'break-word'}}>
+                  <td key={ci} className="px-2 py-0.5 text-white/65 border-b border-white/[0.04] leading-snug text-[11px]" style={{wordBreak: 'break-word'}}>
                     {processInlineFormatting(cell)}
                   </td>
                 ))}
