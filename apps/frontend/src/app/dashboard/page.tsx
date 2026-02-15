@@ -3405,57 +3405,105 @@ function DashboardContent() {
                             </div>
                           )}
                           
-                          {/* ===== TASK PROGRESS STEPS (ChatGPT/Manus-style) ===== */}
+                          {/* ===== TASK PROGRESS STEPS (Inline, clickable, expandable) ===== */}
                           {/* Hide task steps for instant mode — instant should feel like ChatGPT (just dots → content) */}
                           {message.taskSteps && message.taskSteps.length > 0 && message._mode !== 'instant' && (
-                            <div className="mb-3 pl-1">
-                              <div className="relative">
-                                {/* Vertical line connector */}
-                                <div className="absolute left-[7px] top-2 bottom-2 w-[1px] bg-white/[0.06]" />
-                                <div className="space-y-0.5">
-                                  {message.taskSteps.map((step, idx) => (
-                                    <div key={idx} className="flex items-start gap-2.5 py-1.5 relative">
-                                      <div className="relative z-10 mt-0.5">
-                                        {step.status === 'complete' ? (
-                                          <div className="h-[15px] w-[15px] rounded-full bg-[#5c6652]/20 flex items-center justify-center">
-                                            <CheckCircle2 className="h-3 w-3 text-[#7a8a6e]" />
-                                          </div>
-                                        ) : step.status === 'active' ? (
-                                          <div className="h-[15px] w-[15px] rounded-full bg-[#8a9a7e]/15 flex items-center justify-center">
+                            <div className="mb-3">
+                              {/* Collapsible header */}
+                              <button
+                                onClick={() => {
+                                  setMessages(prev => prev.map(m =>
+                                    m.id === message.id
+                                      ? { ...m, _taskExpanded: !m._taskExpanded }
+                                      : m
+                                  ));
+                                }}
+                                className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-white/[0.04] transition-colors w-full text-left group"
+                              >
+                                {message.taskSteps.some(s => s.status === 'active') ? (
+                                  <Loader2 className="h-3.5 w-3.5 text-[#8a9a7e] animate-spin flex-shrink-0" />
+                                ) : (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-[#7a8a6e] flex-shrink-0" />
+                                )}
+                                <span className="text-[12px] text-white/60 font-medium">
+                                  {message.taskSteps.some(s => s.status === 'active')
+                                    ? (message.taskSteps.find(s => s.status === 'active')?.title || 'Working...')
+                                    : `Completed ${message.taskSteps.length} steps`
+                                  }
+                                </span>
+                                <ChevronDown className={cn(
+                                  "h-3 w-3 text-white/30 transition-transform ml-auto",
+                                  (message._taskExpanded ?? message.isStreaming) ? "rotate-180" : ""
+                                )} />
+                              </button>
+                              
+                              {/* Expandable step details */}
+                              {(message._taskExpanded ?? message.isStreaming) && (
+                                <div className="mt-1 ml-2 pl-3 border-l border-white/[0.06]">
+                                  <div className="space-y-0.5">
+                                    {message.taskSteps.map((step, idx) => (
+                                      <div key={idx} className="flex items-start gap-2 py-1 relative">
+                                        <div className="relative z-10 mt-0.5 flex-shrink-0">
+                                          {step.status === 'complete' ? (
+                                            <CheckCircle2 className="h-3 w-3 text-[#7a8a6e]/70" />
+                                          ) : step.status === 'active' ? (
                                             <Loader2 className="h-3 w-3 text-[#8a9a7e] animate-spin" />
-                                          </div>
-                                        ) : (
-                                          <div className="h-[15px] w-[15px] rounded-full bg-white/[0.04] flex items-center justify-center">
+                                          ) : (
                                             <Circle className="h-2.5 w-2.5 text-white/15" />
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <span className={cn(
-                                          "text-[12px] leading-tight block",
-                                          step.status === 'active' ? "text-white/75 font-medium" : step.status === 'complete' ? "text-white/45" : "text-white/20"
-                                        )}>
-                                          {step.title}
-                                        </span>
-                                        {step.detail && step.status === 'active' && (
-                                          <div className="mt-1 space-y-[2px]">
-                                            {step.detail.split('. ').filter(Boolean).slice(0, 3).map((line, lineIdx) => (
-                                              <span key={lineIdx} className="text-[10px] block leading-relaxed text-white/25">
-                                                {line.trim().endsWith('.') ? line.trim() : `${line.trim()}.`}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
-                                        {step.detail && step.status === 'complete' && (
-                                          <span className="text-[10px] block mt-0.5 leading-relaxed text-white/20">
-                                            {step.detail}
+                                          )}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <span className={cn(
+                                            "text-[11px] leading-tight block",
+                                            step.status === 'active' ? "text-white/70 font-medium" : step.status === 'complete' ? "text-white/40" : "text-white/20"
+                                          )}>
+                                            {step.title}
                                           </span>
+                                          {step.detail && step.status === 'active' && (
+                                            <span className="text-[10px] block mt-0.5 leading-relaxed text-white/25 animate-pulse">
+                                              {step.detail}
+                                            </span>
+                                          )}
+                                          {step.detail && step.status === 'complete' && (
+                                            <span className="text-[10px] block mt-0.5 leading-relaxed text-white/20">
+                                              {step.detail}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {/* Inline source pills — show sources found during search */}
+                                  {message.sources && message.sources.length > 0 && message.taskSteps.some(s => s.step === 'search' && s.status === 'complete') && (
+                                    <div className="mt-2 pt-2 border-t border-white/[0.04]">
+                                      <span className="text-[10px] text-white/25 block mb-1.5">Sources found:</span>
+                                      <div className="flex flex-wrap gap-1">
+                                        {message.sources.slice(0, 8).map((src, srcIdx) => (
+                                          <a
+                                            key={srcIdx}
+                                            href={src.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] transition-colors"
+                                            title={src.url}
+                                          >
+                                            <img
+                                              src={`https://www.google.com/s2/favicons?domain=${new URL(src.url).hostname}&sz=16`}
+                                              alt=""
+                                              className="w-3 h-3 rounded-sm"
+                                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                            />
+                                            <span className="text-[9px] text-white/40 truncate max-w-[120px]">{src.title}</span>
+                                          </a>
+                                        ))}
+                                        {message.sources.length > 8 && (
+                                          <span className="text-[9px] text-white/25 self-center">+{message.sources.length - 8} more</span>
                                         )}
                                       </div>
                                     </div>
-                                  ))}
+                                  )}
                                 </div>
-                              </div>
+                              )}
                             </div>
                           )}
 
