@@ -2707,67 +2707,93 @@ QUALITY REQUIREMENTS (THIS IS A BOARD PRESENTATION, NOT A DRAFT):
             
             slides_data = None
             
-            # Try Grok first with quality verification loop
-            max_attempts = 2
-            for attempt in range(max_attempts):
-                if grok_client:
+            def _parse_pptx_json(raw: str) -> dict:
+                """Parse PPTX JSON with multiple strategies."""
+                for strategy in [
+                    lambda t: json.loads(t),
+                    lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
+                    lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
+                    lambda t: json.loads(t.split('```')[1].split('```')[0].strip()) if '```' in t else None,
+                ]:
                     try:
-                        loop = asyncio.get_event_loop()
-                        # Include more content and explicitly state the topic
-                        user_content = f"""TOPIC (THIS IS THE ONLY TOPIC FOR THIS PRESENTATION): {prompt}
+                        result = strategy(raw)
+                        if result and isinstance(result, dict) and "slides" in result:
+                            return result
+                    except:
+                        continue
+                return None
+            
+            def _check_pptx_quality(data: dict, prompt_text: str) -> str:
+                """Check PPTX quality, return error message or empty string if OK."""
+                slides = data.get("slides", [])
+                if len(slides) < 8:
+                    return f"Only {len(slides)} slides, need at least 15"
+                title_slide = slides[0] if slides else {}
+                title_text = (title_slide.get("title", "") + " " + title_slide.get("subtitle", "")).lower()
+                prompt_words = [w.lower() for w in prompt_text.split() if len(w) > 3]
+                if not any(w in title_text for w in prompt_words[:5]):
+                    return f"Topic mismatch: title='{title_text[:50]}', expected='{prompt_text[:30]}'"
+                empty = sum(1 for s in slides if len(s.get("bullets", [])) == 0 and not s.get("table") and not s.get("metrics") and s.get("type") != "title")
+                if empty > len(slides) * 0.3:
+                    return f"{empty}/{len(slides)} slides are empty"
+                return ""
+            
+            # Model chain: Kimi (best for structured JSON) -> Grok (fallback)
+            model_configs = []
+            if kimi_client:
+                model_configs.append(("Kimi", kimi_client, "kimi-k2.5", 1, 16384))
+            if grok_client:
+                model_configs.append(("Grok", grok_client, "grok-3-mini", 0.3, 16384))
+            
+            user_content = f"""TOPIC (THIS IS THE ONLY TOPIC FOR THIS PRESENTATION): {prompt}
 
 Content and data to use in the presentation (use ALL of this data):
-{content[:5000]}"""
+{content[:6000]}"""
+            
+            for model_name, client, model_id, temp, max_tok in model_configs:
+                if slides_data:
+                    break
+                
+                messages = [
+                    {"role": "system", "content": pptx_prompt},
+                    {"role": "user", "content": user_content}
+                ]
+                
+                # Each model gets 2 attempts (initial + self-correction)
+                for attempt in range(2):
+                    try:
+                        loop = asyncio.get_event_loop()
                         response = await loop.run_in_executor(None, functools.partial(
-                            grok_client.chat.completions.create,
-                            model="grok-3-mini",
-                            messages=[
-                                {"role": "system", "content": pptx_prompt},
-                                {"role": "user", "content": user_content}
-                            ],
-                            temperature=0.3,
-                            max_tokens=16384
+                            client.chat.completions.create,
+                            model=model_id,
+                            messages=messages,
+                            temperature=temp,
+                            max_tokens=max_tok
                         ))
                         raw = response.choices[0].message.content.strip()
-                        for strategy in [
-                            lambda t: json.loads(t),
-                            lambda t: json.loads(t[t.index('{'):t.rindex('}')+1]),
-                            lambda t: json.loads(t.split('```json')[1].split('```')[0].strip()) if '```json' in t else None,
-                        ]:
-                            try:
-                                result = strategy(raw)
-                                if result and isinstance(result, dict) and "slides" in result:
-                                    slides_data = result
-                                    break
-                            except:
-                                continue
+                        parsed = _parse_pptx_json(raw)
                         
-                        # QUALITY CHECK: Verify the topic matches and content is rich enough
-                        if slides_data:
-                            slides = slides_data.get("slides", [])
-                            # Check 1: Enough slides (at least 10)
-                            if len(slides) < 10 and attempt < max_attempts - 1:
-                                logger.warning(f"PPTX quality check: only {len(slides)} slides, retrying...")
-                                slides_data = None
+                        if not parsed:
+                            # Self-correction: JSON parse failed
+                            logger.warning(f"{model_name} PPTX attempt {attempt+1}: JSON parse failed")
+                            if attempt == 0:
+                                messages.append({"role": "assistant", "content": raw[:2000]})
+                                messages.append({"role": "user", "content": 'ERROR: Your response was not valid JSON. Return ONLY a JSON object: {"slides": [{"title": "...", "type": "title|content|data_table|key_metrics", "bullets": [...]}]}. No markdown, no explanation.'})
                                 continue
-                            # Check 2: Title slide topic matches the prompt
-                            title_slide = slides[0] if slides else {}
-                            title_text = (title_slide.get("title", "") + " " + title_slide.get("subtitle", "")).lower()
-                            prompt_words = [w.lower() for w in prompt.split() if len(w) > 3]
-                            topic_match = any(w in title_text for w in prompt_words[:5])
-                            if not topic_match and attempt < max_attempts - 1:
-                                logger.warning(f"PPTX quality check: topic mismatch. Title: '{title_text}', Expected: '{prompt[:50]}'. Retrying...")
-                                slides_data = None
+                        else:
+                            # Quality check
+                            quality_issue = _check_pptx_quality(parsed, prompt)
+                            if quality_issue and attempt == 0:
+                                logger.warning(f"{model_name} PPTX quality issue: {quality_issue}")
+                                messages.append({"role": "assistant", "content": raw[:2000]})
+                                messages.append({"role": "user", "content": f"Quality issue: {quality_issue}. Please fix: generate 15-20 slides, ensure title matches the topic '{prompt[:50]}', and fill every slide with specific data, tables, or metrics. Return the corrected JSON."})
                                 continue
-                            # Check 3: Slides have enough content (not mostly empty)
-                            empty_slides = sum(1 for s in slides if len(s.get("bullets", [])) == 0 and not s.get("table") and not s.get("metrics") and s.get("type") != "title")
-                            if empty_slides > len(slides) * 0.3 and attempt < max_attempts - 1:
-                                logger.warning(f"PPTX quality check: {empty_slides}/{len(slides)} empty slides, retrying...")
-                                slides_data = None
-                                continue
-                            break  # Quality checks passed
+                            slides_data = parsed
+                            logger.info(f"{model_name} PPTX generation succeeded: {len(parsed.get('slides', []))} slides")
+                            break
                     except Exception as e:
-                        logger.error(f"Grok PPTX generation error (attempt {attempt+1}): {e}")
+                        logger.error(f"{model_name} PPTX attempt {attempt+1} error: {e}")
+                        break  # Move to next model on API error
             
             # Fallback: parse markdown content into slides
             if not slides_data:
@@ -4427,31 +4453,28 @@ IMPORTANT RULES:
     
     @staticmethod
     async def _generate_content(query: str, structured_data: Dict) -> str:
-        """Generate comprehensive content for documents using LLM."""
-        client = kimi_client or grok_client
-        if not client:
-            return "Content generation not available."
+        """Generate comprehensive content for documents using LLM with self-correction and retry."""
+        import functools as ft
         
         data_points = structured_data.get("data_points", [])
         data_summary = "\n".join([
-            f"- {dp.get('title', '')}: {dp.get('description', '')[:200]}"
-            for dp in data_points[:10]
+            f"- {dp.get('title', '')}: {dp.get('description', '')[:300]}"
+            for dp in data_points[:15]
         ])
         
         answer_text = ""
-        for source_name in ["perplexity", "grok", "exa", "google", "bing", "firecrawl"]:
+        for source_name in ["perplexity", "grok", "exa", "google", "bing", "firecrawl", "browserless"]:
             if source_name in structured_data.get("results", {}):
                 answer = structured_data["results"][source_name].get("answer", "")
                 if answer:
-                    answer_text += f"\n{answer[:500]}\n"
+                    answer_text += f"\n[{source_name.upper()}]:\n{answer[:800]}\n"
         
         current_date = get_current_date_str()
         current_year = get_current_year()
         
-        messages = [
-            {"role": "system", "content": f"""You are a senior research analyst creating content for a professional document. Today is {current_date}.
+        system_prompt = f"""You are a senior research analyst creating content for a professional document. Today is {current_date}.
 
-Your content will be used to generate a file (Excel, PDF, Word, or PPTX). Write the BEST possible content.
+Your content will be used to generate a file (PDF, Word, or PPTX). Write the BEST possible content.
 
 QUALITY REQUIREMENTS:
 - At least 3000 words of substantive, information-dense content
@@ -4464,26 +4487,79 @@ QUALITY REQUIREMENTS:
 - Do NOT use vague language - be precise: "23.5% YoY growth to $4.2B" not "significant growth"
 - End with specific, actionable strategic recommendations
 - NEVER use citations like [1], [2]. Integrate sources naturally.
-- NEVER use placeholder names. Every entity must be real and named."""},
-            {"role": "user", "content": f"Create comprehensive, data-rich content for: {query}\n\nResearch data:\n{data_summary}\n\nSource findings:\n{answer_text[:4000]}\n\nWrite an exhaustive, insight-rich document that delivers MORE than expected:"}
-        ]
+- NEVER use placeholder names. Every entity must be real and named."""
         
-        try:
-            import functools as ft
-            model = "kimi-k2.5" if client == kimi_client else "grok-3-mini"
-            temp = 1 if client == kimi_client else 0.5
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, ft.partial(
-                client.chat.completions.create,
-                model=model,
-                messages=messages,
-                temperature=temp,
-                max_tokens=32768
-            ))
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Content generation error: {e}")
-            return "Content could not be generated."
+        user_prompt = f"Create comprehensive, data-rich content for: {query}\n\nResearch data:\n{data_summary}\n\nSource findings:\n{answer_text[:6000]}\n\nWrite an exhaustive, insight-rich document that delivers MORE than expected:"
+        
+        # Model chain: try Kimi first (best for long-form), then Grok
+        model_configs = []
+        if kimi_client:
+            model_configs.append(("Kimi", kimi_client, "kimi-k2.5", 1, 32768))
+        if grok_client:
+            model_configs.append(("Grok", grok_client, "grok-3-mini", 0.5, 32768))
+        
+        if not model_configs:
+            return "Content generation not available."
+        
+        best_content = ""
+        
+        for model_name, client, model_id, temp, max_tok in model_configs:
+            if best_content and len(best_content) > 2000:
+                break  # Already have good content
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            
+            # Each model gets up to 2 attempts (initial + 1 self-correction)
+            for attempt in range(2):
+                try:
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(None, ft.partial(
+                        client.chat.completions.create,
+                        model=model_id,
+                        messages=messages,
+                        temperature=temp,
+                        max_tokens=max_tok
+                    ))
+                    content = response.choices[0].message.content
+                    
+                    if not content or len(content) < 500:
+                        # Self-correction: content too short
+                        logger.warning(f"{model_name} content attempt {attempt+1}: only {len(content or '')} chars")
+                        if attempt == 0:
+                            messages.append({"role": "assistant", "content": content or ""})
+                            messages.append({"role": "user", "content": "Your response was too short. I need at least 3000 words of comprehensive, data-rich content with tables, analysis, and specific numbers. Please expand significantly."})
+                            continue
+                    
+                    # Quality check: verify content has substance
+                    has_tables = '|' in content and '---' in content
+                    has_numbers = len(re.findall(r'\d+\.\d+|\$[\d,.]+|\d+%', content)) >= 5
+                    word_count = len(content.split())
+                    
+                    if word_count < 1000 and attempt == 0:
+                        # Self-correction: not enough depth
+                        logger.warning(f"{model_name} content attempt {attempt+1}: only {word_count} words, needs more depth")
+                        messages.append({"role": "assistant", "content": content[:2000]})
+                        messages.append({"role": "user", "content": f"Good start, but only {word_count} words. I need at least 3000 words. Add more: detailed tables with real data, deeper analysis of each section, regional breakdowns, competitive comparisons, and strategic recommendations."})
+                        continue
+                    
+                    if not has_tables and attempt == 0:
+                        logger.info(f"{model_name} content: no tables detected, requesting enrichment")
+                        messages.append({"role": "assistant", "content": content[:2000]})
+                        messages.append({"role": "user", "content": "Good content, but please add at least 3-4 markdown tables with real comparative data (companies, metrics, regional data). Tables make the document much more professional."})
+                        continue
+                    
+                    best_content = content
+                    logger.info(f"{model_name} content generation succeeded: {word_count} words, tables={has_tables}, numbers={has_numbers}")
+                    break
+                    
+                except Exception as e:
+                    logger.error(f"{model_name} content attempt {attempt+1} error: {e}")
+                    break  # Move to next model on API error
+        
+        return best_content if best_content else "Content could not be generated."
     
     @staticmethod
     def _generate_follow_ups(query: str, response: str) -> List[str]:
@@ -4634,14 +4710,11 @@ async def generate_file_endpoint(request: FileGenRequest):
         if not prompt:
             raise HTTPException(status_code=400, detail="No prompt or content provided")
         
-        # Search for data (with timeout)
+        # Search for comprehensive data — no timeout, quality first
         try:
-            search_results = await asyncio.wait_for(
-                SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15),
-                timeout=45.0
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"Search timed out for file generation: {prompt[:50]}")
+            search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=20)
+        except Exception as e:
+            logger.warning(f"Search failed for file generation: {e}")
             search_results = {"structured_data": {}, "results": {}}
         structured_data = search_results.get("structured_data", {})
         
@@ -4711,12 +4784,9 @@ async def generate_file_endpoint(request: FileGenRequest):
         
         if not direct_content:
             try:
-                search_results = await asyncio.wait_for(
-                    SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=15),
-                    timeout=45.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Second search timed out for file generation: {prompt[:50]}")
+                search_results = await SearchLayer.search(prompt, sources=["web", "news", "social"], num_results=20)
+            except Exception as e:
+                logger.warning(f"Search failed for file generation: {e}")
                 search_results = {"structured_data": {}, "results": {}}
             structured_data = search_results.get("structured_data", {})
         
@@ -4727,19 +4797,16 @@ async def generate_file_endpoint(request: FileGenRequest):
         
         content_for_doc = direct_content or await ChatHandler._generate_content(prompt, structured_data)
         
-        try:
-            if file_type == "excel":
-                result = await asyncio.wait_for(FileEngine.generate_excel(prompt, full_data_for_excel, request.user_id), timeout=90.0)
-            elif file_type == "word":
-                result = await asyncio.wait_for(FileEngine.generate_word(prompt, content_for_doc, request.user_id), timeout=90.0)
-            elif file_type == "pdf":
-                result = await asyncio.wait_for(FileEngine.generate_pdf(prompt, content_for_doc, request.user_id), timeout=90.0)
-            elif file_type == "pptx":
-                result = await asyncio.wait_for(FileEngine.generate_pptx(prompt, content_for_doc, request.user_id), timeout=90.0)
-            else:
-                raise HTTPException(status_code=400, detail=f"Unknown file type: {file_type}")
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail=f"File generation timed out after 90 seconds. Please try again.")
+        if file_type == "excel":
+            result = await FileEngine.generate_excel(prompt, full_data_for_excel, request.user_id)
+        elif file_type == "word":
+            result = await FileEngine.generate_word(prompt, content_for_doc, request.user_id)
+        elif file_type == "pdf":
+            result = await FileEngine.generate_pdf(prompt, content_for_doc, request.user_id)
+        elif file_type == "pptx":
+            result = await FileEngine.generate_pptx(prompt, content_for_doc, request.user_id)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown file type: {file_type}")
         
         if result.get("success"):
             return {"success": True, "file_id": result["file_id"], "filename": result["filename"], "download_url": result["download_url"]}
